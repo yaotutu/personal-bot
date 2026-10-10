@@ -84,6 +84,20 @@ export async function createFakeModel() {
           }) +
           "\n\n",
       );
+    // pi 压缩的 summarization 请求：system 指令有固定签名。返回短摘要，
+    // 避免回显对话导致压缩后仍超阈值而反复压缩。
+    const systemText = String(
+      input.messages.find((x) => x.role === "system")?.content ?? "",
+    );
+    if (systemText.includes("context summarization assistant")) {
+      event({ role: "assistant" });
+      event({
+        content: "## Summary\n- User sent filler test rounds.\n- Assistant replied each round.",
+      });
+      event({}, "stop");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
     event({ role: "assistant" });
     if (last === "slow" || last === "disconnect") {
       let ticks = 0;

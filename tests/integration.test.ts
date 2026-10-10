@@ -82,7 +82,7 @@ async function until(predicate: () => boolean) {
   }
   throw new Error("Condition timed out");
 }
-async function harness(timeout = 5000) {
+async function harness(timeout = 5000, env: Record<string, string> = {}) {
   const model = await createFakeModel();
   const dataDir = await mkdtemp(join(tmpdir(), "personal-bot-test-"));
   const config = loadConfig({
@@ -91,6 +91,7 @@ async function harness(timeout = 5000) {
     PERSONAL_MODEL_ID: "test-model",
     PERSONAL_MODEL_API_KEY: "test-secret-model-key",
     PERSONAL_RUN_TIMEOUT_MS: String(timeout),
+    ...env,
   });
   let service = await createApp(config);
   let server = serve({
@@ -589,4 +590,65 @@ test("file tools: read documents, deny outside paths, keep tool events and histo
   assert.deepEqual(await h.getHistory(), all);
   assert.deepEqual(declaredTools(h.model.requests.at(-1)!), expectedTools);
   assert.ok(!JSON.stringify(h.model.requests).includes("forged-secret"));
+});
+
+test("identity files SOUL.md and USER.md are injected into the system prompt only", {
+  timeout: 30000,
+}, async (t) => {
+  const h = await harness();
+  t.after(h.close);
+  await writeFile(
+    join(h.dataDir, "SOUL.md"),
+    "SOUL-MARKER 你是水豚博士，说话温和带一点幽默。\n",
+  );
+  await writeFile(join(h.dataDir, "USER.md"), "USER-MARKER 用户偏好简洁中文回答。\n");
+  const ev = await h.events(input([user("hello")], "identity-run"));
+  assert.equal(ev.at(-1)?.type, "RUN_FINISHED");
+  const system = String(h.model.requests.at(-1)!.messages[0]?.content);
+  assert.ok(system.includes("Personal Bot"));
+  assert.ok(system.includes("SOUL-MARKER"));
+  assert.ok(system.includes("USER-MARKER"));
+  // 身份只进 system prompt，不进聊天流与历史投影。
+  assert.ok(!JSON.stringify(ev).includes("SOUL-MARKER"));
+  assert.ok(!JSON.stringify(await h.getHistory()).includes("SOUL-MARKER"));
+  // 修改文件后下一轮即生效（每轮重读）。
+  await writeFile(join(h.dataDir, "USER.md"), "USER-MARKER-2 改用英文回答。\n");
+  await h.events(input([...(await h.getHistory()), user("again")], "identity-2"));
+  assert.ok(
+    String(h.model.requests.at(-1)!.messages[0]?.content).includes(
+      "USER-MARKER-2",
+    ),
+  );
+});
+
+test("compaction keeps long conversations functional and full history visible", {
+  timeout: 30000,
+}, async (t) => {
+  const h = await harness(5000, {
+    PERSONAL_MODEL_CONTEXT_WINDOW: "2000",
+    PERSONAL_MODEL_MAX_TOKENS: "1000",
+  });
+  t.after(h.close);
+  const filler = "背景资料 ".repeat(120);
+  let messages: Message[] = [];
+  for (let i = 0; i < 4; i++) {
+    const ev = await h.events(input([...messages, user(`${filler}第${i}轮`)]));
+    assert.equal(ev.at(-1)?.type, "RUN_FINISHED", `round ${i} should finish`);
+    messages = await h.getHistory();
+  }
+  // 展示历史全量保留（每轮 user+assistant）。
+  assert.equal(messages.filter((x) => x.role === "user").length, 4);
+  assert.equal(messages.filter((x) => x.role === "assistant").length, 4);
+  // 最后一次对话请求的模型上下文已被压缩：user 消息少于全部轮数。
+  const contextUsers = h.model.requests
+    .at(-1)!
+    .messages.filter((x) => x.role === "user").length;
+  assert.ok(contextUsers < 4, `expected compacted context, got ${contextUsers} user messages`);
+  // 重启后历史与继续对话不受影响。
+  await h.restart();
+  assert.deepEqual(await h.getHistory(), messages);
+  assert.equal(
+    (await h.events(input([...messages, user("tail")]))).at(-1)?.type,
+    "RUN_FINISHED",
+  );
 });

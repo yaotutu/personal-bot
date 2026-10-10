@@ -14,15 +14,33 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { join, resolve, sep } from "node:path";
+import { readFile } from "node:fs/promises";
 import type { Config } from "./config.js";
 
-const systemPrompt = `You are Personal Bot, a helpful personal assistant.
+const basePrompt = `You are Personal Bot, a helpful personal assistant.
 Answer in the user's language. Be clear, practical, and honest about uncertainty.
 You can read reference files: the read/grep/find/ls tools access the shared
 documents directory and nowhere else. currentTime reads the local clock. You
 have no write access, shell, browser, email, calendar, background tasks, or
 durable personal memory outside this conversation. Never claim to have
 performed an action you cannot do.`;
+
+// P3 第一步：身份注入。SOUL.md（助手性格）与 USER.md（用户画像）放在
+// DATA_DIR 下（不在资料目录内，模型工具读不到，只经 system prompt 注入）。
+// 每轮 openPi 重读文件，修改后下一轮对话即生效；文件不存在则保持基础人设。
+const readProfile = async (path: string, section: string) => {
+  try {
+    const content = (await readFile(path, "utf8")).trim();
+    if (!content) return "";
+    return `\n\n## ${section}\n${content}`;
+  } catch {
+    return "";
+  }
+};
+const buildSystemPrompt = async (dataDir: string) =>
+  basePrompt +
+  (await readProfile(join(dataDir, "SOUL.md"), "Your identity (SOUL)")) +
+  (await readProfile(join(dataDir, "USER.md"), "The user (USER)"));
 
 // P2 唯一注册的工具：只读本地时钟。不碰文件、shell、网络，参数为空对象，
 // 模型无法借它表达任何副作用。错误信息也只包含本地时间格式化的失败原因。
@@ -83,6 +101,7 @@ export async function openPi(config: Config, sessionManager: SessionManager) {
   if (!config.configured) throw new Error("MODEL_NOT_CONFIGURED");
   const cwd = join(config.dataDir, "workspace");
   const agentDir = join(config.dataDir, "agent");
+  const systemPrompt = await buildSystemPrompt(config.dataDir);
   // 完全由宿主提供资源，避免发现 ~/.pi、父目录 AGENTS.md、skills 或任意扩展。
   // cwd 只是资源/会话分组目录，不是执行沙箱；P1 不注册或启用任何工具。
   const resourceLoader: ResourceLoader = {
@@ -154,10 +173,16 @@ export async function openPi(config: Config, sessionManager: SessionManager) {
       guardTool(createLsToolDefinition(cwd), cwd),
     ],
     tools: ["currentTime", "read", "grep", "find", "ls"],
-    // P1 不做自动重试/压缩，保证一次用户提交只有一条可解释的文本输出。
-    // 长会话压缩和可视化提示待后续加入，避免静默替换流中已展示的失败输出。
+    // 自动重试仍关闭（一次提交一条可解释输出）；压缩开启：长会话超阈值时
+    // pi 用摘要替换模型上下文，展示历史不受影响（history 走 getBranch 全量投影）。
+    // pi 默认 reserveTokens=16384 只适合大窗口模型；小 context 下阈值会变成
+    // 负数导致压缩死循环，因此按窗口比例收缩（保留一半、近期保住四分之一）。
     settingsManager: SettingsManager.inMemory({
-      compaction: { enabled: false },
+      compaction: {
+        enabled: true,
+        reserveTokens: Math.min(16384, Math.floor(config.contextWindow / 2)),
+        keepRecentTokens: Math.min(20000, Math.floor(config.contextWindow / 4)),
+      },
       retry: { enabled: false },
     }),
   });
