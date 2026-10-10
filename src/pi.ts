@@ -16,6 +16,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { join, resolve, sep } from "node:path";
 import { readFile } from "node:fs/promises";
 import type { Config } from "./config.js";
+import type { MemoryStore } from "./memory.js";
 
 const basePrompt = `You are Personal Bot, a helpful personal assistant.
 Answer in the user's language. Be clear, practical, and honest about uncertainty.
@@ -97,11 +98,77 @@ const guardTool = (
   },
 });
 
-export async function openPi(config: Config, sessionManager: SessionManager) {
+// P3 对话式记忆工具：只显式写入（用户说"记住/忘掉"才动），目标是唯一的
+// memory.json，不触碰文件系统其它位置。精确编辑走 Apps 页界面。
+const memoryTool = (store: MemoryStore) =>
+  defineTool({
+    name: "memory",
+    label: "Long-term memory",
+    description:
+      "Explicitly remember or forget a fact about the user, persisting across conversations. " +
+      'Use remember when the user says things like "记住…/remember…". ' +
+      "Use forget when the user asks to remove a memory (match by keyword). " +
+      "Never store credentials, API keys, or secrets.",
+    parameters: Type.Object(
+      {
+        action: Type.Union([Type.Literal("remember"), Type.Literal("forget")]),
+        text: Type.Optional(
+          Type.String({ description: "The fact to remember, concise, in the user's language." }),
+        ),
+        keyword: Type.Optional(
+          Type.String({ description: "Keyword of the memory to forget." }),
+        ),
+      },
+      { additionalProperties: false },
+    ),
+    execute: async (_id, params) => {
+      if (params.action === "remember") {
+        if (!params.text?.trim())
+          return {
+            content: [{ type: "text", text: "Nothing to remember: empty text." }],
+            details: undefined,
+            isError: true,
+          };
+        const item = await store.add(params.text, "chat");
+        return {
+          content: [{ type: "text", text: `Remembered: ${item.text}` }],
+          details: { id: item.id },
+        };
+      }
+      const keyword = params.keyword?.trim() ?? params.text?.trim() ?? "";
+      if (!keyword)
+        return {
+          content: [{ type: "text", text: "Nothing to forget: empty keyword." }],
+          details: undefined,
+          isError: true,
+        };
+      const list = await store.list();
+      const hits = list.filter((x) => x.text.includes(keyword));
+      if (!hits.length)
+        return {
+          content: [{ type: "text", text: `No memory matches "${keyword}".` }],
+          details: undefined,
+        };
+      for (const hit of hits) await store.forget(hit.id);
+      return {
+        content: [
+          { type: "text", text: `Forgot ${hits.length} memory item(s) matching "${keyword}".` },
+        ],
+        details: undefined,
+      };
+    },
+  });
+
+export async function openPi(
+  config: Config,
+  sessionManager: SessionManager,
+  memory: MemoryStore,
+) {
   if (!config.configured) throw new Error("MODEL_NOT_CONFIGURED");
   const cwd = join(config.dataDir, "workspace");
   const agentDir = join(config.dataDir, "agent");
-  const systemPrompt = await buildSystemPrompt(config.dataDir);
+  const systemPrompt =
+    (await buildSystemPrompt(config.dataDir)) + (await memory.renderForPrompt());
   // 完全由宿主提供资源，避免发现 ~/.pi、父目录 AGENTS.md、skills 或任意扩展。
   // cwd 只是资源/会话分组目录，不是执行沙箱；P1 不注册或启用任何工具。
   const resourceLoader: ResourceLoader = {
@@ -167,12 +234,13 @@ export async function openPi(config: Config, sessionManager: SessionManager) {
     // 旧 session 恢复时 pi 会用 system message 把工具集差异通知模型，无需手工合并。
     customTools: [
       currentTimeTool,
+      memoryTool(memory),
       guardTool(createReadToolDefinition(cwd), cwd),
       guardTool(createGrepToolDefinition(cwd), cwd),
       guardTool(createFindToolDefinition(cwd), cwd),
       guardTool(createLsToolDefinition(cwd), cwd),
     ],
-    tools: ["currentTime", "read", "grep", "find", "ls"],
+    tools: ["currentTime", "memory", "read", "grep", "find", "ls"],
     // 自动重试仍关闭（一次提交一条可解释输出）；压缩开启：长会话超阈值时
     // pi 用摘要替换模型上下文，展示历史不受影响（history 走 getBranch 全量投影）。
     // pi 默认 reserveTokens=16384 只适合大窗口模型；小 context 下阈值会变成

@@ -85,19 +85,66 @@ export async function createApp(config: Config) {
       },
     }),
   );
-  app.get("/api/agent", (c) =>
-    c.json({
+  app.get("/api/agent", async (c) => {
+    // OpenMuse Apps 页的 Memory / Identity 界面数据源；P4 任务数组仍为空。
+    const [memories, identity] = await Promise.all([
+      conversation.memory.list(),
+      conversation.memory.identity(),
+    ]);
+    return c.json({
       tasks: [],
       goals: [],
       monitors: [],
       ideas: [],
-      memories: [],
+      memories,
       artifacts: [],
       notifications: [],
-      identity: { name: "Personal Bot", tone: "concise" },
+      identity,
       worker: { running: false },
-    }),
-  );
+    });
+  });
+  // OpenMuse Memory 界面的增/改/忘与 Identity 保存（均走 POST）。
+  app.post("/api/agent/memories", async (c) => {
+    const parsed = z
+      .object({
+        text: z.string().trim().min(1).max(2000),
+        source: z.string().max(200).optional(),
+      })
+      .safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success)
+      return c.json({ error: "Invalid memory request" }, 400);
+    const item = await conversation.memory.add(
+      parsed.data.text,
+      parsed.data.source || "Apps UI",
+    );
+    return c.json(item);
+  });
+  app.post("/api/agent/memories/:id", async (c) => {
+    const parsed = z
+      .object({ text: z.string().trim().min(1).max(2000) })
+      .safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success)
+      return c.json({ error: "Invalid memory request" }, 400);
+    const item = await conversation.memory.edit(c.req.param("id"), parsed.data.text);
+    return item ? c.json(item) : c.json({ error: "Memory not found" }, 404);
+  });
+  app.post("/api/agent/memories/:id/forget", async (c) => {
+    const ok = await conversation.memory.forget(c.req.param("id"));
+    return ok ? c.json({ ok: true }) : c.json({ error: "Memory not found" }, 404);
+  });
+  app.post("/api/agent/identity", async (c) => {
+    const parsed = z
+      .object({
+        name: z.string().trim().min(1).max(80).optional(),
+        tone: z.enum(["warm", "concise", "thoughtful"]).optional(),
+        avatar: z.string().max(40).optional(),
+        showChatUpdates: z.boolean().optional(),
+      })
+      .safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success)
+      return c.json({ error: "Invalid identity request" }, 400);
+    return c.json(await conversation.memory.saveIdentity(parsed.data));
+  });
   app.get("/api/conversation", (c) =>
     c.json({ messages: conversation.history() }),
   );

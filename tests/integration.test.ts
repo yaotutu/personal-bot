@@ -72,6 +72,7 @@ const expectedTools = [
   "find",
   "grep",
   "ls",
+  "memory",
   "read",
 ];
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -651,4 +652,74 @@ test("compaction keeps long conversations functional and full history visible", 
     (await h.events(input([...messages, user("tail")]))).at(-1)?.type,
     "RUN_FINISHED",
   );
+});
+
+test("P3 memory: REST CRUD, chat tool write, prompt injection and identity settings", {
+  timeout: 30000,
+}, async (t) => {
+  const h = await harness();
+  t.after(h.close);
+  // REST：新增 → 列表 → 编辑 → 忘记。
+  const created = await h
+    .request("/api/agent/memories", {
+      text: "MEMORY-REST 用户每天早上跑步",
+      source: "User added in Apps",
+    })
+    .then((x) => x.json());
+  assert.ok(created.id);
+  let agent = await h.request("/api/agent").then((x) => x.json());
+  assert.equal(agent.memories.length, 1);
+  assert.equal(agent.memories[0].text, "MEMORY-REST 用户每天早上跑步");
+  assert.equal(agent.identity.name, "Personal Bot");
+  const edited = await h
+    .request(`/api/agent/memories/${created.id}`, { text: "MEMORY-REST 用户改为晚上跑步" })
+    .then((x) => x.json());
+  assert.equal(edited.text, "MEMORY-REST 用户改为晚上跑步");
+  assert.equal(
+    (await h.request(`/api/agent/memories/${created.id}/forget`, {})).status,
+    200,
+  );
+  assert.equal((await h.request("/api/agent/memories/missing/forget", {})).status, 404);
+  // 对话式：说"记住 X"→ memory 工具真实写入 memory.json。
+  const ev = await h.events(input([user("记住我每周三健身")], "mem-run"));
+  assert.equal(ev.at(-1)?.type, "RUN_FINISHED");
+  const memStart = ev.filter((x) => x.type === "TOOL_CALL_START").at(0)! as unknown as {
+    toolCallName: string;
+  };
+  assert.equal(memStart.toolCallName, "memory");
+  agent = await h.request("/api/agent").then((x) => x.json());
+  assert.equal(agent.memories.length, 1);
+  assert.match(agent.memories[0].text, /每周三健身/);
+  // 注入：下一轮对话的 system prompt 包含该记忆；聊天流不泄漏注入文本。
+  await h.events(input([...(await h.getHistory()), user("hello")], "mem-inject"));
+  const system = String(h.model.requests.at(-1)!.messages[0]?.content);
+  assert.match(system, /每周三健身/);
+  assert.ok(!JSON.stringify(await h.getHistory()).includes("Long-term memory"));
+  // 忘掉后下一轮不再注入。
+  await h.events(input([...(await h.getHistory()), user("忘掉健身")], "mem-forget"));
+  agent = await h.request("/api/agent").then((x) => x.json());
+  assert.equal(agent.memories.length, 0);
+  await h.events(input([...(await h.getHistory()), user("again")], "mem-after"));
+  assert.ok(
+    !String(h.model.requests.at(-1)!.messages[0]?.content).includes("每周三健身"),
+  );
+  // 身份设置：保存后 GET 反映 + system prompt 注入 name/tone。
+  const identity = await h
+    .request("/api/agent/identity", {
+      name: "小水豚",
+      tone: "concise",
+      avatar: "sky",
+      showChatUpdates: false,
+    })
+    .then((x) => x.json());
+  assert.equal(identity.name, "小水豚");
+  agent = await h.request("/api/agent").then((x) => x.json());
+  assert.equal(agent.identity.name, "小水豚");
+  await h.events(input([...(await h.getHistory()), user("hi")], "identity-run"));
+  assert.match(String(h.model.requests.at(-1)!.messages[0]?.content), /小水豚/);
+  // 重启后记忆与身份仍在。
+  await h.restart();
+  agent = await h.request("/api/agent").then((x) => x.json());
+  assert.equal(agent.identity.name, "小水豚");
+  assert.equal(agent.memories.length, 0);
 });

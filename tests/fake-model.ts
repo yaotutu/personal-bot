@@ -136,6 +136,22 @@ export async function createFakeModel() {
     const pendingToolResult = input.messages
       .slice(lastUserIndex + 1)
       .find((x) => x.role === "tool" && x.content);
+    // 记忆工具路径：触发词"记住/忘掉" + 声明了 memory 工具。
+    if (declaresTool("memory") && /记住|忘掉/.test(last) && !pendingToolResult) {
+      const forget = /忘掉/.test(last);
+      event({ role: "assistant" });
+      event(
+        toolCall(
+          "memory",
+          forget
+            ? { action: "forget", keyword: last.replace(/^.*忘掉/, "").trim() }
+            : { action: "remember", text: last.replace(/^.*记住/, "").trim() },
+        ),
+      );
+      event({}, "tool_calls");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
     // 文件读取路径：触发词 + 请求声明了 read。测试用固定文件名与越界路径。
     if (declaresTool("read") && /读/.test(last) && !pendingToolResult) {
       const sensitive = /敏感|secret/.test(last);
@@ -174,8 +190,13 @@ export async function createFakeModel() {
             (pendingToolResult as { tool_call_id?: string }).tool_call_id ?? "",
           ),
         ) ?? "unknown";
-      const output =
-        (toolName === "read" ? "file reply: " : "time reply: ") + text;
+      const prefix =
+        toolName === "read"
+          ? "file reply: "
+          : toolName === "memory"
+            ? "memory reply: "
+            : "time reply: ";
+      const output = prefix + text;
       for (const part of [output.slice(0, 8), output.slice(8)])
         event({ content: part });
       event({}, "stop");

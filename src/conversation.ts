@@ -12,6 +12,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Config } from "./config.js";
 import { openPi } from "./pi.js";
+import { createMemoryStore } from "./memory.js";
 
 const turnType = "personal-bot.turn";
 const resultType = "personal-bot.result";
@@ -53,6 +54,7 @@ const textOf = (content: unknown): string =>
       : "";
 
 export async function createConversation(config: Config) {
+  const memory = await createMemoryStore(config.dataDir);
   const cwd = join(config.dataDir, "workspace");
   const sessionDir = join(config.dataDir, "sessions");
   await Promise.all(
@@ -289,7 +291,7 @@ export async function createConversation(config: Config) {
       } else {
         // 初始化或刚开始就停止时，不应先隐藏待重试的旧消息。先打开宿主，
         // 再提交 context edit，并同步宿主内存中的模型上下文。
-        running.session = await openPi(config, manager);
+        running.session = await openPi(config, manager, memory);
         if (running.reason)
           throw new ConversationError(running.reason, "Response cancelled");
         if (previous) {
@@ -501,6 +503,7 @@ export async function createConversation(config: Config) {
     cancel,
     isRunning: () => Boolean(active),
     close: () => cancel("SHUTDOWN"),
+    memory,
   };
 }
 export type Conversation = Awaited<ReturnType<typeof createConversation>>;
