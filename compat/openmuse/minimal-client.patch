@@ -1,0 +1,133 @@
+diff --git a/apps/mobile/src/chat.tsx b/apps/mobile/src/chat.tsx
+index 746ce12..dc7aee8 100644
+--- a/apps/mobile/src/chat.tsx
++++ b/apps/mobile/src/chat.tsx
+@@ -7,9 +7,10 @@ import {
+   useRenderTool,
+   useRenderToolCall,
+ } from "@copilotkit/react-native/headless";
+-import { ArrowDown, ArrowUp, FileText, RotateCcw, Square, X } from "lucide-react-native";
++import { ArrowDown, ArrowUp, Clock, FileText, RotateCcw, Square, X } from "lucide-react-native";
+ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+ import {
++  ActivityIndicator,
+   Keyboard,
+   KeyboardAvoidingView,
+   Platform,
+@@ -213,6 +214,8 @@ export function ChatScreen({
+   active?: boolean;
+ }) {
+   const { api, workspace: w, refresh, navigate } = useWorkspace();
++  // 新服务端显式声明能力；未声明时不改变原 OpenMuse 的持久化和富功能界面。
++  const { serverOwnedHistory = false, textOnly = false } = w.runtime;
+   const { data: agentWorkspace, refresh: refreshAgent } = useAgentWorkspace();
+   const { enabled: richThreads, mainId, claimPrompt } = useMuseThread();
+   const selection = thread || { id: "local", existing: false };
+@@ -221,6 +224,28 @@ export function ChatScreen({
+   const { agent, isReady } = useAgent({ agentId, runtimeAgentId: "default", threadId });
+   const { copilotkit } = useCopilotKit();
+   const renderToolCall = useRenderToolCall();
++  // personal-bot 目前只开放只读 currentTime 工具；卡片只展示结果，无任何操作入口。
++  useRenderTool({
++    name: "currentTime",
++    description: "Show the time the assistant looked up",
++    parameters: displayParameters,
++    render: ({ result, status }) => {
++      const done = status === "complete" && typeof result === "string" && !!result;
++      return (
++        <Card style={{ padding: 14, gap: 8, backgroundColor: "#EEEEF0", maxWidth: 440, width: "100%" }}>
++          <View style={[s.row, { gap: 10 }]}>
++            {!done ? (
++              <ActivityIndicator size="small" color={colors.blueDark} />
++            ) : (
++              <Clock size={18} color={colors.blueDark} />
++            )}
++            <Text style={s.text}>{done ? "Current time" : "Checking the time…"}</Text>
++          </View>
++          {done && <Text style={[s.muted, { flexWrap: "wrap" }]}>{result}</Text>}
++        </Card>
++      );
++    },
++  });
+   const [draft, setDraft] = useState("");
+   const [focused, setFocused] = useState(false);
+   const [inputHeight, setInputHeight] = useState(44);
+@@ -277,7 +302,11 @@ export function ChatScreen({
+     });
+     async function hydrate() {
+       try {
+-        if (richThreads) {
++        if (serverOwnedHistory || !richThreads) {
++          // 服务端托管历史时，首次加载也必须读持久化消息，不依赖客户端缓存或线程回放。
++          const { messages } = await api.request<{ messages: Message[] }>("/api/conversation");
++          if (active) agent.setMessages(messages);
++        } else {
+           if (selection.existing) {
+             // Replaying history re-emits past RUN_ERROR events; only connection failures block loading.
+             // connectAgent returns once the thread is idle, so it also waits for a reply still
+@@ -296,9 +325,6 @@ export function ChatScreen({
+               if (active) setSyncing(false);
+             }
+           }
+-        } else {
+-          const { messages } = await api.request<{ messages: Message[] }>("/api/conversation");
+-          if (active) agent.setMessages(messages);
+         }
+         if (active) setLoaded(true);
+       } catch (e) {
+@@ -316,11 +342,28 @@ export function ChatScreen({
+       replay.unsubscribe();
+       if (richThreads) void agent.detachActiveRun().catch(() => {});
+     };
+-  }, [agent, agentId, api, copilotkit, isReady, historyAttempt, richThreads, selection.existing]);
++  }, [
++    agent,
++    agentId,
++    api,
++    copilotkit,
++    isReady,
++    historyAttempt,
++    richThreads,
++    serverOwnedHistory,
++    selection.existing,
++  ]);
+   const saveHistory = useCallback(async () => {
+-    if (!richThreads) await api.request("/api/conversation", { messages: agent.messages }, "PUT");
++    if (serverOwnedHistory) {
++      // 每轮（包括失败和停止）结束后以服务端历史为准，绝不 PUT 流式消息快照。
++      // 服务端停止协议会等待空闲再发送终止 SSE，因此此处无需额外轮询或延迟。
++      const { messages } = await api.request<{ messages: Message[] }>("/api/conversation");
++      agent.setMessages(messages);
++    } else if (!richThreads) {
++      await api.request("/api/conversation", { messages: agent.messages }, "PUT");
++    }
+     setSaveError("");
+-  }, [agent, api, richThreads]);
++  }, [agent, api, richThreads, serverOwnedHistory]);
+   /** Runs one turn; "held" means a queued message was refused by a lock and put back on hold. */
+   const run = useCallback(
+     async (message?: QueuedMessage): Promise<"held" | undefined> => {
+@@ -571,7 +614,7 @@ export function ChatScreen({
+                     )
+                   : message.content
+                 : "";
+-            const toolCalls = "toolCalls" in message ? message.toolCalls || [] : [];
++            const toolCalls = !textOnly && "toolCalls" in message ? message.toolCalls || [] : [];
+             return (
+               <View
+                 key={message.id}
+diff --git a/packages/domain/src/index.ts b/packages/domain/src/index.ts
+index 764ab9c..8c04d28 100644
+--- a/packages/domain/src/index.ts
++++ b/packages/domain/src/index.ts
+@@ -195,6 +195,10 @@ export interface Workspace {
+     configured: boolean;
+     openbotConfigured: boolean;
+     richThreads?: boolean;
++    /** 服务端负责持久化会话；客户端仅 GET 同步，避免用流式消息覆盖完整历史。缺省沿用原行为。 */
++    serverOwnedHistory?: boolean;
++    /** 仅提供文字聊天；隐藏依赖应用、通知、计算机及附件能力的入口。缺省保留完整界面。 */
++    textOnly?: boolean;
+   };
+ }
+ 

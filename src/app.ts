@@ -82,7 +82,6 @@ export async function createApp(config: Config) {
         openbotConfigured: false,
         richThreads: false,
         serverOwnedHistory: true,
-        textOnly: true,
       },
     }),
   );

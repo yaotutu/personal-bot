@@ -15,10 +15,18 @@
 - 停止、HTTP 断流、超时、并发拒绝；等待 pi idle 后才释放运行锁（含工具执行轮）。
 - 完成请求去重、失败/取消后的同消息重试，拒绝陈旧用户历史和冲突 run ID；客户端伪造的 tools 不透传给模型。
 - 专用 pi 数据/资源目录；不加载个人 CLI 的全局配置、skills、extensions 或 MCP。
-- OpenMuse 的 textOnly/serverOwnedHistory 可选能力开关；旧服务端未返回开关时保持原行为。
+- OpenMuse 的 serverOwnedHistory 可选能力开关；旧服务端未返回开关时保持原行为。
 
 暂不实现：更多工具、附件、长期记忆、身份编辑、后台任务、定时/heartbeat、外部 channel、多会话、多用户、运行中 reconnect。
 工具闭环已支持 currentTime / 其余工具未开放；未实现功能不伪装成功：只读快照诚实为空，不支持的 API 返回 501。
+
+## 客户端兼容策略
+
+服务端自成一体：AG-UI runtime 是标准协议（未来自研客户端直接对接），OpenMuse 风格的
+快照接口（workspace/agent/session/conversation）是纯兼容层。复用 OpenMuse 客户端时，
+对它的改动压缩到两个文件、约 60 行（能力开关类型 + 历史协商 + currentTime 卡片注册），
+以 patch 维护在 `compat/openmuse/`（含应用方式与基线 commit），便于跟随上游更新；
+富功能入口保持上游原版，未实现的能力显示为空数据/离线，不隐藏也不伪装。
 
 ## 启动真实模型
 

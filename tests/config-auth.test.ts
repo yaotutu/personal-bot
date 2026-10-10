@@ -376,7 +376,6 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
           openbotConfigured: false,
           richThreads: false,
           serverOwnedHistory: true,
-          textOnly: true,
         });
       },
     );
