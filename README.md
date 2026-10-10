@@ -8,16 +8,18 @@
 - 一个 OpenAI-compatible Chat Completions endpoint/model，服务端配置凭据。
 - OpenMuse session/workspace/agent/conversation 接口，以及本地 CopilotKit + AG-UI SSE。
 - 固定单主会话 `local-main`：流式回答、多轮上下文、稳定消息 ID、刷新与服务重启恢复。
-- 最小工具闭环：唯一注册的只读 `currentTime` 工具（读本地时钟，无文件/shell/网络能力）；
+- 只读工具集：`currentTime`（本地时钟）+ `read`/`grep`/`find`/`ls`（复用 pi 内置只读文件工具，
+  执行前强制路径边界——解析后必须落在 `DATA_DIR/workspace` 资料目录内，绝对路径与 `../` 逃逸一律拒绝）；
   工具调用与结果按 AG-UI 四类事件（START/ARGS/END/RESULT）透传给 OpenMuse 卡片展示，
   历史投影包含 assistant 的 toolCalls 与 role "tool" 消息，刷新/重启后关联不变。
+  把资料放进 `.personal-bot/workspace/` 即可让助手读它回答问题。
 - pi JSONL 是历史权威来源；客户端每轮完成后读取历史，不再用旧快照覆盖服务端。
 - 停止、HTTP 断流、超时、并发拒绝；等待 pi idle 后才释放运行锁（含工具执行轮）。
 - 完成请求去重、失败/取消后的同消息重试，拒绝陈旧用户历史和冲突 run ID；客户端伪造的 tools 不透传给模型。
 - 专用 pi 数据/资源目录；不加载个人 CLI 的全局配置、skills、extensions 或 MCP。
 - OpenMuse 的 serverOwnedHistory 可选能力开关；旧服务端未返回开关时保持原行为。
 
-暂不实现：更多工具、附件、长期记忆、身份编辑、后台任务、定时/heartbeat、外部 channel、多会话、多用户、运行中 reconnect。
+暂不实现：写文件、shell、附件、长期记忆、身份编辑、后台任务、定时/heartbeat、外部 channel、多会话、多用户、运行中 reconnect。
 工具闭环已支持 currentTime / 其余工具未开放；未实现功能不伪装成功：只读快照诚实为空，不支持的 API 返回 501。
 
 ## 客户端兼容策略

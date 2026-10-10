@@ -383,10 +383,17 @@ export async function createConversation(config: Config) {
             }
           }
           if (event.type === "tool_execution_end") {
-            // 错误结果不透传原文：工具错误可能携带供应商响应等敏感细节。
-            const content = event.isError
-              ? "Tool execution failed"
-              : textOf(event.result?.content);
+            // 错误结果默认不透传原文（可能携带供应商响应或系统细节）；但工具
+            // 自己声明为受控拒绝（guard 的 details.denied）的固定文案可以透传，
+            // 让用户和模型看到明确的越界原因。
+            const result = event.result as
+              | { content?: unknown; details?: { denied?: boolean } }
+              | undefined;
+            const controlled = event.isError && result?.details?.denied === true;
+            const content =
+              event.isError && !controlled
+                ? "Tool execution failed"
+                : textOf(result?.content);
             emit({
               type: EventType.TOOL_CALL_RESULT,
               messageId: "tool-" + event.toolCallId,

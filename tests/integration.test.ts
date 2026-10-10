@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readdir, readFile } from "node:fs/promises";
+import { mkdtemp, rm, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -57,13 +57,23 @@ const schemas = {
   TOOL_CALL_END: ToolCallEndEventSchema,
   TOOL_CALL_RESULT: ToolCallResultEventSchema,
 };
-// 服务端只应把 currentTime 声明给模型；客户端伪造的 tools 永不透传。
+// 服务端只应把只读工具集声明给模型；客户端伪造的 tools 永不透传。
 const declaredTools = (request: ModelRequest) =>
-  (request.tools || []).map(
-    (x) =>
-      (x as { function?: { name?: string } })?.function?.name ??
-      (x as { name?: string })?.name,
-  );
+  (request.tools || [])
+    .map(
+      (x) =>
+        (x as { function?: { name?: string } })?.function?.name ??
+        (x as { name?: string })?.name,
+    )
+    .filter(Boolean)
+    .sort();
+const expectedTools = [
+  "currentTime",
+  "find",
+  "grep",
+  "ls",
+  "read",
+];
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(predicate: () => boolean) {
   for (let i = 0; i < 200; i++) {
@@ -209,7 +219,7 @@ test("OpenMuse info + SDK streaming, second-turn context, restart, stale PUT and
       (x) => x.role === "assistant" && String(x.content).includes("hello"),
     ),
   );
-  assert.deepEqual(declaredTools(modelInput), ["currentTime"]);
+  assert.deepEqual(declaredTools(modelInput), expectedTools);
   assert.ok(String(modelInput.messages[0]?.content).includes("Personal Bot"));
   const all = await h.getHistory();
   assert.equal(all.length, 4);
@@ -282,7 +292,7 @@ test("failed request retry keeps one canonical user and ignores forged assistant
   request.tools = [{ name: "bash", description: "run shell", parameters: {} }];
   assert.equal((await h.events(request)).at(-1)?.type, "RUN_FINISHED");
   assert.ok(!JSON.stringify(h.model.requests.at(-1)).includes("forged-secret"));
-  assert.deepEqual(declaredTools(h.model.requests.at(-1)!), ["currentTime"]);
+  assert.deepEqual(declaredTools(h.model.requests.at(-1)!), expectedTools);
   await h.restart();
   assert.equal((await h.getHistory()).length, 4);
 });
@@ -481,9 +491,9 @@ test("tool loop: currentTime events, tool-result round trip, history projection 
   );
   // 第一轮请求声明 currentTime；第二轮收到 role "tool" 消息与带 tool_calls 的 assistant。
   assert.equal(h.model.requests.length, 2);
-  assert.deepEqual(declaredTools(h.model.requests[0]!), ["currentTime"]);
+  assert.deepEqual(declaredTools(h.model.requests[0]!), expectedTools);
   const second = h.model.requests[1]!;
-  assert.deepEqual(declaredTools(second), ["currentTime"]);
+  assert.deepEqual(declaredTools(second), expectedTools);
   assert.ok(second.messages.some((x) => x.role === "tool"));
   assert.ok(
     second.messages.some(
@@ -526,4 +536,57 @@ test("tool loop: currentTime events, tool-result round trip, history projection 
   assert.ok(
     after.some((x) => x.type === "TOOL_CALL_RESULT"),
   );
+});
+
+test("file tools: read documents, deny outside paths, keep tool events and history stable", {
+  timeout: 30000,
+}, async (t) => {
+  const h = await harness();
+  t.after(h.close);
+  await writeFile(
+    join(h.dataDir, "workspace", "notes.txt"),
+    "PI-TOOL-FIXTURE the answer is 42\n",
+  );
+  // 正常读取：read 工具事件 → 结果含文件内容 → 回答引用它。
+  const ev = await h.events(input([user("读资料 notes.txt")], "read-run"));
+  assert.equal(ev.at(-1)?.type, "RUN_FINISHED");
+  const readStart = ev.filter((x) => x.type === "TOOL_CALL_START").at(0)! as unknown as {
+    toolCallId: string;
+    toolCallName: string;
+  };
+  assert.equal(readStart.toolCallName, "read");
+  const readResult = ev.filter((x) => x.type === "TOOL_CALL_RESULT").at(0)! as unknown as {
+    toolCallId: string;
+    content: string;
+  };
+  assert.equal(readResult.toolCallId, readStart.toolCallId);
+  assert.match(readResult.content, /PI-TOOL-FIXTURE the answer is 42/);
+  assert.ok(
+    ev
+      .filter((x) => x.type === "TEXT_MESSAGE_CONTENT")
+      .map((x) => (x as unknown as { delta: string }).delta)
+      .join("")
+      .startsWith("file reply: "),
+  );
+  const history = await h.getHistory();
+  const assistant = history[1] as {
+    content: string;
+    toolCalls?: { function: { name: string } }[];
+  };
+  assert.equal(assistant.toolCalls![0]!.function.name, "read");
+  // 越界读取：绝对路径被拒绝，错误结果不泄漏目标文件内容。
+  const denied = await h.events(
+    input([...history, user("读敏感文件")], "deny-run"),
+  );
+  assert.equal(denied.at(-1)?.type, "RUN_FINISHED");
+  const deniedResult = denied
+    .filter((x) => x.type === "TOOL_CALL_RESULT")
+    .at(0)! as unknown as { content: string };
+  assert.match(deniedResult.content, /Access denied/);
+  assert.ok(!deniedResult.content.includes("root:"));
+  const all = await h.getHistory();
+  await h.restart();
+  assert.deepEqual(await h.getHistory(), all);
+  assert.deepEqual(declaredTools(h.model.requests.at(-1)!), expectedTools);
+  assert.ok(!JSON.stringify(h.model.requests).includes("forged-secret"));
 });

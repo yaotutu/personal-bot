@@ -18,6 +18,22 @@ export async function createFakeModel() {
   let failCount = 0;
   // 真实供应商的 tool call id 每次唯一；固定 id 会让多轮工具的历史关联错乱。
   let toolCallSeq = 0;
+  // 记录本轮发起的工具调用 id → 工具名，第二轮按工具名生成不同回复。
+  const toolCallNames = new Map<string, string>();
+  const toolCall = (name: string, args: object) => {
+    const id = `call_fake_${++toolCallSeq}`;
+    toolCallNames.set(id, name);
+    return {
+      tool_calls: [
+        {
+          index: 0,
+          id,
+          type: "function",
+          function: { name, arguments: JSON.stringify(args) },
+        },
+      ],
+    };
+  };
   const server = createServer(async (req, res) => {
     if (req.url !== "/v1/chat/completions") {
       res.writeHead(404).end();
@@ -91,36 +107,39 @@ export async function createFakeModel() {
       res.destroy();
       return;
     }
-    // 工具闭环路径：触发词 + 请求声明了 currentTime 且本轮还没有工具结果时，
+    // 工具闭环路径：触发词 + 请求声明了对应工具且本轮还没有工具结果时，
     // 流式返回 OpenAI tool_calls chunk，让真实 pi 执行工具后发起第二轮请求。
     // 只看最后一条 user 消息之后的 tool 消息，历史里的旧工具轮不算本轮。
-    const declaresCurrentTime = (input.tools || []).some(
-      (tool) =>
-        typeof tool === "object" &&
-        tool !== null &&
-        ((tool as { function?: { name?: string } }).function?.name ===
-          "currentTime" ||
-          (tool as { name?: string }).name === "currentTime"),
-    );
+    const declaresTool = (name: string) =>
+      (input.tools || []).some(
+        (tool) =>
+          typeof tool === "object" &&
+          tool !== null &&
+          ((tool as { function?: { name?: string } }).function?.name === name ||
+            (tool as { name?: string }).name === name),
+      );
     const lastUserIndex = input.messages.findLastIndex((x) => x.role === "user");
     const pendingToolResult = input.messages
       .slice(lastUserIndex + 1)
       .find((x) => x.role === "tool" && x.content);
-    if (declaresCurrentTime && /时间|几点/.test(last) && !pendingToolResult) {
+    // 文件读取路径：触发词 + 请求声明了 read。测试用固定文件名与越界路径。
+    if (declaresTool("read") && /读/.test(last) && !pendingToolResult) {
+      const sensitive = /敏感|secret/.test(last);
+      const match = last.match(/[\w./-]+\.(txt|md|json)/);
       event({ role: "assistant" });
-      event({
-        tool_calls: [
-          {
-            index: 0,
-            id: `call_currenttime_${++toolCallSeq}`,
-            type: "function",
-            function: { name: "currentTime", arguments: "" },
-          },
-        ],
-      });
-      event({
-        tool_calls: [{ index: 0, function: { arguments: "{}" } }],
-      });
+      event(
+        toolCall(
+          "read",
+          sensitive ? { path: "/etc/passwd" } : { path: match?.[0] || "notes.txt" },
+        ),
+      );
+      event({}, "tool_calls");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
+    if (declaresTool("currentTime") && /时间|几点/.test(last) && !pendingToolResult) {
+      event({ role: "assistant" });
+      event(toolCall("currentTime", {}));
       event({}, "tool_calls");
       res.end("data: [DONE]\n\n");
       return;
@@ -134,8 +153,15 @@ export async function createFakeModel() {
                 .map((x) => (x as { text?: string }).text || "")
                 .join("")
             : "";
-      // 第二轮：模型读到工具结果后生成回答，模拟真实闭环的最终输出。
-      const output = "time reply: " + text;
+      // 第二轮：按工具名生成对应回答，模拟真实闭环的最终输出。
+      const toolName =
+        toolCallNames.get(
+          String(
+            (pendingToolResult as { tool_call_id?: string }).tool_call_id ?? "",
+          ),
+        ) ?? "unknown";
+      const output =
+        (toolName === "read" ? "file reply: " : "time reply: ") + text;
       for (const part of [output.slice(0, 8), output.slice(8)])
         event({ content: part });
       event({}, "stop");
