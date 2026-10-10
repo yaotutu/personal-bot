@@ -86,13 +86,32 @@ export async function createApp(config: Config) {
     }),
   );
   app.get("/api/agent", async (c) => {
-    // OpenMuse Apps 页的 Memory / Identity 界面数据源；P4 任务数组仍为空。
-    const [memories, identity] = await Promise.all([
+    // OpenMuse Apps 页的 Memory / Identity 界面数据源 + Activity 页任务列表。
+    const [memories, identity, jobs] = await Promise.all([
       conversation.memory.list(),
       conversation.memory.identity(),
+      conversation.jobs.list(),
     ]);
+    const tasks = jobs.map((job) => ({
+      id: job.id,
+      title: job.prompt.slice(0, 80),
+      prompt: job.prompt,
+      kind: "monitor",
+      status: !job.enabled ? "cancelled" : job.lastStatus === "failed" ? "failed" : "scheduled",
+      plan: [],
+      evidence: [],
+      input: {},
+      state: {},
+      createdAt: job.createdAt,
+      updatedAt: job.lastRunAt ?? job.createdAt,
+      nextRunAt: job.enabled ? job.nextRunAt : undefined,
+      attempts: 0,
+      artifactIds: [],
+      result: job.lastResult,
+      error: job.lastStatus === "failed" ? "Last run failed" : null,
+    }));
     return c.json({
-      tasks: [],
+      tasks,
       goals: [],
       monitors: [],
       ideas: [],
@@ -208,5 +227,33 @@ export async function createApp(config: Config) {
     ),
   );
   app.notFound((c) => c.json({ error: "Not found" }, 404));
-  return { app, conversation, close: conversation.close };
+  // P4 调度器：30 秒扫一次表，到点且主会话空闲就触发一轮（结果进聊天历史）。
+  // 崩了重跑哲学：错过的任务重启后被扫到自然补跑；正忙则等下一个 tick。
+  const tick = async () => {
+    try {
+      if (conversation.isRunning()) return;
+      const due = (await conversation.jobs.list()).filter(
+        (job) => job.enabled && Date.now() >= Date.parse(job.nextRunAt),
+      );
+      for (const job of due) {
+        if (conversation.isRunning()) break;
+        const outcome = await conversation.trigger(
+          `⏰ [定时任务] ${job.prompt}`,
+          `job-${job.id}-${Date.now()}`,
+        );
+        await conversation.jobs.markRun(job.id, outcome.status, outcome.text);
+      }
+    } catch {
+      // 单次 tick 失败不打断调度；任务状态由 markRun 诚实记录。
+    }
+  };
+  const scheduler = setInterval(() => void tick(), config.schedulerIntervalMs);
+  return {
+    app,
+    conversation,
+    close: async () => {
+      clearInterval(scheduler);
+      await conversation.close();
+    },
+  };
 }

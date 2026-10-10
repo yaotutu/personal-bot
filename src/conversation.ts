@@ -13,6 +13,7 @@ import { join } from "node:path";
 import type { Config } from "./config.js";
 import { openPi } from "./pi.js";
 import { createMemoryStore } from "./memory.js";
+import { createJobStore, type JobStore } from "./jobs.js";
 
 const turnType = "personal-bot.turn";
 const resultType = "personal-bot.result";
@@ -55,6 +56,7 @@ const textOf = (content: unknown): string =>
 
 export async function createConversation(config: Config) {
   const memory = await createMemoryStore(config.dataDir);
+  const jobs = await createJobStore(config.dataDir);
   const cwd = join(config.dataDir, "workspace");
   const sessionDir = join(config.dataDir, "sessions");
   await Promise.all(
@@ -291,7 +293,7 @@ export async function createConversation(config: Config) {
       } else {
         // 初始化或刚开始就停止时，不应先隐藏待重试的旧消息。先打开宿主，
         // 再提交 context edit，并同步宿主内存中的模型上下文。
-        running.session = await openPi(config, manager, memory);
+        running.session = await openPi(config, manager, memory, jobs);
         if (running.reason)
           throw new ConversationError(running.reason, "Response cancelled");
         if (previous) {
@@ -497,13 +499,73 @@ export async function createConversation(config: Config) {
       release();
     }
   };
+  // P4 定时任务触发的服务端轮次：与客户端 run 互斥共用一把锁，但不走 AG-UI
+  // emit、不做客户端校验；turn 与结果照常落 pi 历史，用户刷新/下一轮同步可见。
+  // 崩溃哲学：失败只诚实标记（result entry），不做断点续跑。
+  const trigger = async (text: string, runId: string) => {
+    if (active) return { status: "failed" as const, text: "busy" };
+    let release!: () => void;
+    const running: ActiveRun = {
+      runId,
+      done: new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    };
+    active = running;
+    let unsubscribe: (() => void) | undefined;
+    let finalReason: string | undefined;
+    let finalText = "";
+    const turn: Turn = {
+      userId: runId,
+      text,
+      runId,
+      assistantId: "assistant-" + runId,
+    };
+    try {
+      running.session = await openPi(config, manager, memory, jobs);
+      manager.appendCustomEntry(turnType, turn);
+      running.session.agent.state.messages =
+        manager.buildSessionContext().messages;
+      unsubscribe = running.session.subscribe((event) => {
+        // 工具轮的 message_end 无文本，只在非空时覆盖，保留最后一段文本。
+        if (event.type === "message_end" && event.message.role === "assistant") {
+          finalReason = event.message.stopReason;
+          const text = textOf(event.message.content);
+          if (text) finalText = text;
+          if (event.message.errorMessage)
+            event.message.errorMessage = "Model request failed or was cancelled";
+        }
+      });
+      await running.session.prompt(text, { expandPromptTemplates: false });
+      await running.session.waitForIdle();
+      const ok = finalReason && finalReason !== "error" && finalReason !== "aborted";
+      manager.appendCustomEntry(resultType, {
+        runId,
+        status: ok ? "completed" : "failed",
+      } satisfies Result);
+      return { status: ok ? ("completed" as const) : ("failed" as const), text: finalText };
+    } catch {
+      manager.appendCustomEntry(resultType, {
+        runId,
+        status: "failed",
+      } satisfies Result);
+      return { status: "failed" as const, text: "" };
+    } finally {
+      unsubscribe?.();
+      running.session?.dispose();
+      active = undefined;
+      release();
+    }
+  };
   return {
     history,
     run,
+    trigger,
     cancel,
     isRunning: () => Boolean(active),
     close: () => cancel("SHUTDOWN"),
     memory,
+    jobs,
   };
 }
 export type Conversation = Awaited<ReturnType<typeof createConversation>>;

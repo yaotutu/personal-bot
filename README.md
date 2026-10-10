@@ -18,13 +18,20 @@
   contextWindow 比例收缩，避免小窗口下阈值变负导致压缩死循环。
 - 身份注入（P3 第一步）：`DATA_DIR/SOUL.md`（助手性格）与 `USER.md`（用户画像）注入
   system prompt；文件不在资料目录内、模型工具读不到，每轮重读、改完下一轮即生效。
+- 长期记忆（P3）：`DATA_DIR/memory.json` 权威存储，只显式写入（对话说"记住/忘掉"或
+  Apps 页 Personality & memory 界面增改忘）；每轮注入 system prompt，改完下一轮生效；
+  身份设置（名字/语气）同存并注入。不做自动提取。
+- 定时任务（P4）：对话说"X 点提醒我 Y"→ schedule 工具创建（ISO 一次性或每日 HH:mm）；
+  调度器每 `PERSONAL_SCHEDULER_INTERVAL_MS`（默认 30s）扫表，到点且空闲时触发一轮，
+  结果作为 ⏰ 消息进入聊天流并持久化；重启后到期任务自动补跑，一次性任务跑完即关闭。
+  崩溃哲学：失败只诚实标记，不做断点续跑。
 - 停止、HTTP 断流、超时、并发拒绝；等待 pi idle 后才释放运行锁（含工具执行轮）。
 - 完成请求去重、失败/取消后的同消息重试，拒绝陈旧用户历史和冲突 run ID；客户端伪造的 tools 不透传给模型。
 - 专用 pi 数据/资源目录；不加载个人 CLI 的全局配置、skills、extensions 或 MCP。
 - OpenMuse 的 serverOwnedHistory 可选能力开关；旧服务端未返回开关时保持原行为。
 
-暂不实现：写文件、shell、附件、长期记忆 CRUD、身份编辑界面、后台任务、定时/heartbeat、外部 channel、多会话、多用户、运行中 reconnect。
-工具闭环已支持 currentTime / 其余工具未开放；未实现功能不伪装成功：只读快照诚实为空，不支持的 API 返回 501。
+暂不实现：写文件、shell、附件、自动记忆提取（Dream）、heartbeat、外部 channel、多会话、多用户、运行中 reconnect。
+已开放工具：currentTime / memory / schedule / read / grep / find / ls（均只读或受控写入）；未实现功能不伪装成功：不支持的 API 返回 501。
 
 ## 客户端兼容策略
 
@@ -101,7 +108,7 @@ P1 关闭自动压缩和自动重试；长会话可能触及 endpoint 上下文�
 
 ## 验证状态与后续
 
-- 28 项自动测试全部通过（27 项 P1 既有 + 1 项工具闭环集成测试），经过实际 HTTP + pi SDK + 本地模拟 provider，覆盖协议、上下文、重启、去重、停止、断流、超时、鉴权、历史安全和工具事件序列。
+- 33 项自动测试全部通过（27 项 P1 既有 + 1 项工具闭环集成测试），经过实际 HTTP + pi SDK + 本地模拟 provider，覆盖协议、上下文、重启、去重、停止、断流、超时、鉴权、历史安全和工具事件序列。
 - 工具闭环（问时间 → currentTime 执行 → 卡片展示 → 回答 → 刷新后关联）先在本地模拟 endpoint 下通过 Web 联调（docs/p2-web-smoke.png），随后在真实模型 endpoint 下复验通过（docs/p2-real-web-smoke.png）：
   真实模型会正确发起 currentTime 工具调用（finish_reason=tool_calls），工具前/后两段 assistant 文本正确合并展示，刷新后历史与工具卡片关联不变，普通文本轮正常。
 - 真实 endpoint 配置在本地 `.env`（模型 ID 以网关实际路由为准，如 `silicon/deepseek-ai/DeepSeek-V4-Flash`）；key 只驻留本地文件与服务端内存。

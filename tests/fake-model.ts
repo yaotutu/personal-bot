@@ -136,6 +136,28 @@ export async function createFakeModel() {
     const pendingToolResult = input.messages
       .slice(lastUserIndex + 1)
       .find((x) => x.role === "tool" && x.content);
+    // 定时任务路径：触发词"提醒我" + 声明了 schedule 工具。测试用 15 秒后的一次性任务。
+    if (declaresTool("schedule") && /提醒我/.test(last) && !pendingToolResult) {
+      event({ role: "assistant" });
+      event(
+        toolCall("schedule", {
+          action: "create",
+          prompt: /喝水/.test(last) ? "提醒喝水" : last.replace(/^.*提醒我/, "").trim() || "提醒",
+          at: new Date(Date.now() + 15_000).toISOString(),
+        }),
+      );
+      event({}, "tool_calls");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
+    // 定时触发轮（⏰ 前缀的会话轮）：直接回文本，模拟任务执行结果。
+    if (/^⏰/.test(last)) {
+      event({ role: "assistant" });
+      event({ content: "JOB-RAN " + last.replace(/^⏰\s*/, "") });
+      event({}, "stop");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
     // 记忆工具路径：触发词"记住/忘掉" + 声明了 memory 工具。
     if (declaresTool("memory") && /记住|忘掉/.test(last) && !pendingToolResult) {
       const forget = /忘掉/.test(last);
@@ -195,7 +217,9 @@ export async function createFakeModel() {
           ? "file reply: "
           : toolName === "memory"
             ? "memory reply: "
-            : "time reply: ";
+            : toolName === "schedule"
+              ? "schedule reply: "
+              : "time reply: ";
       const output = prefix + text;
       for (const part of [output.slice(0, 8), output.slice(8)])
         event({ content: part });

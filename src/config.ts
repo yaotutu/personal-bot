@@ -66,6 +66,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       "PERSONAL_RUN_TIMEOUT_MS",
       3_600_000,
     ),
+    schedulerIntervalMs: integer(
+      env.PERSONAL_SCHEDULER_INTERVAL_MS,
+      30_000,
+      "PERSONAL_SCHEDULER_INTERVAL_MS",
+      3_600_000,
+    ),
     allowedOrigins: (
       env.ALLOWED_ORIGINS || "http://localhost:8081,http://127.0.0.1:8081"
     )

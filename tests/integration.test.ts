@@ -74,6 +74,7 @@ const expectedTools = [
   "ls",
   "memory",
   "read",
+  "schedule",
 ];
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(predicate: () => boolean) {
@@ -92,6 +93,7 @@ async function harness(timeout = 5000, env: Record<string, string> = {}) {
     PERSONAL_MODEL_ID: "test-model",
     PERSONAL_MODEL_API_KEY: "test-secret-model-key",
     PERSONAL_RUN_TIMEOUT_MS: String(timeout),
+    PERSONAL_SCHEDULER_INTERVAL_MS: "2000",
     ...env,
   });
   let service = await createApp(config);
@@ -722,4 +724,79 @@ test("P3 memory: REST CRUD, chat tool write, prompt injection and identity setti
   agent = await h.request("/api/agent").then((x) => x.json());
   assert.equal(agent.identity.name, "小水豚");
   assert.equal(agent.memories.length, 0);
+});
+
+test("P4 scheduled jobs: chat-created reminder fires into history; missed job runs after restart", {
+  timeout: 60000,
+}, async (t) => {
+  const h = await harness();
+  t.after(h.close);
+  // 对话创建：说"提醒我喝水"→ schedule 工具写入 15 秒后的一次性任务。
+  const ev = await h.events(input([user("提醒我喝水")], "job-run"));
+  assert.equal(ev.at(-1)?.type, "RUN_FINISHED");
+  const schedStart = ev.filter((x) => x.type === "TOOL_CALL_START").at(0)! as unknown as {
+    toolCallName: string;
+  };
+  assert.equal(schedStart.toolCallName, "schedule");
+  let tasks = (await h.request("/api/agent").then((x) => x.json())).tasks as {
+    id: string;
+    status: string;
+    nextRunAt?: string;
+    prompt: string;
+  }[];
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].status, "scheduled");
+  assert.equal(tasks[0].prompt, "提醒喝水");
+  // 等调度器到点触发（2s 扫表 + 15s 任务 → 最多 ~20s）。
+  let history: Message[] = [];
+  for (let i = 0; i < 22; i++) {
+    await sleep(2000);
+    history = await h.getHistory();
+    if (history.some((x) => x.role === "user" && String(x.content).includes("⏰"))) break;
+  }
+  const fired = history.filter(
+    (x) => x.role === "user" && String(x.content).includes("⏰ [定时任务] 提醒喝水"),
+  );
+  assert.equal(fired.length, 1, "scheduled turn should appear exactly once");
+  assert.ok(
+    history.some(
+      (x) => x.role === "assistant" && String(x.content).includes("JOB-RAN"),
+    ),
+    "assistant result should land in history",
+  );
+  tasks = (await h.request("/api/agent").then((x) => x.json())).tasks as typeof tasks;
+  assert.equal(tasks[0].status, "cancelled", "one-shot job disabled after run");
+  // 手工放一个已过期任务 → 重启后扫表补跑。
+  await writeFile(
+    join(h.dataDir, "jobs.json"),
+    JSON.stringify([
+      {
+        id: "expired-job",
+        prompt: "重启补跑",
+        daily: false,
+        at: new Date().toISOString(),
+        enabled: true,
+        createdAt: new Date().toISOString(),
+        nextRunAt: new Date(Date.now() - 60_000).toISOString(),
+      },
+    ]),
+  );
+  await h.restart();
+  let caught = false;
+  for (let i = 0; i < 10; i++) {
+    await sleep(2000);
+    if (
+      (await h.getHistory()).some(
+        (x) => x.role === "user" && String(x.content).includes("重启补跑"),
+      )
+    ) {
+      caught = true;
+      break;
+    }
+  }
+  assert.ok(caught, "missed job should run after restart");
+  // 触发轮之后的普通对话不回归（客户端历史以服务端为准重新同步）。
+  const synced = await h.getHistory();
+  const reply = await h.events(input([...synced, user("after-job")], "after-job"));
+  assert.equal(reply.at(-1)?.type, "RUN_FINISHED");
 });
