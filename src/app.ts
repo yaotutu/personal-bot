@@ -1,0 +1,166 @@
+import { MessageSchema, RunAgentInputSchema } from "@ag-ui/core";
+import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
+import { cors } from "hono/cors";
+import { mkdir } from "node:fs/promises";
+import { z } from "zod/v3";
+import { createAuth } from "./auth.js";
+import type { Config } from "./config.js";
+import { createConversation } from "./conversation.js";
+import { createRunner, PiAgent } from "./runtime.js";
+
+export async function createApp(config: Config) {
+  // 必须在动态导入 runtime 前关闭全局 telemetry；未构造 Intelligence 或网络搜索。
+  process.env.COPILOTKIT_TELEMETRY_DISABLED = "true";
+  process.env.DO_NOT_TRACK = "1";
+  const { CopilotRuntime, createCopilotHonoHandler } = await import(
+    "@copilotkit/runtime/v2"
+  );
+  await mkdir(config.dataDir, { recursive: true, mode: 0o700 });
+  const auth = await createAuth(config);
+  const conversation = await createConversation(config);
+  const runtime = new CopilotRuntime({
+    agents: ({ request }) => ({
+      default: new PiAgent(conversation, request.signal),
+    }),
+    runner: createRunner(conversation),
+  });
+  const handler = createCopilotHonoHandler({
+    runtime,
+    basePath: "/api/copilotkit",
+  });
+  const app = new Hono();
+  app.use(
+    "*",
+    cors({
+      origin: config.allowedOrigins,
+      allowHeaders: ["Authorization", "Content-Type"],
+      allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
+    }),
+  );
+  app.use(
+    "*",
+    bodyLimit({
+      maxSize: 1_048_576,
+      onError: (c) => c.json({ error: "Request body exceeds 1 MiB" }, 413),
+    }),
+  );
+  app.onError((_error, c) => c.json({ error: "Internal server error" }, 500));
+  app.get("/api/health", (c) =>
+    c.json({ ok: true, backend: "pi", configured: config.configured }),
+  );
+  app.post("/api/session", async (c) => {
+    const input = z
+      .object({ accessKey: z.string().max(512).optional() })
+      .safeParse(await c.req.json().catch(() => undefined));
+    if (!input.success)
+      return c.json({ error: "Invalid session request" }, 400);
+    const token = auth.login(input.data.accessKey);
+    return token
+      ? c.json({ token, mode: "live" })
+      : c.json({ error: "Workspace access key is required or invalid" }, 401);
+  });
+  app.use("/api/*", async (c, next) => {
+    if (!auth.authorized(c.req.header("Authorization")))
+      return c.json({ error: "Unauthorized: open a new session" }, 401);
+    await next();
+  });
+  app.get("/api/workspace", (c) =>
+    c.json({
+      mode: "live",
+      profile: { name: "You", email: "" },
+      mail: [],
+      events: [],
+      files: [],
+      browsers: [],
+      actions: [],
+      activity: [],
+      connections: [],
+      runtime: {
+        provider: "model",
+        configured: config.configured,
+        openbotConfigured: false,
+        richThreads: false,
+        serverOwnedHistory: true,
+        textOnly: true,
+      },
+    }),
+  );
+  app.get("/api/agent", (c) =>
+    c.json({
+      tasks: [],
+      goals: [],
+      monitors: [],
+      ideas: [],
+      memories: [],
+      artifacts: [],
+      notifications: [],
+      identity: { name: "Personal Bot", tone: "concise" },
+      worker: { running: false },
+    }),
+  );
+  app.get("/api/conversation", (c) =>
+    c.json({ messages: conversation.history() }),
+  );
+  app.put("/api/conversation", async (c) => {
+    const parsed = z
+      .object({ messages: z.array(z.unknown()).max(1000) })
+      .safeParse(await c.req.json().catch(() => undefined));
+    if (
+      !parsed.success ||
+      parsed.data.messages.some(
+        (message) => !MessageSchema.safeParse(message).success,
+      )
+    )
+      return c.json({ error: "Invalid conversation messages" }, 400);
+    // 兼容旧调用，但不信任 client assistant；一致时只确认，不一致时拒绝覆盖。
+    if (
+      JSON.stringify(parsed.data.messages) !==
+      JSON.stringify(conversation.history())
+    )
+      return c.json(
+        {
+          error:
+            "History is server-owned; GET /api/conversation to synchronize",
+        },
+        409,
+      );
+    return c.json({ ok: true });
+  });
+  app.all("/api/copilotkit/*", async (c) => {
+    const path = c.req.path;
+    const allowed =
+      (c.req.method === "GET" && path === "/api/copilotkit/info") ||
+      (c.req.method === "POST" &&
+        (path === "/api/copilotkit/agent/default/run" ||
+          path === "/api/copilotkit/agent/default/stop/local-main"));
+    if (!allowed)
+      return c.json(
+        { error: "Runtime operation is not available in text-only mode" },
+        501,
+      );
+    if (path.endsWith("/run")) {
+      // SDK 自带验证，但错误日志可能打印请求内容；宿主先验证并返回清晰 JSON。
+      const parsed = RunAgentInputSchema.safeParse(
+        await c.req.raw
+          .clone()
+          .json()
+          .catch(() => undefined),
+      );
+      if (!parsed.success || parsed.data.messages.length > 1000)
+        return c.json({ error: "Invalid AG-UI run request" }, 400);
+    }
+    return handler.fetch(c.req.raw);
+  });
+  app.all("/api/*", (c) =>
+    c.json(
+      {
+        error:
+          "This feature is not implemented; this server currently supports text conversation only",
+      },
+      501,
+    ),
+  );
+  app.notFound((c) => c.json({ error: "Not found" }, 404));
+  return { app, conversation, close: conversation.close };
+}
