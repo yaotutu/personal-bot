@@ -3,9 +3,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test, { type TestContext } from "node:test";
-import { createApp } from "../src/app.js";
-import { createAuth } from "../src/auth.js";
-import { loadConfig } from "../src/config.js";
+import { createService } from "../../src/bootstrap/create-service.js";
+import { createAuth } from "../../src/adapters/auth/token-service.js";
+import { loadConfig } from "../../src/config/load-config.js";
 
 // 显式传入环境对象，避免本机 .env 或其他测试的模型配置影响这些离线边界测试。
 // 每个有持久化行为的测试独占临时目录；即使断言失败，after 也会清理签名密钥和会话数据。
@@ -287,7 +287,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
     PERSONAL_ACCESS_KEY: "workspace-key",
     ALLOWED_ORIGINS: "http://localhost:8081",
   });
-  const fixture = await createApp(config);
+  const fixture = await createService(config);
   const { app } = fixture;
   // 不监听真实端口；通过真实登录路由取得 token，再验证后续路由，不绕过鉴权中间件。
   try {

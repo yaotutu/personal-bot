@@ -1,7 +1,7 @@
 # Personal Bot
 
 基于 pi 的个人助手服务端，对接已有 OpenMuse 的 Expo Web/iOS/Android 客户端。
-当前完成 P1 的纯文本闭环与 P2 的最小工具闭环（只读 currentTime 工具）；不是 nanobot 的整套功能迁移，也不使用 nanobot WebUI。
+当前完成 P1–P4：文本对话、只读工具、会话压缩、身份/记忆与定时任务；不是 nanobot 的整套功能迁移，也不使用 nanobot WebUI。
 
 ## 已实现
 
@@ -23,7 +23,7 @@
   身份设置（名字/语气）同存并注入。不做自动提取。
 - 定时任务（P4）：对话说"X 点提醒我 Y"→ schedule 工具创建（ISO 一次性或每日 HH:mm）；
   调度器每 `PERSONAL_SCHEDULER_INTERVAL_MS`（默认 30s）扫表，到点且空闲时触发一轮，
-  结果作为 ⏰ 消息进入聊天流并持久化；重启后到期任务自动补跑，一次性任务跑完即关闭。
+  结果作为 ⏰ 消息进入聊天流并持久化；一次性任务跑完即关闭，服务重启时已过期的一次性任务不再补跑。
   崩溃哲学：失败只诚实标记，不做断点续跑。
 - 停止、HTTP 断流、超时、并发拒绝；等待 pi idle 后才释放运行锁（含工具执行轮）。
 - 完成请求去重、失败/取消后的同消息重试，拒绝陈旧用户历史和冲突 run ID；客户端伪造的 tools 不透传给模型。
@@ -104,15 +104,17 @@ P1 未做速率限制、跨进程锁、细粒度权限或数据加密；CORS 不
 监听非回环地址必须设置访问密钥；远程访问还需要 TLS/反向代理。手机的 localhost 不是 Mac，真机验收需单独配置地址。
 
 页面断开会取消正在生成的回复，已有部分文本保留；刷新后取最终持久化历史。没有运行中续接/后台聊天。
-P1 关闭自动压缩和自动重试；长会话可能触及 endpoint 上下文限制，后续再接入可观察的压缩策略。
+pi 自动压缩已开启（参数随上下文窗口收缩），展示历史完整保留；自动重试仍关闭。
+
+此前 P2 工具闭环的 Web 联调记录保留在 `docs/p2-web-smoke.png` 与 `docs/p2-real-web-smoke.png`；这些是重构前的验收记录，不代表本轮重新验收。
 
 ## 验证状态与后续
 
-- 33 项自动测试全部通过（27 项 P1 既有 + 1 项工具闭环集成测试），经过实际 HTTP + pi SDK + 本地模拟 provider，覆盖协议、上下文、重启、去重、停止、断流、超时、鉴权、历史安全和工具事件序列。
-- 工具闭环（问时间 → currentTime 执行 → 卡片展示 → 回答 → 刷新后关联）先在本地模拟 endpoint 下通过 Web 联调（docs/p2-web-smoke.png），随后在真实模型 endpoint 下复验通过（docs/p2-real-web-smoke.png）：
-  真实模型会正确发起 currentTime 工具调用（finish_reason=tool_calls），工具前/后两段 assistant 文本正确合并展示，刷新后历史与工具卡片关联不变，普通文本轮正常。
-- 真实 endpoint 配置在本地 `.env`（模型 ID 以网关实际路由为准，如 `silicon/deepseek-ai/DeepSeek-V4-Flash`）；key 只驻留本地文件与服务端内存。
-- iOS/Android 复用现有客户端代码，但尚未做模拟器/真机运行验收。
-- 下一步可评估 P2 后续的有限工具与可信 skills 扩展；不直接跳到完整后台任务体系。
+- 当前 `pnpm test` 共 135 项通过，覆盖真实 HTTP/pi/fake-provider 主链路、unit/integration 边界、协议事件、历史安全、停止/断流/超时、工具副作用、provider 异常、鉴权、调度器、并发写、初始化失败和存储损坏保护。
+- 架构重构 R0-R6 与 R7A 已完成：`bootstrap/create-service.ts` 是唯一组装入口；业务规则位于 `features/`；pi、AG-UI、OpenMuse、storage 位于 `adapters/`；`http/app.ts` 不拥有调度器。
+- 持久化仍保持既有 `memory.json` 对象和 `jobs.json` 裸数组格式；缺失文件默认空值，损坏/未知版本/读写错误拒绝继续写，不静默覆盖用户数据；R7B 物理目录迁移延期。
+- mock 进程使用隔离数据目录和 fake provider；关键进程级启动/关闭、占用端口、非法配置和 mock SSE 检查已通过。
+- 第一阶段已修正基础 prompt，使用隔离 DATA_DIR 和真实模型完成 OpenMuse Web 核心复验：流式、停止、刷新、时间/文件工具、记忆、定时执行与重启历史。实际观察与未覆盖范围见 `docs/first-stage-acceptance.md`；iOS/Android 仍未验收。
+- 当前没有自动 commit/push；后续新增能力遵循 `feature → adapter → bootstrap` 显式装配，不把业务继续堆入 conversation 或 HTTP。
 
-详细规划见 docs/implementation-plan.md；接口盘点见 docs/openmuse-api-contract.md；pi 复用边界见 docs/pi-reuse.md。
+当前架构和新能力接入见 docs/architecture.md；架构重构计划与当前进度见 docs/refactoring-plan.md；交接状态见 docs/HANDOFF.md；第一阶段验收见 docs/first-stage-acceptance.md；接口盘点见 docs/openmuse-api-contract.md；pi 复用边界见 docs/pi-reuse.md。

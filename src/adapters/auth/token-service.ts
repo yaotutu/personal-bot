@@ -5,12 +5,15 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import type { Config } from "./config.js";
+import { createDataLayout, type DataLayout } from "../storage/data-layout.js";
+import type { Config } from "../../config/load-config.js";
 
 const digest = (text: string) => createHash("sha256").update(text).digest();
-export async function createAuth(config: Config) {
-  const path = join(config.dataDir, "auth.key");
+export async function createAuth(
+  config: Config,
+  layout: DataLayout = createDataLayout(config.dataDir),
+) {
+  const path = layout.authKeyFile;
   // 工作区登录密钥与模型凭据分离；只持久化随机签名密钥，让重启后的 token 继续有效。
   let secret: Buffer;
   try {

@@ -71,6 +71,22 @@ export async function createFakeModel() {
       });
       return;
     }
+    const lastUserIndex = input.messages.findLastIndex((x) => x.role === "user");
+    const pendingToolResult = input.messages
+      .slice(lastUserIndex + 1)
+      .find((x) => x.role === "tool" && x.content);
+    // 工具已经执行后再返回 401，用来验证 nanobot 式语义：副作用保留，
+    // 最终模型回复失败只影响本轮输出，不回滚 memory/jobs。
+    if (pendingToolResult && /工具后失败/.test(last)) {
+      res
+        .writeHead(401, { "content-type": "application/json" })
+        .end(JSON.stringify({ error: { message: "Invalid API key", type: "invalid_api_key" } }));
+      return;
+    }
+    if (pendingToolResult && /工具后挂起/.test(last)) {
+      res.on("close", () => { slowClosed++; });
+      return;
+    }
     res.writeHead(200, { "content-type": "text/event-stream" });
     const event = (delta: object, reason: string | null = null) =>
       res.write(
@@ -99,7 +115,7 @@ export async function createFakeModel() {
       return;
     }
     event({ role: "assistant" });
-    if (last === "slow" || last === "disconnect") {
+    if (last === "slow" || last === "disconnect" || (pendingToolResult && /工具后慢流/.test(last))) {
       let ticks = 0;
       const timer = setInterval(() => {
         if (res.destroyed) return;
@@ -121,6 +137,19 @@ export async function createFakeModel() {
       res.destroy();
       return;
     }
+    if (last === "empty") {
+      // 整个流没有有效内容或 finish_reason；不同于正常流中的 usage-only chunk。
+      // nanobot 视为不完整响应，由真实 pi parser 决定本项目的执行终态。
+      res.write("data: " + JSON.stringify({ id: "chatcmpl-test", object: "chat.completion.chunk", created: 1, model: input.model, choices: [] }) + "\n\n");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
+    if (last === "malformed") {
+      // 独立模拟无法解析的 SSE 数据，确认 pi 适配层会结束本轮并释放会话。
+      res.write("data: {not-json}\n\n");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
     // 工具闭环路径：触发词 + 请求声明了对应工具且本轮还没有工具结果时，
     // 流式返回 OpenAI tool_calls chunk，让真实 pi 执行工具后发起第二轮请求。
     // 只看最后一条 user 消息之后的 tool 消息，历史里的旧工具轮不算本轮。
@@ -132,10 +161,6 @@ export async function createFakeModel() {
           ((tool as { function?: { name?: string } }).function?.name === name ||
             (tool as { name?: string }).name === name),
       );
-    const lastUserIndex = input.messages.findLastIndex((x) => x.role === "user");
-    const pendingToolResult = input.messages
-      .slice(lastUserIndex + 1)
-      .find((x) => x.role === "tool" && x.content);
     // 定时任务路径：触发词"提醒我" + 声明了 schedule 工具。测试用 15 秒后的一次性任务。
     if (declaresTool("schedule") && /提醒我/.test(last) && !pendingToolResult) {
       event({ role: "assistant" });

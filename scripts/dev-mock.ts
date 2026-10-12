@@ -1,12 +1,36 @@
 import { serve } from "@hono/node-server";
-import { createApp } from "../src/app.js";
-import { loadConfig } from "../src/config.js";
-import { createFakeModel } from "../tests/fake-model.js";
+import { once } from "node:events";
+import { createService } from "../src/bootstrap/create-service.js";
+import { loadConfig } from "../src/config/load-config.js";
+import { createFakeModel } from "../tests/support/fake-model.js";
 
 // 只用于协议/UI 联调，不读取 .env，也不调用真实模型；mock 历史与正式数据隔离。
 const model = await createFakeModel();
-const service = await createApp(
-  loadConfig({
+let service: Awaited<ReturnType<typeof createService>> | undefined;
+let server: ReturnType<typeof serve> | undefined;
+let closing: Promise<void> | undefined;
+const shutdown = () => {
+  if (closing) return closing;
+  const stopped = new Promise<void>((resolve) => {
+    if (!server) return resolve();
+    server.close(() => resolve());
+  });
+  closing = (async () => {
+    try {
+      await service?.close();
+    } finally {
+      try {
+        await model.close();
+      } finally {
+        if (server && "closeIdleConnections" in server) server.closeIdleConnections();
+        await stopped;
+      }
+    }
+  })();
+  return closing;
+};
+try {
+  const config = loadConfig({
     PORT: process.env.PORT || "8788",
     DATA_DIR: process.env.MOCK_DATA_DIR || ".personal-bot/mock",
     PERSONAL_MODEL_BASE_URL: model.baseUrl,
@@ -15,28 +39,23 @@ const service = await createApp(
     ALLOWED_ORIGINS:
       process.env.ALLOWED_ORIGINS ||
       "http://localhost:8081,http://127.0.0.1:8081",
-  }),
-);
-const server = serve(
-  {
-    fetch: service.app.fetch,
-    hostname: "127.0.0.1",
-    port: Number(process.env.PORT || 8788),
-  },
-  (info) => console.log("MOCK ONLY: http://127.0.0.1:" + info.port),
-);
-let closing = false;
-async function shutdown() {
-  if (closing) return;
-  closing = true;
-  await service.close();
-  await model.close();
-  server.close();
-  if ("closeIdleConnections" in server) server.closeIdleConnections();
+  });
+  service = await createService(config);
+  server = serve(
+    { fetch: service.app.fetch, hostname: config.host, port: config.port },
+    (info) => console.log("MOCK ONLY: http://127.0.0.1:" + info.port),
+  );
+  if (!server.listening) await once(server, "listening");
+} catch (error) {
+  // 配置、数据目录或监听初始化失败时，也不能遗留 fake provider 和 interval。
+  await shutdown();
+  throw error;
 }
-process.once("SIGTERM", () => {
-  void shutdown();
-});
-process.once("SIGINT", () => {
-  void shutdown();
-});
+const onSignal = () => {
+  void shutdown().catch(() => {
+    console.error("Mock server shutdown failed");
+    process.exitCode = 1;
+  });
+};
+process.once("SIGTERM", onSignal);
+process.once("SIGINT", onSignal);

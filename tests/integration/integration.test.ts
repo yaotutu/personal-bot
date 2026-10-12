@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, readdir, readFile, writeFile, stat } from "node:fs/promises";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { AddressInfo } from "node:net";
+import { connect, type AddressInfo } from "node:net";
 import { serve } from "@hono/node-server";
 import { HttpAgent } from "@ag-ui/client";
 import {
@@ -23,9 +24,10 @@ import {
   ToolCallEndEventSchema,
   ToolCallResultEventSchema,
 } from "@ag-ui/core";
-import { createApp } from "../src/app.js";
-import { loadConfig } from "../src/config.js";
-import { createFakeModel, type ModelRequest } from "./fake-model.js";
+import { createService } from "../../src/bootstrap/create-service.js";
+import { createEventProjector } from "../../src/adapters/ag-ui/events.js";
+import { loadConfig } from "../../src/config/load-config.js";
+import { createFakeModel, type ModelRequest } from "../support/fake-model.js";
 
 const input = (
   messages: Message[],
@@ -84,96 +86,195 @@ async function until(predicate: () => boolean) {
   }
   throw new Error("Condition timed out");
 }
-async function harness(timeout = 5000, env: Record<string, string> = {}) {
-  const model = await createFakeModel();
-  const dataDir = await mkdtemp(join(tmpdir(), "personal-bot-test-"));
-  const config = loadConfig({
-    DATA_DIR: dataDir,
-    PERSONAL_MODEL_BASE_URL: model.baseUrl,
-    PERSONAL_MODEL_ID: "test-model",
-    PERSONAL_MODEL_API_KEY: "test-secret-model-key",
-    PERSONAL_RUN_TIMEOUT_MS: String(timeout),
-    PERSONAL_SCHEDULER_INTERVAL_MS: "2000",
-    ...env,
-  });
-  let service = await createApp(config);
-  let server = serve({
-    fetch: service.app.fetch,
-    hostname: "127.0.0.1",
-    port: 0,
-  });
-  await until(() => Boolean(server.address()));
-  let base = "http://127.0.0.1:" + (server.address() as AddressInfo).port;
-  const token = await fetch(base + "/api/session", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: "{}",
-  })
-    .then((x) => x.json())
-    .then((x) => x.token as string);
-  const request = (
-    path: string,
-    body?: unknown,
-    method = body === undefined ? "GET" : "POST",
-  ) =>
-    fetch(base + path, {
-      method,
-      headers: {
-        Authorization: "Bearer " + token,
-        "Content-Type": "application/json",
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-  const getHistory = () =>
-    request("/api/conversation")
-      .then((x) => x.json())
-      .then((x) => x.messages as Message[]);
-  const events = async (runInput: RunAgentInput) => {
-    const response = await request(
-      "/api/copilotkit/agent/default/run",
-      runInput,
-    );
-    assert.equal(response.status, 200);
-    return (await response.text())
-      .split("\n\n")
-      .filter((x) => x.startsWith("data: "))
-      .map((x) => {
-        const event = JSON.parse(x.slice(6)) as BaseEvent;
-        schemas[event.type as keyof typeof schemas].parse(event);
-        return event;
-      });
-  };
+async function harness(
+  timeout = 5000,
+  env: Record<string, string> = {},
+  // 仅供失败回归记录已分配资源、准备临时数据；不替换生产入口或修改全局环境。
+  prepare?: (resources: {
+    model: Awaited<ReturnType<typeof createFakeModel>>;
+    dataDir: string;
+  }) => void | Promise<void>,
+) {
+  // 每获得一个资源立即记录；后续任一初始化步骤失败，只清理本次实际获得的资源。
+  let model: Awaited<ReturnType<typeof createFakeModel>> | undefined;
+  let dataDir: string | undefined;
+  let service: Awaited<ReturnType<typeof createService>> | undefined;
+  let server: ReturnType<typeof serve> | undefined;
   const stopServer = async () => {
-    await service.close();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    const currentService = service;
+    const currentServer = server;
+    service = undefined;
+    server = undefined;
+    // service 关闭失败也必须释放 HTTP 监听；强制关闭连接避免 SSE/keep-alive 阻塞退出。
+    try {
+      await currentService?.close();
+    } finally {
+      if (currentServer) {
+        if ("closeAllConnections" in currentServer)
+          currentServer.closeAllConnections();
+        await new Promise<void>((resolve) =>
+          currentServer.close(() => resolve()),
+        );
+      }
+    }
   };
-  return {
-    model,
-    dataDir,
-    config,
-    request,
-    getHistory,
-    events,
-    service: () => service,
-    base: () => base,
-    token,
-    restart: async () => {
+  const close = async () => {
+    const currentModel = model;
+    const currentDataDir = dataDir;
+    model = undefined;
+    dataDir = undefined;
+    // 正常 teardown 与初始化失败共用清理；嵌套 finally 保证某项失败不跳过其余项。
+    // 只删除 harness 自己创建的目录，绝不删除 env.DATA_DIR 覆盖指向的外部路径。
+    try {
       await stopServer();
-      service = await createApp(config);
-      server = serve({
-        fetch: service.app.fetch,
-        hostname: "127.0.0.1",
-        port: 0,
+    } finally {
+      try {
+        await currentModel?.close();
+      } finally {
+        if (currentDataDir)
+          await rm(currentDataDir, { recursive: true, force: true });
+      }
+    }
+  };
+  const startServer = async () => {
+    const currentServer = serve({
+      fetch: service!.app.fetch,
+      hostname: "127.0.0.1",
+      port: 0,
+    });
+    server = currentServer;
+    // once 同时监听 error，让异步监听失败进入外层 catch，而不是未处理错误或轮询挂起。
+    if (!currentServer.listening) await once(currentServer, "listening");
+    return "http://127.0.0.1:" + (currentServer.address() as AddressInfo).port;
+  };
+  try {
+    model = await createFakeModel();
+    dataDir = await mkdtemp(join(tmpdir(), "personal-bot-test-"));
+    await prepare?.({ model, dataDir });
+    const config = loadConfig({
+      DATA_DIR: dataDir,
+      PERSONAL_MODEL_BASE_URL: model.baseUrl,
+      PERSONAL_MODEL_ID: "test-model",
+      PERSONAL_MODEL_API_KEY: "test-secret-model-key",
+      PERSONAL_RUN_TIMEOUT_MS: String(timeout),
+      PERSONAL_SCHEDULER_INTERVAL_MS: "2000",
+      ...env,
+    });
+    service = await createService(config);
+    let base = await startServer();
+    const login = await fetch(base + "/api/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    // 鉴权失败仍可能返回合法 JSON，必须检查状态，避免无 token 的 harness 被误认为初始化成功。
+    assert.equal(login.status, 200, "Harness login failed");
+    const token = (await login.json()).token as string;
+    const request = (
+      path: string,
+      body?: unknown,
+      method = body === undefined ? "GET" : "POST",
+    ) =>
+      fetch(base + path, {
+        method,
+        headers: {
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json",
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
       });
-      await until(() => Boolean(server.address()));
-      base = "http://127.0.0.1:" + (server.address() as AddressInfo).port;
-    },
-    close: async () => {
-      await stopServer();
-      await model.close();
-      await rm(dataDir, { recursive: true, force: true });
-    },
-  };
+    const getHistory = () =>
+      request("/api/conversation")
+        .then((x) => x.json())
+        .then((x) => x.messages as Message[]);
+    const events = async (runInput: RunAgentInput) => {
+      const response = await request(
+        "/api/copilotkit/agent/default/run",
+        runInput,
+      );
+      assert.equal(response.status, 200);
+      return (await response.text())
+        .split("\n\n")
+        .filter((x) => x.startsWith("data: "))
+        .map((x) => {
+          const event = JSON.parse(x.slice(6)) as BaseEvent;
+          schemas[event.type as keyof typeof schemas].parse(event);
+          return event;
+        });
+    };
+    return {
+      model,
+      dataDir,
+      config,
+      request,
+      getHistory,
+      events,
+      service: () => service!,
+      base: () => base,
+      token,
+      restart: async () => {
+        await stopServer();
+        service = await createService(config);
+        base = await startServer();
+      },
+      close,
+    };
+  } catch (error) {
+    await close();
+    throw error;
+  }
+}
+
+for (const stage of ["configuration", "service", "login"] as const) {
+  test(`harness ${stage} initialization failure cleans fake provider and dataDir`, {
+    timeout: 10000,
+  }, async (t) => {
+    let modelUrl: string | undefined;
+    let dataDir: string | undefined;
+    const env: Record<string, string> = stage === "configuration"
+      ? {
+          PERSONAL_MODEL_MAX_TOKENS: "2000",
+          PERSONAL_MODEL_CONTEXT_WINDOW: "2000",
+        }
+      : stage === "login"
+        // 登录不带访问密钥，走真实 401；覆盖已创建 service/HTTP server 后的失败清理。
+        ? { PERSONAL_ACCESS_KEY: "test-only-access-key" }
+        : {};
+    await assert.rejects(
+      harness(5000, env, async (resources) => {
+        modelUrl = resources.model.baseUrl;
+        dataDir = resources.dataDir;
+        // 若清理回归，断言仍需真实失败；兜底只在断言结束后运行，避免测试进程泄漏并挂起。
+        t.after(async () => {
+          await resources.model.close().catch(() => {});
+          await rm(resources.dataDir, { recursive: true, force: true });
+        });
+        if (stage === "service") {
+          // 在 harness 自己的临时路径放普通文件，让真实 createService 在创建 DATA_DIR 时失败。
+          await rm(resources.dataDir, { recursive: true, force: true });
+          await writeFile(resources.dataDir, "not a directory");
+        }
+      }),
+      stage === "configuration"
+        ? /Model max tokens must be smaller than context window/
+        : stage === "service"
+          ? /EEXIST|ENOTDIR/
+          : /Harness login failed/,
+    );
+    assert.ok(dataDir);
+    assert.ok(modelUrl);
+    await assert.rejects(stat(dataDir), { code: "ENOENT" });
+    // 直接探测刚分配的监听端口，ECONNREFUSED 证明 provider 已关闭，而非请求超时。
+    const socket = connect({
+      host: "127.0.0.1",
+      port: Number(new URL(modelUrl).port),
+    });
+    try {
+      await assert.rejects(once(socket, "connect"), { code: "ECONNREFUSED" });
+    } finally {
+      socket.destroy();
+    }
+  });
 }
 
 test("OpenMuse info + SDK streaming, second-turn context, restart, stale PUT and dedup", {
@@ -315,9 +416,9 @@ test("early stop during retry preserves failed history, then retry after restart
   const emitted: BaseEvent[] = [];
   const pending = h
     .service()
-    .conversation.run(input(previous, "early-retry"), (event) => {
+    .conversation.run(input(previous, "early-retry"), createEventProjector((event) => {
       emitted.push(event);
-    });
+    }));
   await h.service().conversation.cancel();
   await pending;
   assert.equal(emitted.at(-1)?.code, "STOPPED");
@@ -443,6 +544,84 @@ test("timeout and broken endpoint terminate with errors; validation cannot mutat
   const wrong = input([...canonical, user("wrong")]);
   wrong.threadId = "../../evil";
   assert.equal((await h.events(wrong)).at(-1)?.code, "UNSUPPORTED_THREAD");
+});
+
+for (const failure of ["empty", "malformed", "broken"] as const) {
+  test(`provider ${failure} is an error, releases the lock and allows a new turn`, async (t) => {
+    const h = await harness();
+    t.after(h.close);
+    const events = await h.events(input([user(failure)]));
+    assert.equal(events.at(-1)?.type, "RUN_ERROR");
+    assert.ok(!events.some((event) => event.type === "RUN_FINISHED"));
+    assert.equal(h.service().conversation.isRunning(), false);
+    assert.equal(h.model.requests.length, 1, "provider failures must not auto-retry");
+    const history = await h.getHistory();
+    assert.equal((await h.events(input([...history, user("next turn")]))).at(-1)?.type, "RUN_FINISHED");
+  });
+}
+
+for (const tool of ["memory", "schedule"] as const) {
+  test(`${tool} side effects survive a subsequent model failure and restart`, async (t) => {
+    const h = await harness();
+    t.after(h.close);
+    const text = tool === "memory" ? "记住工具后失败" : "提醒我工具后失败";
+    const events = await h.events(input([user(text)]));
+    assert.ok(events.some((event) => event.type === "TOOL_CALL_RESULT"));
+    assert.equal(events.at(-1)?.code, "MODEL_ERROR");
+    assert.match(String(events.at(-1)?.message), /not rolled back/);
+    assert.equal(h.service().conversation.isRunning(), false);
+    assert.equal(h.model.requests.length, 2, "one tool round and one failed final reply, without retries");
+    const file = join(h.dataDir, tool === "memory" ? "memory.json" : "jobs.json");
+    const stored = JSON.parse(await readFile(file, "utf8"));
+    const items = tool === "memory" ? stored.memories : stored;
+    assert.equal(items.length, 1);
+    assert.match(tool === "memory" ? items[0].text : items[0].prompt, /工具后失败/);
+    const history = await h.getHistory();
+    assert.ok(history.some((message) => message.role === "tool"));
+    await h.restart();
+    assert.deepEqual(JSON.parse(await readFile(file, "utf8")), stored);
+    assert.deepEqual(await h.getHistory(), history);
+    assert.equal((await h.events(input([...history, user("next turn")]))).at(-1)?.type, "RUN_FINISHED");
+    assert.equal((tool === "memory" ? await h.service().memory.list() : await h.service().jobs.list()).length, 1);
+  });
+}
+
+test("tool effects survive a final model timeout without automatic execution retries", async (t) => {
+  const h = await harness(1000);
+  t.after(h.close);
+  const events = await h.events(input([user("记住工具后挂起")], "tool-timeout"));
+  assert.equal(events.at(-1)?.code, "TIMEOUT");
+  assert.match(String(events.at(-1)?.message), /not rolled back/);
+  assert.equal((await h.service().memory.list()).length, 1);
+  assert.equal(h.model.requests.length, 2);
+  assert.equal(h.service().conversation.isRunning(), false);
+  const history = await h.getHistory();
+  assert.ok(history.some((message) => message.role === "tool"));
+  assert.equal((await h.events(input([...history, user("next turn")]))).at(-1)?.type, "RUN_FINISHED");
+});
+
+test("stop after a tool preserves its effect and displayed history while pi filters aborted model text", async (t) => {
+  const h = await harness();
+  t.after(h.close);
+  const pending = h.events(input([user("记住工具后慢流")], "tool-stop"));
+  await until(() => h.model.requests.length === 2);
+  await sleep(100);
+  assert.equal((await h.request("/api/copilotkit/agent/default/stop/local-main", {}).then((response) => response.json())).stopped, true);
+  assert.equal((await pending).at(-1)?.code, "STOPPED");
+  assert.equal(h.service().conversation.isRunning(), false);
+  assert.equal((await h.service().memory.list()).length, 1);
+  const history = await h.getHistory();
+  assert.ok(history.some((message) => message.role === "tool"));
+  assert.ok(history.some((message) => message.role === "assistant" && String(message.content).includes("partial")));
+  await h.restart();
+  assert.deepEqual(await h.getHistory(), history);
+  assert.equal((await h.events(input([...history, user("continue")]))).at(-1)?.type, "RUN_FINISHED");
+  // pi 会保留工具结果，但 transform-messages 会过滤 error/aborted assistant。
+  // 和 nanobot “部分文本也进入下一轮模型上下文”不同：记录 SDK 的真实边界，
+  // 不为追求完全相同而修改 SDK、改写 stopReason 或伪造另一套历史。
+  assert.ok(h.model.requests.at(-1)?.messages.some((message) => message.role === "tool"));
+  assert.ok(!h.model.requests.at(-1)?.messages.some((message) => message.role === "assistant" && JSON.stringify(message.content).includes("partial")));
+  assert.equal((await h.service().memory.list()).length, 1);
 });
 
 test("tool loop: currentTime events, tool-result round trip, history projection survives restart", {
@@ -726,7 +905,7 @@ test("P3 memory: REST CRUD, chat tool write, prompt injection and identity setti
   assert.equal(agent.memories.length, 0);
 });
 
-test("P4 scheduled jobs: chat-created reminder fires into history; missed job runs after restart", {
+test("P4 scheduled jobs: chat-created reminder fires into history; missed one-shot does not rerun after restart", {
   timeout: 60000,
 }, async (t) => {
   const h = await harness();
@@ -747,12 +926,20 @@ test("P4 scheduled jobs: chat-created reminder fires into history; missed job ru
   assert.equal(tasks.length, 1);
   assert.equal(tasks[0].status, "scheduled");
   assert.equal(tasks[0].prompt, "提醒喝水");
-  // 等调度器到点触发（2s 扫表 + 15s 任务 → 最多 ~20s）。
+  // 等调度器到点触发（2s 扫表 + 15s 任务 → 最多 ~20s）。必须同时等待
+  // 定时 user 与最终 assistant：pi 在 prompt 完成后才把 assistant 写入历史，
+  // 只看到 user 就提前退出会在慢机器上产生竞态。
   let history: Message[] = [];
   for (let i = 0; i < 22; i++) {
     await sleep(2000);
     history = await h.getHistory();
-    if (history.some((x) => x.role === "user" && String(x.content).includes("⏰"))) break;
+    if (
+      history.some((x) => x.role === "user" && String(x.content).includes("⏰")) &&
+      history.some(
+        (x) => x.role === "assistant" && String(x.content).includes("JOB-RAN"),
+      )
+    )
+      break;
   }
   const fired = history.filter(
     (x) => x.role === "user" && String(x.content).includes("⏰ [定时任务] 提醒喝水"),
@@ -765,8 +952,8 @@ test("P4 scheduled jobs: chat-created reminder fires into history; missed job ru
     "assistant result should land in history",
   );
   tasks = (await h.request("/api/agent").then((x) => x.json())).tasks as typeof tasks;
-  assert.equal(tasks[0].status, "cancelled", "one-shot job disabled after run");
-  // 手工放一个已过期任务 → 重启后扫表补跑。
+  assert.equal(tasks[0].status, "succeeded", "one-shot job completed and is no longer scheduled");
+  // nanobot 启动时会重算任务：已过期的一次性任务不会在重启后补跑。
   await writeFile(
     join(h.dataDir, "jobs.json"),
     JSON.stringify([
@@ -782,19 +969,12 @@ test("P4 scheduled jobs: chat-created reminder fires into history; missed job ru
     ]),
   );
   await h.restart();
-  let caught = false;
-  for (let i = 0; i < 10; i++) {
-    await sleep(2000);
-    if (
-      (await h.getHistory()).some(
-        (x) => x.role === "user" && String(x.content).includes("重启补跑"),
-      )
-    ) {
-      caught = true;
-      break;
-    }
-  }
-  assert.ok(caught, "missed job should run after restart");
+  assert.equal((await h.service().jobs.list())[0].enabled, false);
+  // 等待两个普通扫描周期，检查不是只有启动时的快照正确。
+  await sleep(4200);
+  assert.equal((await h.getHistory()).some(
+    (x) => x.role === "user" && String(x.content).includes("重启补跑"),
+  ), false, "missed one-shot job should not rerun after restart");
   // 触发轮之后的普通对话不回归（客户端历史以服务端为准重新同步）。
   const synced = await h.getHistory();
   const reply = await h.events(input([...synced, user("after-job")], "after-job"));
