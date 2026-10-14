@@ -23,6 +23,7 @@ export const paths = {
   memory: (id: string) => `/api/agent/memories/${id}`,
   memoryForget: (id: string) => `/api/agent/memories/${id}/forget`,
   identity: "/api/agent/identity",
+  profile: "/api/profile",
   /** AG-UI 事件流入口（POST，SSE 响应）；threadId 见 validateThreadId。 */
   run: "/api/copilotkit/agent/default/run",
   stop: (threadId: string) => `/api/copilotkit/agent/default/stop/${threadId}`,
@@ -80,3 +81,12 @@ export const taskControlSchema = z.object({
   action: z.enum(["pause", "resume", "cancel", "retry"]),
 });
 export type TaskControlAction = z.infer<typeof taskControlSchema>;
+
+// ---------------------------------------------------------------------------
+// SOUL / USER 自由文本（下一轮对话注入生效；空串等于清空）
+// ---------------------------------------------------------------------------
+export const saveProfileSchema = z.object({
+  soul: z.string().max(20000).optional(),
+  user: z.string().max(20000).optional(),
+});
+export type ProfileState = { soul: string; user: string };

@@ -5,6 +5,7 @@ import { z } from "zod/v3";
 import type { HttpDependencies } from "../bootstrap/types.js";
 import { createOpenMuseRoutes } from "../adapters/openmuse/routes.js";
 import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
+import { saveProfileSchema } from "./contracts/rest.js";
 
 // 只挂载 HTTP/协议适配：使用已组装的服务，不创建 store，也不启动或关闭调度器。
 export async function createHttpApp(dependencies: HttpDependencies) {
@@ -50,6 +51,15 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.get("/api/threads", async (c) =>
     c.json({ threads: await conversationHub.threads() }),
   );
+  // SOUL/USER 自由文本：读取与保存（下一轮 prompt 注入即生效）。
+  app.get("/api/profile", async (c) => c.json(await dependencies.identity.getProfile()));
+  app.put("/api/profile", async (c) => {
+    const parsed = saveProfileSchema.safeParse(
+      await c.req.json().catch(() => undefined),
+    );
+    if (!parsed.success) return c.json({ error: "Invalid profile request" }, 400);
+    return c.json(await dependencies.identity.saveProfile(parsed.data));
+  });
   // 先鉴权，再挂载兼容/运行协议，最后处理未知 API；顺序是现有安全边界。
   app.route("/", createOpenMuseRoutes(dependencies));
   app.route("/", runtimeRoutes);

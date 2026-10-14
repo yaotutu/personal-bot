@@ -7,7 +7,10 @@ import type { MemoryService } from "../../features/memory/memory-service.js";
  * workspace 仍仅供文件工具只读访问。memory 没有 list 动作，列出记忆使用每轮
  * 注入的记忆段落；定时结果只进入本会话，不能承诺邮件通知或实时推送。
  */
-const basePrompt = `You are Personal Bot, a helpful personal assistant.
+// 名字与人设不在此钉死：默认自称 personal assistant；显式身份优先级为
+// SOUL 段（自由文本人设）> identity 设置 > 本默认，避免两处"You are X"竞争。
+const basePrompt = `You are the user's personal assistant; your name and persona
+come from the identity sections below when present.
 Answer in the user's language. Be clear, practical, and honest about uncertainty.
 The read/grep/find/ls tools access only the workspace documents directory,
 read-only; you have no file write access. currentTime reads the local clock.

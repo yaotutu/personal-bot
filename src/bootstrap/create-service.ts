@@ -6,6 +6,7 @@ import { createConversationHub } from "../features/conversation/conversation-hub
 import { createJobService } from "../features/jobs/job-service.js";
 import { createMemoryService } from "../features/memory/memory-service.js";
 import { createIdentityService } from "../features/identity/identity-service.js";
+import { readProfileFile, writeProfileFile } from "../adapters/storage/profile-files.js";
 import { createJobRepository } from "../adapters/storage/job-repository.js";
 import { createMemoryRepository } from "../adapters/storage/memory-repository.js";
 import { createHttpApp } from "../http/app.js";
@@ -38,7 +39,12 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   // identity 与 memory 共享同一文档和读改写队列；业务入口分开不等于写入者分开。
   const memoryRepository = createMemoryRepository(layout.memoryFile);
   const memory = createMemoryService(memoryRepository);
-  const identity = createIdentityService(memoryRepository);
+  const identity = createIdentityService(memoryRepository, {
+    // SOUL/USER 文件实现放 storage adapter；空内容写空文件（等于清空人设）。
+    read: (which) => readProfileFile(which === "soul" ? layout.soulFile : layout.userFile),
+    write: (which, content) =>
+      writeProfileFile(which === "soul" ? layout.soulFile : layout.userFile, content),
+  });
   const jobs = createJobService(createJobRepository(layout.jobsFile));
   await jobs.reconcileOnStart();
   const presentation = createToolPresentation(config.presentation);

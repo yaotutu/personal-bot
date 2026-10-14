@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChatView } from "../chat/ChatView";
+import { JobsView } from "../jobs/JobsView";
+import { SettingsView } from "../settings/SettingsView";
 import { isLoggedIn, listThreads, login } from "../lib/api";
 
 /**
@@ -13,6 +15,8 @@ export const App = () => {
   const [newThread, setNewThread] = useState("");
   const [accessKey, setAccessKey] = useState("");
   const [error, setError] = useState("");
+  type View = "chat" | "jobs" | "settings";
+  const [view, setView] = useState<View>("chat");
 
   useEffect(() => {
     if (!authed) return;
@@ -63,17 +67,41 @@ export const App = () => {
     );
   }
 
+  const navItems: { key: View; label: string }[] = [
+    { key: "chat", label: "聊天" },
+    { key: "jobs", label: "任务" },
+    { key: "settings", label: "设置" },
+  ];
+
   return (
     <div className="flex h-screen bg-stone-100">
       <aside className="flex w-56 flex-col border-r border-stone-200 bg-white">
         <div className="px-4 py-4 text-sm font-semibold tracking-wide text-stone-700">
           Personal Bot
         </div>
-        <div className="flex-1 space-y-0.5 overflow-y-auto px-2">
+        <div className="flex gap-1 px-2 pb-2">
+          {navItems.map((item) => (
+            <button
+              key={item.key}
+              onClick={() => setView(item.key)}
+              className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium ${
+                view === item.key
+                  ? "bg-stone-800 text-white"
+                  : "text-stone-500 hover:bg-stone-100"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <div className={`flex-1 space-y-0.5 overflow-y-auto px-2 ${view === "chat" ? "" : "hidden"}`}>
           {threads.map((thread) => (
             <button
               key={thread.id}
-              onClick={() => setActive(thread.id)}
+              onClick={() => {
+                setActive(thread.id);
+                setView("chat");
+              }}
               className={`w-full truncate rounded-lg px-3 py-2 text-left text-sm ${
                 thread.id === active
                   ? "bg-stone-800 text-white"
@@ -84,7 +112,7 @@ export const App = () => {
             </button>
           ))}
         </div>
-        <div className="border-t border-stone-200 p-2">
+        <div className={`border-t border-stone-200 p-2 ${view === "chat" ? "" : "hidden"}`}>
           <input
             value={newThread}
             onChange={(e) => setNewThread(e.target.value)}
@@ -108,7 +136,9 @@ export const App = () => {
         </div>
       </aside>
       <main className="flex-1">
-        <ChatView threadId={active} />
+        {view === "chat" && <ChatView threadId={active} />}
+        {view === "jobs" && <JobsView />}
+        {view === "settings" && <SettingsView />}
       </main>
     </div>
   );
