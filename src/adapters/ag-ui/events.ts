@@ -1,16 +1,24 @@
 import { EventType, type BaseEvent } from "@ag-ui/core";
 import type { ConversationEvent } from "../../features/conversation/types.js";
+import type { ToolPresentation } from "./tool-presentation.js";
 
 /**
  * 每次客户端 run 独享一个协议投影器，状态不进入主会话锁。
- * 保持原有文本 START/CONTENT/END 和工具三段式；供应商漏掉 start 时补发。
+ * hidden 抑制整组工具事件；summary 只在 END 时发送安全参数，不泄露参数增量。
+ * 未注入策略时保留 AG-UI adapter 的原始投影，兼容独立 adapter 单测和旧调用方。
  */
-export const createEventProjector = (emit: (event: BaseEvent) => void) => {
+export const createEventProjector = (
+  emit: (event: BaseEvent) => void,
+  presentation?: ToolPresentation,
+) => {
   let assistantId = "";
   let textStarted = false;
+  const toolNames = new Map<string, string>();
   const startedTools = new Set<string>();
+  const modeFor = (name: string) => presentation?.modeFor(name) ?? "summary";
   const startTool = (id: string, name: string) => {
-    if (startedTools.has(id)) return;
+    toolNames.set(id, name);
+    if (startedTools.has(id) || (presentation && modeFor(name) === "hidden")) return;
     startedTools.add(id);
     emit({ type: EventType.TOOL_CALL_START, toolCallId: id, toolCallName: name, parentMessageId: assistantId });
   };
@@ -21,13 +29,17 @@ export const createEventProjector = (emit: (event: BaseEvent) => void) => {
         emit({ type: EventType.RUN_STARTED, threadId: event.threadId, runId: event.runId });
         break;
       case "run_finished":
+        toolNames.clear();
+        startedTools.clear();
         emit({ type: EventType.RUN_FINISHED, threadId: event.threadId, runId: event.runId });
         break;
       case "run_error":
+        toolNames.clear();
+        startedTools.clear();
         emit({ type: EventType.RUN_ERROR, code: event.code, message: event.message });
         break;
       case "history_snapshot":
-        emit({ type: EventType.MESSAGES_SNAPSHOT, messages: event.messages });
+        emit({ type: EventType.MESSAGES_SNAPSHOT, messages: presentation ? presentation.presentHistory(event.messages) : event.messages });
         break;
       case "text_delta":
         if (!event.delta) return;
@@ -45,19 +57,35 @@ export const createEventProjector = (emit: (event: BaseEvent) => void) => {
         break;
       case "tool_delta":
         startTool(event.id, event.name);
-        emit({ type: EventType.TOOL_CALL_ARGS, toolCallId: event.id, delta: event.delta });
+        if (!presentation) emit({ type: EventType.TOOL_CALL_ARGS, toolCallId: event.id, delta: event.delta });
         break;
-      case "tool_end":
-        if (!startedTools.has(event.id)) {
-          startTool(event.id, event.name);
+      case "tool_end": {
+        const alreadyStarted = startedTools.has(event.id);
+        startTool(event.id, event.name);
+        const name = toolNames.get(event.id) ?? event.name;
+        if (presentation && modeFor(name) === "hidden") break;
+        if (presentation) {
+          emit({ type: EventType.TOOL_CALL_ARGS, toolCallId: event.id, delta: presentation.presentArguments(name, event.arguments) });
+        } else if (!alreadyStarted) {
           const args = JSON.stringify(event.arguments ?? {});
           if (args !== "{}") emit({ type: EventType.TOOL_CALL_ARGS, toolCallId: event.id, delta: args });
         }
         emit({ type: EventType.TOOL_CALL_END, toolCallId: event.id });
         break;
-      case "tool_result":
-        emit({ type: EventType.TOOL_CALL_RESULT, messageId: "tool-" + event.id, toolCallId: event.id, content: event.content, role: "tool" });
+      }
+      case "tool_result": {
+        const name = toolNames.get(event.id);
+        toolNames.delete(event.id);
+        if (presentation && (!name || modeFor(name) === "hidden")) break;
+        emit({
+          type: EventType.TOOL_CALL_RESULT,
+          messageId: "tool-" + event.id,
+          toolCallId: event.id,
+          content: presentation && name ? presentation.presentResult(name, event.content) : event.content,
+          role: "tool",
+        });
         break;
+      }
       case "assistant_end":
         // pi 的消息终止并非 run 终态；协调器等待 idle/持久化后才发送完成事件。
         break;

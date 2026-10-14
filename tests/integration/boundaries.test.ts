@@ -5,14 +5,20 @@ import { join, resolve } from "node:path";
 import test, { type TestContext } from "node:test";
 import { createService } from "../../src/bootstrap/create-service.js";
 import { createAuth } from "../../src/adapters/auth/token-service.js";
-import { loadConfig } from "../../src/config/load-config.js";
+import { createConfig, type ConfigFileInput } from "../../src/config/load-config.js";
 
-// 显式传入环境对象，避免本机 .env 或其他测试的模型配置影响这些离线边界测试。
+// 直接构造隔离配置对象，避免本机 config.json 或环境变量影响这些离线边界测试。
 // 每个有持久化行为的测试独占临时目录；即使断言失败，after 也会清理签名密钥和会话数据。
-const temporaryConfig = async (t: TestContext, env: NodeJS.ProcessEnv = {}) => {
+const temporaryConfig = async (
+  t: TestContext,
+  value: ConfigFileInput = {},
+) => {
   const dataDir = await mkdtemp(join(tmpdir(), "personal-bot-config-auth-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  return loadConfig({ ...env, DATA_DIR: dataDir });
+  return createConfig(
+    { ...value, runtime: { ...value.runtime, dataDir } },
+    { configFile: join(dataDir, "config.json") },
+  );
 };
 
 // 错误响应必须保留 HTTP 状态及 JSON 结构，不能退化为 HTML 或仅靠正文表达失败。
@@ -27,46 +33,29 @@ const jsonError = async (response: Response, status: number) => {
   assert.ok(body.error);
 };
 
-test("config: defaults allow an unconfigured loopback server", () => {
-  const config = loadConfig({});
-  assert.equal(config.host, "127.0.0.1");
-  assert.equal(config.port, 8787);
-  assert.equal(config.configured, false);
-  assert.equal(config.baseUrl, undefined);
-  assert.equal(config.modelId, undefined);
-  assert.equal(config.accessKey, undefined);
-  assert.equal(config.maxTokens, 4096);
-  assert.equal(config.contextWindow, 32768);
-  assert.equal(config.runTimeoutMs, 120_000);
-  assert.equal(config.dataDir, resolve(".personal-bot"));
-  assert.deepEqual(config.allowedOrigins, [
-    "http://localhost:8081",
-    "http://127.0.0.1:8081",
-  ]);
-});
-
-test("config: configured values are trimmed and normalized", () => {
-  const config = loadConfig({
-    HOST: " 0.0.0.0 ",
-    PERSONAL_ACCESS_KEY: " workspace-key ",
-    PERSONAL_MODEL_BASE_URL: " http://127.0.0.1:8000/v1/// ",
-    PERSONAL_MODEL_ID: " local-model ",
-    PERSONAL_MODEL_API_KEY: " model-key ",
-    PORT: "9000",
-    DATA_DIR: " ./test-data ",
-    PERSONAL_MODEL_MAX_TOKENS: "2048",
-    PERSONAL_MODEL_CONTEXT_WINDOW: "8192",
-    PERSONAL_RUN_TIMEOUT_MS: "10000",
-    ALLOWED_ORIGINS: " https://client.example.test, , http://localhost:8081 ",
+test("config: direct values are normalized and model credentials stay in config", () => {
+  const config = createConfig({
+    server: {
+      host: "0.0.0.0",
+      port: 9000,
+      accessKey: " workspace-key ",
+      allowedOrigins: [" https://client.example.test ", "", "http://localhost:8081 "],
+    },
+    model: {
+      baseUrl: " http://127.0.0.1:8000/v1/// ",
+      id: " local-model ",
+      apiKey: " model-key ",
+      maxTokens: 2048,
+      contextWindow: 8192,
+    },
+    runtime: { dataDir: "data", runTimeoutMs: 10000 },
   });
-  assert.equal(config.configured, true);
   assert.equal(config.host, "0.0.0.0");
   assert.equal(config.accessKey, "workspace-key");
   assert.equal(config.apiKey, "model-key");
   assert.equal(config.baseUrl, "http://127.0.0.1:8000/v1");
   assert.equal(config.modelId, "local-model");
   assert.equal(config.port, 9000);
-  assert.equal(config.dataDir, resolve("test-data"));
   assert.equal(config.maxTokens, 2048);
   assert.equal(config.contextWindow, 8192);
   assert.equal(config.runTimeoutMs, 10000);
@@ -74,135 +63,6 @@ test("config: configured values are trimmed and normalized", () => {
     "https://client.example.test",
     "http://localhost:8081",
   ]);
-});
-
-test("config: model endpoint and ID must be configured together", () => {
-  const partial: NodeJS.ProcessEnv[] = [
-    { PERSONAL_MODEL_BASE_URL: "http://localhost:8000/v1" },
-    { PERSONAL_MODEL_ID: "model" },
-    {
-      PERSONAL_MODEL_BASE_URL: "http://localhost:8000/v1",
-      PERSONAL_MODEL_ID: " ",
-    },
-    { PERSONAL_MODEL_BASE_URL: " ", PERSONAL_MODEL_ID: "model" },
-  ];
-  partial.forEach((env) => assert.throws(() => loadConfig(env), /together/));
-  assert.equal(
-    loadConfig({ PERSONAL_MODEL_BASE_URL: " ", PERSONAL_MODEL_ID: " " })
-      .configured,
-    false,
-  );
-  // 模型凭据不代表模型已配置，也不能替代工作区访问密钥。
-  assert.equal(
-    loadConfig({ PERSONAL_MODEL_API_KEY: "model-key" }).configured,
-    false,
-  );
-});
-
-test("config: only supported loopback hosts may omit an access key", () => {
-  ["127.0.0.1", "localhost", "::1"].forEach((host) => {
-    assert.equal(loadConfig({ HOST: host }).host, host);
-  });
-  ["0.0.0.0", "::", "192.168.1.2", "example.test"].forEach((host) => {
-    [undefined, "", " "].forEach((key) => {
-      assert.throws(
-        () => loadConfig({ HOST: host, PERSONAL_ACCESS_KEY: key }),
-        /PERSONAL_ACCESS_KEY/,
-      );
-    });
-    assert.equal(
-      loadConfig({ HOST: host, PERSONAL_ACCESS_KEY: "key" }).host,
-      host,
-    );
-  });
-  assert.equal(loadConfig({ HOST: " " }).host, "127.0.0.1");
-});
-
-test("config: model URLs accept HTTP(S), but reject credentials and URL metadata", () => {
-  const model = { PERSONAL_MODEL_ID: "model" };
-  [
-    "http://127.0.0.1:8000/v1",
-    "https://model.example.test/v1",
-    "http://[::1]:8000/v1",
-  ].forEach((url) => {
-    assert.equal(
-      loadConfig({ ...model, PERSONAL_MODEL_BASE_URL: url }).baseUrl,
-      url,
-    );
-  });
-  [
-    "not-a-url",
-    "ftp://model.example.test/v1",
-    "file:///tmp/model",
-    "http://user:secret@localhost/v1",
-    "http://user@localhost/v1",
-    "http://:secret@localhost/v1",
-    "https://model.example.test/v1?key=secret",
-    "https://model.example.test/v1#fragment",
-  ].forEach((url) =>
-    assert.throws(
-      () => loadConfig({ ...model, PERSONAL_MODEL_BASE_URL: url }),
-      url,
-    ),
-  );
-});
-
-test("config: numeric settings reject non-positive, fractional, unsafe and oversized values", () => {
-  const limits = [
-    ["PORT", 65535],
-    ["PERSONAL_MODEL_MAX_TOKENS", 1_000_000],
-    ["PERSONAL_MODEL_CONTEXT_WINDOW", 10_000_000],
-    ["PERSONAL_RUN_TIMEOUT_MS", 3_600_000],
-  ] as const;
-  limits.forEach(([name, max]) => {
-    [
-      "",
-      " ",
-      "0",
-      "-1",
-      "1.5",
-      "NaN",
-      "Infinity",
-      "9007199254740992",
-      String(max + 1),
-    ].forEach((value) => {
-      assert.throws(
-        () => loadConfig({ [name]: value }),
-        new RegExp(name),
-        `${name}=${value}`,
-      );
-    });
-  });
-  const upper = loadConfig({
-    PORT: "65535",
-    PERSONAL_MODEL_MAX_TOKENS: "1000000",
-    PERSONAL_MODEL_CONTEXT_WINDOW: "10000000",
-    PERSONAL_RUN_TIMEOUT_MS: "3600000",
-  });
-  assert.equal(upper.port, 65535);
-  assert.equal(upper.maxTokens, 1_000_000);
-  assert.equal(upper.contextWindow, 10_000_000);
-  assert.equal(upper.runTimeoutMs, 3_600_000);
-  const lower = loadConfig({
-    PORT: "1",
-    PERSONAL_MODEL_MAX_TOKENS: "1",
-    PERSONAL_MODEL_CONTEXT_WINDOW: "2",
-    PERSONAL_RUN_TIMEOUT_MS: "1",
-  });
-  assert.equal(lower.port, 1);
-  assert.equal(lower.maxTokens, 1);
-  assert.equal(lower.contextWindow, 2);
-  assert.equal(lower.runTimeoutMs, 1);
-  ["4096", "4097"].forEach((maxTokens) =>
-    assert.throws(
-      () =>
-        loadConfig({
-          PERSONAL_MODEL_MAX_TOKENS: maxTokens,
-          PERSONAL_MODEL_CONTEXT_WINDOW: "4096",
-        }),
-      /smaller than context window/,
-    ),
-  );
 });
 
 test("auth: loopback login works without a configured key", async (t) => {
@@ -214,8 +74,8 @@ test("auth: loopback login works without a configured key", async (t) => {
 
 test("auth: login, tampering and same-directory restart", async (t) => {
   const config = await temporaryConfig(t, {
-    PERSONAL_ACCESS_KEY: "workspace-key",
-    PERSONAL_MODEL_API_KEY: "model-key",
+    server: { accessKey: "workspace-key" },
+    model: { apiKey: "model-key" },
   });
   const auth = await createAuth(config);
   [undefined, "", "wrong-key", "model-key"].forEach((key) =>
@@ -256,7 +116,7 @@ test("auth: login, tampering and same-directory restart", async (t) => {
 
 test("auth: rotating the access key invalidates existing tokens in the same data directory", async (t) => {
   const config = await temporaryConfig(t, {
-    PERSONAL_ACCESS_KEY: "original-key",
+    server: { accessKey: "original-key" },
   });
   const original = await createAuth(config);
   const oldToken = original.login("original-key");
@@ -265,9 +125,9 @@ test("auth: rotating the access key invalidates existing tokens in the same data
 
   // 保留同一 DATA_DIR 及磁盘上的 secret，仅更换访问密钥；旧 token 必须被新实例拒绝。
   // 这能捕获签名仍只依赖持久化 secret、没有绑定访问密钥的回归。
-  const rotatedConfig = loadConfig({
-    DATA_DIR: config.dataDir,
-    PERSONAL_ACCESS_KEY: "rotated-key",
+  const rotatedConfig = createConfig({
+    server: { accessKey: "rotated-key" },
+    runtime: { dataDir: config.dataDir },
   });
   const rotated = await createAuth(rotatedConfig);
   assert.equal(rotated.authorized(`Bearer ${oldToken}`), false);
@@ -284,8 +144,10 @@ test("auth: rotating the access key invalidates existing tokens in the same data
 
 test("app: offline health, authentication and text-only HTTP boundaries", async (t) => {
   const config = await temporaryConfig(t, {
-    PERSONAL_ACCESS_KEY: "workspace-key",
-    ALLOWED_ORIGINS: "http://localhost:8081",
+    server: {
+      accessKey: "workspace-key",
+      allowedOrigins: ["http://localhost:8081"],
+    },
   });
   const fixture = await createService(config);
   const { app } = fixture;

@@ -39,7 +39,7 @@ export function createConversation(
     if (!config.configured)
       rejectConversation(
         "MODEL_NOT_CONFIGURED",
-        "Configure PERSONAL_MODEL_BASE_URL and PERSONAL_MODEL_ID on the server",
+        "Configure model.baseUrl and model.id in .personal-bot/config.json",
       );
     if (signal?.aborted)
       rejectConversation("DISCONNECTED", "Client disconnected before the run started");

@@ -6,6 +6,7 @@ import type { IdentityService } from "../features/identity/identity-service.js";
 import type { DataLayout } from "../adapters/storage/data-layout.js";
 import type { Scheduler } from "../features/jobs/scheduler.js";
 import type { createAuth } from "../adapters/auth/token-service.js";
+import type { ToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
 
 type Auth = Awaited<ReturnType<typeof createAuth>>;
 
@@ -18,9 +19,10 @@ export type ServiceContainer = {
   jobs: JobService;
   conversation: Conversation;
   scheduler: Scheduler;
+  presentation: ToolPresentation;
 };
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "config" | "auth" | "memory" | "identity" | "jobs" | "conversation"
+  "config" | "auth" | "memory" | "identity" | "jobs" | "conversation" | "presentation" | "scheduler"
 >;

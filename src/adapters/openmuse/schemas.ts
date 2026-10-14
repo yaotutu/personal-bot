@@ -13,3 +13,6 @@ export const identitySchema = z.object({
   showChatUpdates: z.boolean().optional(),
 });
 export const conversationSchema = z.object({ messages: z.array(z.unknown()).max(1000) });
+export const taskControlSchema = z.object({
+  action: z.enum(["pause", "resume", "cancel", "retry"]),
+});

@@ -4,12 +4,14 @@ import { Observable } from "rxjs";
 import type { Conversation } from "../../features/conversation/conversation-service.js";
 import { ConversationError } from "../../features/conversation/errors.js";
 import { createEventProjector } from "./events.js";
+import type { ToolPresentation } from "./tool-presentation.js";
 
 // 只有 SDK 适配边界使用继承；会话运行、历史和取消逻辑都在函数式 coordinator 中。
 export class PiAgent extends AbstractAgent {
   constructor(
     private conversation: Conversation,
     private signal: AbortSignal,
+    private presentation?: ToolPresentation,
   ) {
     super({
       agentId: "default",
@@ -17,7 +19,7 @@ export class PiAgent extends AbstractAgent {
     });
   }
   override clone() {
-    return new PiAgent(this.conversation, this.signal);
+    return new PiAgent(this.conversation, this.signal, this.presentation);
   }
   run(input: RunAgentInput): Observable<BaseEvent> {
     return new Observable((observer) => {
@@ -27,7 +29,7 @@ export class PiAgent extends AbstractAgent {
         observer.complete();
       };
       void this.conversation
-        .run(input, createEventProjector((event) => observer.next(event)), this.signal)
+        .run(input, createEventProjector((event) => observer.next(event), this.presentation), this.signal)
         .then(finish, (error) => {
           observer.next({
             type: EventType.RUN_ERROR,

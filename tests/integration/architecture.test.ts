@@ -10,7 +10,7 @@ import { createScheduler } from "../../src/features/jobs/scheduler.js";
 import type { Conversation } from "../../src/features/conversation/conversation-service.js";
 import type { Job } from "../../src/features/jobs/types.js";
 import type { JobService } from "../../src/features/jobs/job-service.js";
-import { loadConfig } from "../../src/config/load-config.js";
+import { createConfig } from "../../src/config/load-config.js";
 import { createFakeModel } from "../support/fake-model.js";
 
 // tick 内含文件/会话的异步边界；推进假时钟后让 Promise 队列完整结算，避免依赖真实延时。
@@ -29,7 +29,7 @@ const dueJob = (id = "test-job"): Job => ({
   createdAt: new Date(0).toISOString(),
   nextRunAt: new Date(0).toISOString(),
 });
-const schedulerConfig = loadConfig({ PERSONAL_SCHEDULER_INTERVAL_MS: "10" });
+const schedulerConfig = createConfig({ runtime: { schedulerIntervalMs: 10 } });
 // 调度器只需三个方法；生产会话仍由组合入口创建，不为测试另造执行内核。
 const schedulerFor = (
   jobs: Pick<JobService, "list" | "markRun">,
@@ -447,7 +447,7 @@ test("scheduler leaves a busy job due instead of consuming it as a failure", asy
 
 test("HTTP construction does not own or implicitly restart the scheduler", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "personal-bot-http-boundary-"));
-  const service = await createService(loadConfig({ DATA_DIR: dataDir }));
+  const service = await createService(createConfig({ runtime: { dataDir } }));
   t.after(async () => {
     try { await service.close(); }
     finally { await rm(dataDir, { recursive: true, force: true }); }
@@ -468,10 +468,9 @@ test("HTTP construction does not own or implicitly restart the scheduler", async
 test("HTTP and pi tools use the same composed stores; conversation exposes no stores", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "personal-bot-composition-"));
   const model = await createFakeModel();
-  const service = await createService(loadConfig({
-    DATA_DIR: dataDir,
-    PERSONAL_MODEL_BASE_URL: model.baseUrl,
-    PERSONAL_MODEL_ID: "test-model",
+  const service = await createService(createConfig({
+    model: { baseUrl: model.baseUrl, id: "test-model" },
+    runtime: { dataDir },
   }));
   t.after(async () => {
     try { await service.close(); }
@@ -513,11 +512,9 @@ test("service close cancels a running scheduled pi turn before draining its stat
 }, async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "personal-bot-close-"));
   const model = await createFakeModel();
-  const service = await createService(loadConfig({
-    DATA_DIR: dataDir,
-    PERSONAL_MODEL_BASE_URL: model.baseUrl,
-    PERSONAL_MODEL_ID: "test-model",
-    PERSONAL_SCHEDULER_INTERVAL_MS: "10",
+  const service = await createService(createConfig({
+    model: { baseUrl: model.baseUrl, id: "test-model" },
+    runtime: { dataDir, schedulerIntervalMs: 10 },
   }));
   let providerClosed = false;
   const closeProvider = async () => {

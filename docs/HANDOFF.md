@@ -1,6 +1,6 @@
 # Personal Bot 交接文档
 
-> 更新日期：2026-10-12 ｜ 状态：产品 P1-P4 已完成；架构重构 R0-R6 与 R7A 已完成，R7B 延期；第一阶段 prompt 修正与真实模型 Web 核心复验已完成；第二阶段 P5A/P5B 服务端与 Web 验收已完成。当前以 OpenMuse Web 页面跑通为准，原生客户端暂不作为交付门槛。
+> 更新日期：2026-10-12 ｜ 状态：产品 P1-P4 已完成；架构重构 R0-R6 与 R7A 已完成，R7B 延期；第一阶段 prompt 修正与真实模型 Web 核心复验已完成；第二阶段 P5A/P5B 服务端与 Web 验收已完成；当前配置入口已改为必需 config.json，Web Search/Fetch 已实现。当前以 OpenMuse Web 页面跑通为准，原生客户端暂不作为交付门槛。
 
 ## 1. 项目一句话
 
@@ -11,10 +11,17 @@
 已完成并通过：
 
 - `pnpm typecheck`
-- `pnpm test`：135 项通过，测试显式覆盖 `tests/unit/` 与 `tests/integration/`
+- `pnpm test`：176 项通过，测试显式覆盖 `tests/unit/` 与 `tests/integration/`
 - `pnpm build`
 - `git diff --check`
-- 测试包含真实 HTTP、真实 pi SDK、fake provider、SSE、历史、鉴权、取消、重试、调度、并发写和初始化失败清理。
+- 测试包含真实 HTTP、真实 pi SDK、fake provider、SSE、历史、鉴权、取消、重试、调度、并发写、配置文件、Web 工具和初始化失败清理。
+- 配置入口为必需 `.personal-bot/config.json`：常规配置和模型 key 直接写入 JSON，无环境变量回退或插值；详见 `docs/configuration.md`。已用隔离临时配置完成编译入口 health/SIGTERM 冒烟，并确认缺失 config.json 时快速失败。
+- Web Search/Fetch 已完成：`search_web` 优先 DuckDuckGo、challenge 时 Bing RSS 兜底；`web_fetch` 安全抓取公网 HTTP(S) 并提取 Markdown/text。DNS 校验并固定公网 IP，重定向逐跳校验，限制响应大小与超时；外部内容标记不可信。真实 transport 已直接验证 OpenAI 搜索结果和 example.com 抓取。
+- OpenMuse 兼容修正：搜索工具已从 nanobot 语义的 `web_search` 调整为客户端专用 renderer 认可的 `search_web`，并返回 `{results,warnings,truncated}` JSON；新搜索在 Web DEV 页面显示为 “Found N sources” 卡片。历史里的旧 `web_search` 仍会按通配卡片展示，不改写既有会话。后续工具必须同时核对 nanobot 核心行为与 OpenMuse 工具名/结果 schema。
+- 实时天气 `get_weather` 已完成：Open-Meteo Geocoding + Forecast、无需密钥、默认城市可在 config 配置（当前真实配置为上海），返回当前天气与今日概要；复用公网 HTTP 安全边界。真实模型 HTTP 与 OpenMuse Web DEV 已验证。OpenMuse 暂无天气专用 renderer，因此显示为通配只读卡片，内容为紧凑天气摘要。
+- 2026-10-12 已完成真实配置迁移：旧 `.env` 删除，模型配置与 key 移入 gitignored、`0600` 的 `.personal-bot/config.json`；服务已用新配置重启。完整自动化验证、真实模型 HTTP、currentTime、memory 写入/清理、OpenMuse Web 聊天、服务重启与历史恢复均通过。
+- 2026-10-12 已加入服务端工具展示策略：`tools.presentation` 默认 `hidden`，可按工具覆盖 `summary`；实时 AG-UI 与 GET/replay 历史统一过滤，完整结果仍留在模型/pi 权威历史，未修改 OpenMuse 客户端。专项 unit/integration 已覆盖隐藏卡片、搜索 schema、刷新/重启与 canonical 历史隔离。
+- 2026-10-12 已补齐 OpenMuse Activity 定时任务详情闭环：`GET /api/agent/tasks/:id` 返回真实任务/最近事实时间线，控制 POST 支持 pause/resume/cancel/retry；暂停/取消不回滚副作用，retry 仅用户显式触发，未引入第二套历史或自动重试。OpenMuse Web 已实际打开正式喝水任务详情，原 501 消失；Workspace timeline 仍为空，因为 actions/activity 审批体系未开放。
 - 隔离 DATA_DIR 的进程检查通过：编译入口未配置模型时 health/session/SIGTERM；mock health/session/currentTime SSE/SIGTERM；占用端口和非法配置失败后退出。
 - 第一阶段：基础 prompt 修正，真实模型 HTTP/OpenMuse Web 核心复验通过（流式、停止/刷新、时间/文件工具、记忆、定时执行、重启历史）；发生过一次实际超时并验证新轮恢复。范围和证据见 `docs/first-stage-acceptance.md`。
 - 第二阶段第一轮：复现并修复 scheduler 在 `trigger` 完成但 `markRun` 未落盘时的重复执行，以及任务取消后旧 due 快照仍执行的问题；新增 6 项架构回归测试，未修改 pi、数据格式或 OpenMuse。
@@ -76,21 +83,25 @@ src/
 - `src/adapters/storage/memory-repository.ts`：memory 与 identity 共用一个 repository 和串行读改写队列。
 - `src/adapters/storage/job-repository.ts`：jobs 裸数组读写和队列。
 - `src/adapters/storage/document-schemas.ts`、`json-document.ts`：旧 JSON 格式显式读取与原子写入。
+- `src/config/load-config.ts`：必需 JSON 配置文件、直接凭据与启动前校验。
+- `src/features/web/web-service.ts`、`src/adapters/web/http-transport.ts`：Web 搜索/抓取业务投影与安全传输。
+- `src/adapters/pi/tools/web.ts`：`search_web` / `web_fetch` 工具装配。
+- `src/features/weather/weather-service.ts`、`src/adapters/weather/open-meteo.ts`、`src/adapters/pi/tools/weather.ts`：实时天气服务、供应商适配和工具装配。
 - `src/http/app.ts`：CORS、body limit、health/session、鉴权、OpenMuse 兼容路由和 AG-UI 路由。
 
 ## 4. 数据与安全边界
 
-- 继续使用 `.personal-bot/` 旧布局：`sessions/`、`memory.json`、`jobs.json`、`workspace/`、`SOUL.md`、`USER.md`、`agent/`、`auth.key`。
+- 继续使用 `.personal-bot/` 旧布局：`config.json`、`sessions/`、`memory.json`、`jobs.json`、`workspace/`、`SOUL.md`、`USER.md`、`agent/`、`auth.key`。
 - 本次没有引入 `schemaVersion`，没有改变 memory 对象或 jobs 裸数组格式，也没有迁移真实数据。
 - 缺失 JSON 文件可以使用空默认值；JSON 损坏、根形状错误、未知版本字段和其他文件系统错误会失败，绝不静默覆盖为新空文档。
 - JSON 写入先创建同目录 `0600` 临时文件，再 `rename` 替换目标；不做 fsync、重试、跨进程锁或 durable execution。
-- 模型 key 只驻留 `.env` 与服务端内存；工具只允许 `DATA_DIR/workspace`，bash/edit/write 不开放。
+- 模型 key 只驻留受保护的 `.personal-bot/config.json` 与服务端内存；工具只允许 `DATA_DIR/workspace`，bash/edit/write 不开放。
 
 ## 5. 开发与测试
 
 ```sh
-pnpm dev        # 真实模型，默认 127.0.0.1:8787，读取 .env
-pnpm dev:mock   # fake provider，默认 127.0.0.1:8788，不读取 .env
+pnpm dev        # 真实模型，默认 127.0.0.1:8787，读取必需 config.json
+pnpm dev:mock   # fake provider，默认 127.0.0.1:8788，不读取正式 config.json
 pnpm test
 pnpm typecheck && pnpm build
 ```
@@ -101,13 +112,13 @@ OpenMuse Web 在另一个仓库运行：
 EXPO_PUBLIC_API_URL=http://localhost:8787 pnpm dev:web
 ```
 
-测试 fake provider 在 `tests/support/fake-model.ts`，不要重新发明另一套 harness；测试数据必须使用临时 DATA_DIR，不读取真实 `.env` 或用户数据。
+测试 fake provider 在 `tests/support/fake-model.ts`，不要重新发明另一套 harness；测试数据必须使用临时 DATA_DIR，不读取真实 config.json 或用户数据。
 
 ### 联调环境（第一阶段已确认运行状态）
 
 - 真实模型：局域网网关 `http://192.168.55.222:20128/v1`，模型 ID
   `silicon/deepseek-ai/DeepSeek-V4-Flash`（注意：`ds/` 前缀路由在网关上无凭据，
-  会报 model_not_found；以 `/v1/models` 实际列表为准）。配置在本地 `.env`（gitignore）。
+  会报 model_not_found；以 `/v1/models` 实际列表为准）。配置在本地 `.personal-bot/config.json`（gitignore，含敏感 key）。
 - 联调常驻：服务端 `pnpm dev`（8787，tsx watch），OpenMuse Web
   `EXPO_PUBLIC_API_URL=http://localhost:8787 pnpm dev:web`（8081）。第一阶段复验时二者均运行；未停止或修改这些日常服务。
 - OpenMuse 仓库：`~/Desktop/code/openmuse`，是 git 仓库；我们的改动在

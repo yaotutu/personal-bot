@@ -30,7 +30,7 @@ export type HistoryMessage =
         function: { name: string; arguments: string };
       }[];
     }
-  | { id: string; role: "tool"; content: string; toolCallId: string };
+  | { id: string; role: "tool"; content: string; toolCallId: string; isError?: boolean };
 export type ConversationHistory = HistoryMessage[];
 
 /** 输入只读取用户序列；客户端的 state/tools/context 从不导入 pi。 */

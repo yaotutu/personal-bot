@@ -8,8 +8,8 @@
   },
   "packageManager": "pnpm@12.10.1",
   "scripts": {
-    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
-    "start": "node --env-file-if-exists=.env dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "for dir in tests/unit tests/integration; do set -- \"$dir\"/*.test.ts; test -f \"$1\" || { echo \"No test files found in $dir\" >&2; exit 1; }; done; tsx --test --test-timeout=60000 tests/unit/*.test.ts tests/integration/*.test.ts",

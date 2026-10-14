@@ -1,101 +1,123 @@
 import { randomUUID } from "node:crypto";
 import type { JobRepository } from "./ports.js";
 import { nextRunAfter } from "./schedule-calculator.js";
-import type { Job } from "./types.js";
+import type { Job, JobControlAction, JobControlResult } from "./types.js";
 
 /**
- * 创建任务领域服务。
- *
- * 领域逻辑通过 repository.update 完成读改写，服务本身不关心持久化介质，
- * 并且用新对象替换任务，避免调用方持有的旧数组或旧任务被就地修改。
+ * 所有控制共用完整的读改写队列，按对象身份仅替换旧文件中首次命中的任务。
+ * isBusy 在队列取得最新文档后再检查；它是保守拒绝，不是第二把执行锁或 durable claim。
  */
+const controlJob = (
+  repository: JobRepository,
+  id: string,
+  action: JobControlAction,
+  isBusy: () => boolean,
+): Promise<JobControlResult> => repository.update<JobControlResult>((jobs) => {
+  const job = jobs.find((item) => item.id === id);
+  if (!job) return { result: { ok: false, code: "not_found", message: "Task not found" } };
+  const conflict = (message: string) => ({ result: { ok: false as const, code: "conflict" as const, message } });
+  const unchanged = () => ({ result: { ok: true as const, job } });
+  if ((action === "resume" || action === "retry") && isBusy())
+    return conflict("Wait for the current response and scheduled result to finish before resuming or retrying");
+  const now = new Date();
+  const at = now.toISOString();
+  let updated: Job;
+  if (action === "pause") {
+    if (job.controlState === "paused" && !job.enabled) return unchanged();
+    if (!job.enabled || job.controlState === "cancelled")
+      return conflict("Only an active task can be paused");
+    updated = { ...job, enabled: false, controlState: "paused", lastControl: { action, at } };
+  } else if (action === "resume") {
+    if (job.controlState !== "paused") return conflict("Only a paused task can be resumed");
+    if (!job.daily && (!Number.isFinite(Date.parse(job.at)) || Date.parse(job.at) <= now.getTime()))
+      return conflict("This one-time task has expired. Create a new reminder instead of resuming it");
+    updated = {
+      ...job, enabled: true, controlState: undefined,
+      nextRunAt: nextRunAfter(job.daily, job.at, now), lastControl: { action, at },
+    };
+  } else if (action === "cancel") {
+    if (job.controlState === "cancelled") return unchanged();
+    if (!job.daily && job.lastStatus === "completed")
+      return conflict("A completed one-time task cannot be cancelled");
+    updated = { ...job, enabled: false, controlState: "cancelled", lastControl: { action, at } };
+  } else {
+    if (job.lastStatus !== "failed" || job.controlState)
+      return conflict("Only a failed task without a pending retry can be retried");
+    // 用户显式点击才重新安排一次执行。仍交给现有 scheduler/会话锁，不在 HTTP 内跑模型。
+    updated = {
+      ...job, enabled: true, controlState: "retry_pending",
+      nextRunAt: at, lastControl: { action, at },
+    };
+  }
+  return {
+    jobs: jobs.map((item) => item === job ? updated : item),
+    result: { ok: true, job: updated },
+  };
+});
+
+/** 领域只知道最小 repository/忙闲 port，不知道文件、OpenMuse DTO 或 pi SDK。 */
 export const createJobService = (repository: JobRepository) => ({
   list: (): Promise<Job[]> => repository.read(),
+  get: async (id: string): Promise<Job | undefined> =>
+    (await repository.read()).find((job) => job.id === id),
+  control: (id: string, action: JobControlAction, isBusy: () => boolean = () => false) =>
+    controlJob(repository, id, action, isBusy),
 
   /**
-   * 服务启动时重算仍启用的任务时间。
-   *
-   * nanobot 不把停机期间错过的 at 任务当成“补发队列”：启动时只保留未来
-   * 时间，daily 任务则从当前时刻重新计算下一次执行。我们沿用现有裸数组格式，
-   * 只调整任务状态，不引入启动快照、claim 或第二套恢复记录。
+   * 启动时沿 nanobot 语义重算 daily、停用过期 once；没有断点续跑。
+   * 用户请求的即时 retry 也不在重启后自动恢复，清除队列展示标记，保留控制记录。
    */
-  reconcileOnStart: (): Promise<void> =>
-    repository.update((jobs) => {
-      const now = new Date();
-      const updated = jobs.map((job) => {
-        if (!job.enabled) return job;
-        if (!job.daily && Date.parse(job.at) <= now.getTime()) {
-          // 现有模型用 enabled=false 表示一次性任务已结束；这里也用同一
-          // 状态表达“启动时发现已过期，不再补跑”，展示层会显示 cancelled。
-          return { ...job, enabled: false };
-        }
-        const nextRunAt = nextRunAfter(job.daily, job.at, now);
-        return nextRunAt === job.nextRunAt ? job : { ...job, nextRunAt };
-      });
-      // 缺失文件或无需调整时保持纯读取，避免每次启动重写业务文件。
-      return {
-        ...(updated.some((job, index) => job !== jobs[index]) ? { jobs: updated } : {}),
-        result: undefined,
-      };
-    }),
+  reconcileOnStart: (): Promise<void> => repository.update((jobs) => {
+    const now = new Date();
+    const updated = jobs.map((original) => {
+      const job = original.controlState === "retry_pending"
+        ? { ...original, controlState: undefined } : original;
+      if (!job.enabled) return job;
+      if (!job.daily && Date.parse(job.at) <= now.getTime()) return { ...job, enabled: false };
+      const nextRunAt = nextRunAfter(job.daily, job.at, now);
+      return nextRunAt === job.nextRunAt ? job : { ...job, nextRunAt };
+    });
+    return {
+      ...(updated.some((job, index) => job !== jobs[index]) ? { jobs: updated } : {}),
+      result: undefined,
+    };
+  }),
 
-  add: (prompt: string, daily: boolean, at: string): Promise<Job> =>
-    repository.update((jobs) => {
-      const job: Job = {
-        id: randomUUID(),
-        prompt: prompt.trim(),
-        daily,
-        at,
-        enabled: true,
-        createdAt: new Date().toISOString(),
-        nextRunAt: nextRunAfter(daily, at, new Date()),
-      };
-      return { jobs: [...jobs, job], result: job };
-    }),
+  add: (prompt: string, daily: boolean, at: string): Promise<Job> => repository.update((jobs) => {
+    const job: Job = {
+      id: randomUUID(), prompt: prompt.trim(), daily, at, enabled: true,
+      createdAt: new Date().toISOString(), nextRunAt: nextRunAfter(daily, at, new Date()),
+    };
+    return { jobs: [...jobs, job], result: job };
+  }),
 
-  cancel: (id: string): Promise<boolean> =>
-    repository.update((jobs) => {
-      const found = jobs.find((job) => job.id === id);
-      if (!found) return { result: false };
-      return {
-        // 旧文件允许重复 id；沿用 find 的语义，只替换首次命中的对象。
-        jobs: jobs.map((job) =>
-          job === found ? { ...job, enabled: false } : job,
-        ),
-        result: true,
-      };
-    }),
+  /** 对话 schedule 与页面 Cancel 复用同一转换；已完成 once 保持原有幂等确认，不改结果。 */
+  cancel: async (id: string): Promise<boolean> => {
+    const result = await controlJob(repository, id, "cancel", () => false);
+    if (result.ok) return true;
+    return result.code === "conflict";
+  },
 
   /**
-   * 一次运行结束：daily 推进下一轮；一次性任务关闭。
-   * completedAt 默认取调用时刻；scheduler 补写时传回原完成时间，避免存储故障
-   * 改写实际执行时间或延后 daily 下一轮。每次仍重读当前任务，保留期间的取消状态。
+   * 只保存本次结果。补存传回实际完成时间，不重跑模型，也不覆盖期间的 pause/cancel。
+   * retry_pending 在本次结果写入时消费；lastControl 保留作为最近控制事实。
    */
   markRun: (
     id: string,
     status: "completed" | "failed",
     result: string,
     completedAt: Date = new Date(),
-  ): Promise<Job | undefined> =>
-    repository.update((jobs) => {
-      const job = jobs.find((item) => item.id === id);
-      if (!job) return { result: undefined };
-
-      const updated: Job = {
-        ...job,
-        lastRunAt: completedAt.toISOString(),
-        lastStatus: status,
-        lastResult: result.slice(0, 2000),
-        ...(job.daily
-          ? { nextRunAt: nextRunAfter(true, job.at, completedAt) }
-          : { enabled: false }),
-      };
-      return {
-        // 按对象身份替换，避免修改旧文件中同 id 的后续任务。
-        jobs: jobs.map((item) => (item === job ? updated : item)),
-        result: updated,
-      };
-    }),
+  ): Promise<Job | undefined> => repository.update((jobs) => {
+    const job = jobs.find((item) => item.id === id);
+    if (!job) return { result: undefined };
+    const updated: Job = {
+      ...job,
+      lastRunAt: completedAt.toISOString(), lastStatus: status, lastResult: result.slice(0, 2000),
+      ...(job.controlState === "retry_pending" ? { controlState: undefined } : {}),
+      ...(job.daily ? { nextRunAt: nextRunAfter(true, job.at, completedAt) } : { enabled: false }),
+    };
+    return { jobs: jobs.map((item) => item === job ? updated : item), result: updated };
+  }),
 });
 
 export type JobService = ReturnType<typeof createJobService>;

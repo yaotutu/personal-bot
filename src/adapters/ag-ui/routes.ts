@@ -3,9 +3,10 @@ import { RunAgentInputSchema } from "@ag-ui/core";
 import type { Conversation } from "../../features/conversation/conversation-service.js";
 import { PiAgent } from "./agent.js";
 import { createRunner } from "./runner.js";
+import type { ToolPresentation } from "./tool-presentation.js";
 
 /** 只开放当前 runtime 的 info/run/stop，不提供重连或任意 runtime operation。 */
-export const createAgUiRoutes = async (conversation: Conversation) => {
+export const createAgUiRoutes = async (conversation: Conversation, presentation: ToolPresentation) => {
   // 必须在动态导入 runtime 前关闭全局 telemetry；未构造 Intelligence 或网络搜索。
   process.env.COPILOTKIT_TELEMETRY_DISABLED = "true";
   process.env.DO_NOT_TRACK = "1";
@@ -14,7 +15,7 @@ export const createAgUiRoutes = async (conversation: Conversation) => {
   );
   const runtime = new CopilotRuntime({
     agents: ({ request }) => ({
-      default: new PiAgent(conversation, request.signal),
+      default: new PiAgent(conversation, request.signal, presentation),
     }),
     runner: createRunner(conversation),
   });

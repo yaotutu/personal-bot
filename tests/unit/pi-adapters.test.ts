@@ -11,6 +11,8 @@ import { createJobRepository } from "../../src/adapters/storage/job-repository.j
 import { createMemoryService } from "../../src/features/memory/memory-service.js";
 import { createIdentityService } from "../../src/features/identity/identity-service.js";
 import { createJobService } from "../../src/features/jobs/job-service.js";
+import type { WebService } from "../../src/features/web/types.js";
+import type { WeatherService } from "../../src/features/weather/types.js";
 import { buildSystemPrompt } from "../../src/adapters/pi/system-prompt.js";
 import { createResourceLoader } from "../../src/adapters/pi/resource-loader.js";
 import { createTools } from "../../src/adapters/pi/tools/index.js";
@@ -24,7 +26,19 @@ const setup = async (t: TestContext) => {
   const memory = createMemoryService(repository);
   const identity = createIdentityService(repository);
   const jobs = createJobService(createJobRepository(layout.jobsFile));
-  const tools = createTools(layout.workspaceDir, memory, jobs);
+  const web: WebService = {
+    search: async (query, count) =>
+      query ? `search:${query}:${count ?? 5}` : JSON.stringify({ error: "empty query" }),
+    fetch: async (url, mode, maxChars) =>
+      JSON.stringify({ url, mode, maxChars, text: "web body" }),
+  };
+  const weather: WeatherService = {
+    getWeather: async (city) => ({
+      text: city ? `weather:${city}` : "weather:default",
+      isError: false,
+    }),
+  };
+  const tools = createTools(layout.workspaceDir, memory, jobs, web, weather);
   // SDK ToolDefinition 的 context 与本测试无关；工具不访问 session 环境。
   const execute = (name: string, params: unknown) => tools.find((tool) => tool.name === name)!
     .execute("test-call", params as never, undefined, undefined, {} as never);
@@ -35,8 +49,9 @@ test("tool registration defines one explicit ordered allowlist and unchanged sch
   const { tools } = await setup(t);
   assert.deepEqual(tools.map((tool) => tool.name), [
     "currentTime", "memory", "schedule", "read", "grep", "find", "ls",
+    "search_web", "web_fetch", "get_weather",
   ]);
-  assert.equal(new Set(tools.map((tool) => tool.name)).size, 7);
+  assert.equal(new Set(tools.map((tool) => tool.name)).size, 10);
   assert.ok(tools.every((tool) => !["bash", "edit", "write"].includes(tool.name)));
   assert.equal(tools[0].parameters.additionalProperties, false);
   assert.deepEqual(tools[0].parameters.properties, {});
@@ -124,6 +139,45 @@ test("schedule tool preserves input denials and creates/cancels through the job 
   assert.match((listed.content[0] as { text: string }).text, /drink tea/);
   await execute("schedule", { action: "cancel", prompt: "-", at: "-", jobId: job.id });
   assert.equal((await jobs.list())[0].enabled, false);
+});
+
+
+test("weather tool uses the weather service without exposing network details", async (t) => {
+  const { execute } = await setup(t);
+  const explicit = await execute("get_weather", { city: "上海" });
+  assert.equal(explicit.isError, false);
+  assert.equal((explicit.content[0] as { text: string }).text, "weather:上海");
+  assert.deepEqual(explicit.details, { source: "open-meteo" });
+});
+
+test("system prompt conditionally describes untrusted web content", async (t) => {
+  const { layout, memory } = await setup(t);
+  assert.doesNotMatch(await buildSystemPrompt(layout, memory), /search_web/);
+  assert.match(await buildSystemPrompt(layout, memory, true), /search_web/);
+  assert.match(await buildSystemPrompt(layout, memory, true), /untrusted data/);
+  assert.doesNotMatch(await buildSystemPrompt(layout, memory), /get_weather/);
+  assert.match(await buildSystemPrompt(layout, memory, false, true), /get_weather/);
+});
+
+test("web tools expose controlled search and fetch projections", async (t) => {
+  const { execute } = await setup(t);
+  const search = await execute("search_web", { query: "personal bot", count: 2 });
+  assert.equal((search.content[0] as { text: string }).text, "search:personal bot:2");
+  const failed = await execute("search_web", { query: "" });
+  assert.equal(failed.isError, true);
+  const fetched = await execute("web_fetch", {
+    url: "https://example.test",
+    extractMode: "text",
+    maxChars: 123,
+  });
+  assert.equal(fetched.isError, false);
+  const value = JSON.parse((fetched.content[0] as { text: string }).text);
+  assert.deepEqual(value, {
+    url: "https://example.test",
+    mode: "text",
+    maxChars: 123,
+    text: "web body",
+  });
 });
 
 test("system prompt describes explicit memory and schedules without expanding permissions", async (t) => {

@@ -245,7 +245,10 @@ test("cancel disables an existing job", async (t) => {
   const job = await service.add("cancel me", false, "2030-01-01T00:00:00.000Z");
 
   assert.equal(await service.cancel(job.id), true);
-  assert.deepEqual(await service.list(), [{ ...job, enabled: false }]);
+  const cancelled = await service.get(job.id);
+  assert.equal(cancelled?.lastControl?.action, "cancel");
+  assert.ok(Number.isFinite(Date.parse(cancelled!.lastControl!.at)));
+  assert.deepEqual(await service.list(), [{ ...job, enabled: false, controlState: "cancelled", lastControl: cancelled!.lastControl }]);
   assert.equal(job.enabled, true);
   assert.equal(await service.cancel(job.id), true);
 });
@@ -258,7 +261,8 @@ test("cancel and markRun change only the first job with a duplicate id", async (
   await writeFile(file, JSON.stringify([first, second]));
 
   assert.equal(await service.cancel(first.id), true);
-  assert.deepEqual(await service.list(), [{ ...first, enabled: false }, second]);
+  const cancelledFirst = await service.get(first.id);
+  assert.deepEqual(await service.list(), [{ ...first, enabled: false, controlState: "cancelled", lastControl: cancelledFirst!.lastControl }, second]);
   const run = await service.markRun(first.id, "completed", "first only");
   assert.equal(run?.lastResult, "first only");
   assert.deepEqual(await service.list(), [run, second]);
@@ -282,8 +286,10 @@ test("concurrent updates are serialized without losing jobs", async (t) => {
     service.add("last", false, "2030-01-01T00:00:00.000Z"),
   ]);
   assert.equal(cancelled, true);
-  assert.deepEqual(await service.list(), [
-    { ...jobs[0], enabled: false }, marked, ...jobs.slice(2), added,
+  const stored = await service.list();
+  assert.equal(stored[0].lastControl?.action, "cancel");
+  assert.deepEqual(stored, [
+    { ...jobs[0], enabled: false, controlState: "cancelled", lastControl: stored[0].lastControl }, marked, ...jobs.slice(2), added,
   ]);
 });
 

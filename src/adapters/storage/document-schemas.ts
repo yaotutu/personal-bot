@@ -37,7 +37,18 @@ export const readMemoryDocument = (value: unknown): MemoryState => {
 /** jobs 继续写裸数组，不做包裹版本升级；旧条目筛选语义维持 id/prompt。 */
 export const readJobsDocument = (value: unknown): Job[] => {
   if (!Array.isArray(value)) throw new InvalidDocumentError("jobs");
-  return value.filter((item): item is Job =>
+  const jobs = value.filter((item): item is Job =>
     isObject(item) && typeof item.id === "string" && typeof item.prompt === "string",
   );
+  // 只校验本轮新增的控制字段；旧 id/prompt 筛选与其他历史字段兼容语义不收紧。
+  for (const job of jobs) {
+    if (job.controlState !== undefined && !["paused", "cancelled", "retry_pending"].includes(job.controlState))
+      throw new InvalidDocumentError("jobs");
+    if (job.lastControl !== undefined && (
+      !isObject(job.lastControl) ||
+      !["pause", "resume", "cancel", "retry"].includes(String(job.lastControl.action)) ||
+      typeof job.lastControl.at !== "string" || !Number.isFinite(Date.parse(job.lastControl.at))
+    )) throw new InvalidDocumentError("jobs");
+  }
+  return jobs;
 };

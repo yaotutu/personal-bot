@@ -138,6 +138,7 @@ export const projectConversationHistory = (
         role: "tool",
         content: textOf(message.content),
         toolCallId: message.toolCallId,
+        ...(message.isError ? { isError: true } : {}),
       });
     }
   }

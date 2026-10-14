@@ -26,7 +26,7 @@ import {
 } from "@ag-ui/core";
 import { createService } from "../../src/bootstrap/create-service.js";
 import { createEventProjector } from "../../src/adapters/ag-ui/events.js";
-import { loadConfig } from "../../src/config/load-config.js";
+import { createConfig, type ConfigFileInput } from "../../src/config/load-config.js";
 import { createFakeModel, type ModelRequest } from "../support/fake-model.js";
 
 const input = (
@@ -72,11 +72,14 @@ const declaredTools = (request: ModelRequest) =>
 const expectedTools = [
   "currentTime",
   "find",
+  "get_weather",
   "grep",
   "ls",
   "memory",
   "read",
   "schedule",
+  "search_web",
+  "web_fetch",
 ];
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(predicate: () => boolean) {
@@ -88,7 +91,7 @@ async function until(predicate: () => boolean) {
 }
 async function harness(
   timeout = 5000,
-  env: Record<string, string> = {},
+  overrides: Partial<ConfigFileInput> = {},
   // 仅供失败回归记录已分配资源、准备临时数据；不替换生产入口或修改全局环境。
   prepare?: (resources: {
     model: Awaited<ReturnType<typeof createFakeModel>>;
@@ -124,7 +127,7 @@ async function harness(
     model = undefined;
     dataDir = undefined;
     // 正常 teardown 与初始化失败共用清理；嵌套 finally 保证某项失败不跳过其余项。
-    // 只删除 harness 自己创建的目录，绝不删除 env.DATA_DIR 覆盖指向的外部路径。
+    // 只删除 harness 自己创建的目录，绝不删除 overrides.runtime.dataDir 指向的外部路径。
     try {
       await stopServer();
     } finally {
@@ -151,14 +154,24 @@ async function harness(
     model = await createFakeModel();
     dataDir = await mkdtemp(join(tmpdir(), "personal-bot-test-"));
     await prepare?.({ model, dataDir });
-    const config = loadConfig({
-      DATA_DIR: dataDir,
-      PERSONAL_MODEL_BASE_URL: model.baseUrl,
-      PERSONAL_MODEL_ID: "test-model",
-      PERSONAL_MODEL_API_KEY: "test-secret-model-key",
-      PERSONAL_RUN_TIMEOUT_MS: String(timeout),
-      PERSONAL_SCHEDULER_INTERVAL_MS: "2000",
-      ...env,
+    // 测试同样只使用配置对象；这里把 fake provider 和临时目录显式写入 config。
+    const config = createConfig({
+      schemaVersion: 1,
+      server: overrides.server ?? {},
+      model: {
+        baseUrl: model.baseUrl,
+        id: "test-model",
+        apiKey: "test-secret-model-key",
+        ...overrides.model,
+      },
+      // 卡片回归测试显式开启摘要；传 tools:{} 可覆盖生产的缺省隐藏策略。
+      tools: overrides.tools ?? { presentation: { default: "summary" } },
+      runtime: {
+        dataDir,
+        runTimeoutMs: timeout,
+        schedulerIntervalMs: 2000,
+        ...overrides.runtime,
+      },
     });
     service = await createService(config);
     let base = await startServer();
@@ -231,17 +244,14 @@ for (const stage of ["configuration", "service", "login"] as const) {
   }, async (t) => {
     let modelUrl: string | undefined;
     let dataDir: string | undefined;
-    const env: Record<string, string> = stage === "configuration"
-      ? {
-          PERSONAL_MODEL_MAX_TOKENS: "2000",
-          PERSONAL_MODEL_CONTEXT_WINDOW: "2000",
-        }
+    const overrides: Partial<ConfigFileInput> = stage === "configuration"
+      ? { model: { maxTokens: 2000, contextWindow: 2000 } }
       : stage === "login"
         // 登录不带访问密钥，走真实 401；覆盖已创建 service/HTTP server 后的失败清理。
-        ? { PERSONAL_ACCESS_KEY: "test-only-access-key" }
+        ? { server: { accessKey: "test-only-access-key" } }
         : {};
     await assert.rejects(
-      harness(5000, env, async (resources) => {
+      harness(5000, overrides, async (resources) => {
         modelUrl = resources.model.baseUrl;
         dataDir = resources.dataDir;
         // 若清理回归，断言仍需真实失败；兜底只在断言结束后运行，避免测试进程泄漏并挂起。
@@ -256,7 +266,7 @@ for (const stage of ["configuration", "service", "login"] as const) {
         }
       }),
       stage === "configuration"
-        ? /Model max tokens must be smaller than context window/
+        ? /model.maxTokens must be smaller than model.contextWindow/
         : stage === "service"
           ? /EEXIST|ENOTDIR/
           : /Harness login failed/,
@@ -721,6 +731,171 @@ test("tool loop: currentTime events, tool-result round trip, history projection 
   );
 });
 
+test("hidden tool presentation keeps complete model/pi result while OpenMuse sees only final text", {
+  timeout: 30000,
+}, async (t) => {
+  const h = await harness(30000, { tools: { presentation: { default: "hidden" } } });
+  t.after(h.close);
+  await writeFile(join(h.dataDir, "workspace", "private.txt"), "HIDDEN-FIXTURE secret body\\n");
+  const events = await h.events(input([user("读资料 private.txt")], "hidden-read"));
+  assert.equal(events.at(-1)?.type, "RUN_FINISHED");
+  assert.equal(events.some((event) => event.type.startsWith("TOOL_CALL_")), false);
+  assert.match(events.filter((event) => event.type === "TEXT_MESSAGE_CONTENT")
+    .map((event) => String((event as { delta?: unknown }).delta)).join(""), /^file reply:/);
+  const modelRequest = h.model.requests.at(-1)!;
+  assert.ok(modelRequest.messages.some((message) =>
+    message.role === "tool" && JSON.stringify(message.content).includes("HIDDEN-FIXTURE secret body"),
+  ));
+  const history = await h.getHistory();
+  assert.ok(history.every((message) => message.role !== "tool" &&
+    !(message.role === "assistant" && Array.isArray(message.toolCalls))));
+  const sessionFile = (await readdir(join(h.dataDir, "sessions"))).find((name) => name.endsWith(".jsonl"));
+  assert.ok(sessionFile);
+  const canonical = await readFile(join(h.dataDir, "sessions", sessionFile!), "utf8");
+  assert.match(canonical, /HIDDEN-FIXTURE secret body/);
+  const synced = await h.request("/api/conversation", { messages: history }, "PUT");
+  assert.equal(synced.status, 200);
+  // 同一完成轮 replay、下一轮与重启均使用已经隐藏工具的同一展示历史。
+  const replay = await h.events(input(history, "hidden-read"));
+  const snapshot = replay.find((event) => event.type === "MESSAGES_SNAPSHOT") as BaseEvent & { messages: Message[] };
+  assert.deepEqual(snapshot.messages, history);
+  const next = await h.events(input([...history, user("hello")], "after-hidden"));
+  assert.equal(next.at(-1)?.type, "RUN_FINISHED");
+  const all = await h.getHistory();
+  await h.restart();
+  assert.deepEqual(await h.getHistory(), all);
+});
+
+for (const scenario of ["工具后失败", "工具后挂起", "工具后慢流"] as const) {
+  test(`hidden memory tools keep side effects and recover after ${scenario}`, { timeout: 30000 }, async (t) => {
+    const h = await harness(scenario === "工具后挂起" ? 1000 : 10000, { tools: {} });
+    t.after(h.close);
+    const running = h.events(input([user(`记住静默偏好 ${scenario}`)], "hidden-failure"));
+    if (scenario === "工具后慢流") {
+      const deadline = Date.now() + 5000;
+      while (!h.model.requests.some((request) => request.messages.some((message) => message.role === "tool"))) {
+        assert.ok(Date.now() < deadline, "Tool result must reach the model before Stop");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const stopped = await h.request("/api/copilotkit/agent/default/stop/local-main", {});
+      assert.equal(stopped.status, 200);
+    }
+    const events = await running;
+    assert.equal(events.at(-1)?.type, "RUN_ERROR");
+    assert.equal(events.some((event) => event.type.startsWith("TOOL_CALL_")), false);
+    assert.equal(JSON.parse(await readFile(join(h.dataDir, "memory.json"), "utf8")).memories.length, 1);
+    const history = await h.getHistory();
+    assert.ok(history.every((message) => message.role !== "tool"));
+    await h.restart();
+    assert.deepEqual(await h.getHistory(), history);
+    const next = await h.events(input([...history, user("hello")], "hidden-recovery"));
+    assert.equal(next.at(-1)?.type, "RUN_FINISHED");
+  });
+}
+
+test("task details remain consistent through pause/resume, automatic completion and cancelled dispatch", {
+  timeout: 30000,
+}, async (t) => {
+  const h = await harness(5000, { runtime: { schedulerIntervalMs: 20 } });
+  t.after(h.close);
+  const job = await h.service().jobs.add("task details completion", false, new Date(Date.now() + 1500).toISOString());
+  const path = `/api/agent/tasks/${job.id}`;
+  const post = async (action: string) => {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const response = await h.request(path + "/control", { action });
+      const body = await response.json();
+      if (response.status !== 409 || !String(body.error).startsWith("Wait for")) return { response, body };
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error("Control did not become available");
+  };
+  assert.equal((await post("pause")).body.status, "paused");
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(h.model.requests.length, 0);
+  assert.equal((await post("resume")).body.status, "scheduled");
+  const cancelled = await h.service().jobs.add("task cancelled before due", false, new Date(Date.now() + 100).toISOString());
+  assert.equal((await h.request(`/api/agent/tasks/${cancelled.id}/control`, { action: "cancel" })).status, 200);
+  let detail;
+  const deadline = Date.now() + 7000;
+  do {
+    detail = await h.request(path).then((response) => response.json());
+    if (detail.task.status === "succeeded") break;
+    assert.ok(Date.now() < deadline, "Scheduled task must complete");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  } while (true);
+  assert.match(detail.task.result, /JOB-RAN/);
+  assert.equal(detail.events.at(-1).kind, "result");
+  assert.equal(detail.events.at(-1).detail, detail.task.result);
+  assert.equal(h.model.requests.length, 1);
+  const list = await h.request("/api/agent").then((response) => response.json());
+  assert.deepEqual(list.tasks.find((task: { id: string }) => task.id === job.id), detail.task);
+  await h.restart();
+  assert.deepEqual(await h.request(path).then((response) => response.json()), detail);
+});
+
+test("task retry is a single explicit scheduler run, not an automatic model retry", {
+  timeout: 30000,
+}, async (t) => {
+  const h = await harness(5000, { runtime: { schedulerIntervalMs: 20 } });
+  t.after(h.close);
+  // 已存储失败状态是测试前置数据，不伪称这一行触发了供应商故障。
+  const job = await h.service().jobs.add("explicit retry fixture", false, new Date(Date.now() + 60000).toISOString());
+  await h.service().jobs.markRun(job.id, "failed", "Stored prior failure");
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(h.model.requests.length, 0);
+  const path = `/api/agent/tasks/${job.id}`;
+  const failure = await h.request(path).then((response) => response.json());
+  assert.equal(failure.task.status, "failed");
+  assert.equal(failure.events.at(-1).kind, "error");
+  let admitted = false;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const response = await h.request(path + "/control", { action: "retry" });
+    if (response.status === 200) { assert.equal((await response.json()).status, "queued"); admitted = true; break; }
+    assert.equal(response.status, 409);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(admitted);
+  assert.equal((await h.request(path + "/control", { action: "retry" })).status, 409);
+  const deadline = Date.now() + 5000;
+  while ((await h.service().jobs.get(job.id))!.lastStatus !== "completed") {
+    assert.ok(Date.now() < deadline);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(h.model.requests.length, 1);
+  assert.equal((await h.request(path).then((response) => response.json())).task.status, "succeeded");
+});
+
+test("OpenMuse task detail and controls close the scheduled-job Activity loop", {
+  timeout: 30000,
+}, async (t) => {
+  const h = await harness();
+  t.after(h.close);
+  const created = await h.events(input([user("提醒我喝水，测试 Activity 详情")], "task-detail-create"));
+  assert.equal(created.at(-1)?.type, "RUN_FINISHED");
+  const snapshot = await h.request("/api/agent").then((response) => response.json());
+  const task = snapshot.tasks[0] as { id: string; status: string };
+  assert.ok(task?.id);
+  assert.equal(task.status, "scheduled");
+  const detailResponse = await h.request(`/api/agent/tasks/${task.id}`);
+  assert.equal(detailResponse.status, 200);
+  const detail = await detailResponse.json();
+  assert.equal(detail.task.id, task.id);
+  assert.equal(detail.task.status, "scheduled");
+  assert.ok(Array.isArray(detail.events));
+  assert.deepEqual(detail.artifacts, []);
+  assert.deepEqual(detail.files, []);
+  assert.deepEqual(detail.browsers, []);
+  assert.equal((await h.request("/api/agent/tasks/missing")).status, 404);
+  assert.equal((await h.request(`/api/agent/tasks/${task.id}/control`, { action: "invalid" })).status, 400);
+  const cancelled = await h.request(`/api/agent/tasks/${task.id}/control`, { action: "cancel" });
+  assert.equal(cancelled.status, 200);
+  const after = await h.request(`/api/agent/tasks/${task.id}`).then((response) => response.json());
+  assert.equal(after.task.status, "cancelled");
+  assert.equal(after.events.at(-1).title, "Task cancelled");
+  assert.equal((await h.request(`/api/agent/tasks/${task.id}/control`, { action: "resume" })).status, 409);
+});
+
 test("file tools: read documents, deny outside paths, keep tool events and history stable", {
   timeout: 30000,
 }, async (t) => {
@@ -743,7 +918,10 @@ test("file tools: read documents, deny outside paths, keep tool events and histo
     content: string;
   };
   assert.equal(readResult.toolCallId, readStart.toolCallId);
-  assert.match(readResult.content, /PI-TOOL-FIXTURE the answer is 42/);
+  assert.equal(readResult.content, "工具执行已结束（详情已隐藏）");
+  assert.ok(h.model.requests.at(-1)!.messages.some((message) =>
+    message.role === "tool" && JSON.stringify(message.content).includes("PI-TOOL-FIXTURE the answer is 42"),
+  ));
   assert.ok(
     ev
       .filter((x) => x.type === "TEXT_MESSAGE_CONTENT")
@@ -807,8 +985,7 @@ test("compaction keeps long conversations functional and full history visible", 
   timeout: 30000,
 }, async (t) => {
   const h = await harness(5000, {
-    PERSONAL_MODEL_CONTEXT_WINDOW: "2000",
-    PERSONAL_MODEL_MAX_TOKENS: "1000",
+    model: { contextWindow: 2000, maxTokens: 1000 },
   });
   t.after(h.close);
   const filler = "背景资料 ".repeat(120);

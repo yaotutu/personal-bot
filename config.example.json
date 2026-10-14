@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8787,
+    "accessKey": "",
+    "allowedOrigins": [
+      "http://localhost:8081",
+      "http://127.0.0.1:8081"
+    ]
+  },
+  "model": {
+    "baseUrl": "",
+    "id": "",
+    "apiKey": "paste-model-api-key-here",
+    "contextWindow": 32768,
+    "maxTokens": 4096
+  },
+  "runtime": {
+    "runTimeoutMs": 120000,
+    "schedulerIntervalMs": 30000
+  },
+  "tools": {
+    "web": {
+      "enabled": true
+    },
+    "weather": {
+      "enabled": true
+    },
+    "presentation": {
+      "default": "hidden",
+      "overrides": {
+        "currentTime": "summary",
+        "get_weather": "summary",
+        "search_web": "summary",
+        "memory": "summary",
+        "schedule": "summary"
+      }
+    }
+  }
+}

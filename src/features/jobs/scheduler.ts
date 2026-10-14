@@ -3,6 +3,8 @@ import type { JobService } from "./job-service.js";
 
 export type Scheduler = {
   start: () => void;
+  /** 只读保护控制入口；完整 tick 或已执行结果待补存期间均不可重新安排。 */
+  isBusy: () => boolean;
   close: () => Promise<void>;
 };
 
@@ -99,6 +101,7 @@ export const createScheduler = (
         void work.finally(() => pending.delete(work));
       }, config.schedulerIntervalMs);
     },
+    isBusy: () => closed || ticking || pendingOutcome !== undefined,
     close: () => {
       if (closing) return closing;
       closed = true;

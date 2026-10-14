@@ -3,6 +3,8 @@ import type { DataLayout } from "../storage/data-layout.js";
 import type { Config } from "../../config/load-config.js";
 import type { MemoryService } from "../../features/memory/memory-service.js";
 import type { JobService } from "../../features/jobs/job-service.js";
+import type { WebService } from "../../features/web/types.js";
+import type { WeatherService } from "../../features/weather/types.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { createResourceLoader } from "./resource-loader.js";
 import { createTools } from "./tools/index.js";
@@ -14,13 +16,15 @@ export async function openPi(
   memory: MemoryService,
   jobs: JobService,
   layout: DataLayout,
+  web?: WebService,
+  weather?: WeatherService,
 ) {
   if (!config.configured) throw new Error("MODEL_NOT_CONFIGURED");
   const cwd = layout.workspaceDir;
   const agentDir = layout.agentDir;
-  const systemPrompt = await buildSystemPrompt(layout, memory);
+  const systemPrompt = await buildSystemPrompt(layout, memory, web !== undefined, weather !== undefined);
   const resourceLoader = createResourceLoader(systemPrompt);
-  const customTools = createTools(cwd, memory, jobs);
+  const customTools = createTools(cwd, memory, jobs, web, weather);
   const modelRuntime = await ModelRuntime.create({
     authPath: layout.piAuthFile,
     modelsPath: null,

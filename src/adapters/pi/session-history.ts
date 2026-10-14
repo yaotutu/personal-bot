@@ -4,6 +4,7 @@ import type { DataLayout } from "../storage/data-layout.js";
 import type { ConversationHistoryPort } from "../../features/conversation/ports.js";
 import { RESULT_ENTRY_TYPE, TURN_ENTRY_TYPE, type ConversationTurn } from "../../features/conversation/types.js";
 import { collectConversationRecords, projectConversationHistory } from "./history-projection.js";
+import type { ToolPresentation } from "../ag-ui/tool-presentation.js";
 
 const turnIndex = (branch: readonly SessionEntry[], runId: string) =>
   branch.findLastIndex((entry) =>
@@ -15,7 +16,7 @@ const turnIndex = (branch: readonly SessionEntry[], runId: string) =>
  * pi entry tree 是历史唯一事实来源。
  * 展示读取完整 branch（不读压缩后的 model context）；重试只追加 context edit。
  */
-export const createSessionHistory = async (layout: DataLayout) => {
+export const createSessionHistory = async (layout: DataLayout, presentation?: ToolPresentation) => {
   await Promise.all(
     [layout.workspaceDir, layout.sessionsDir, layout.agentDir].map((path) =>
       mkdir(path, { recursive: true, mode: 0o700 }),
@@ -23,7 +24,10 @@ export const createSessionHistory = async (layout: DataLayout) => {
   );
   const manager = SessionManager.continueRecent(layout.workspaceDir, layout.sessionsDir);
   const history: ConversationHistoryPort = {
-    history: () => projectConversationHistory(manager.getBranch()),
+    history: () => {
+      const projected = projectConversationHistory(manager.getBranch());
+      return presentation ? presentation.presentHistory(projected) : projected;
+    },
     records: () => collectConversationRecords(manager.getBranch()),
     checkpoint: () => manager.getLeafId(),
     appendTurn: (turn) => { manager.appendCustomEntry(TURN_ENTRY_TYPE, turn); },

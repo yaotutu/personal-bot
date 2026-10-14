@@ -406,6 +406,10 @@ pi read/bash等名字和结果不天然满足这些专门卡片的数据结构�
 - 仅开放 GET runtime info、POST default/run 和 POST default/stop/local-main；connect、富线程和其他操作返回 501。
 - 一次只接受 canonical 用户序列加一条新 user，或最后 user 的重试；assistant/system/tool/context/forwardedProps 不成为 pi 历史或权限。
 - 已完成最后 user 再提交只返回 MESSAGES_SNAPSHOT + RUN_FINISHED，不重复 provider 调用；失败重试不重复 user。
+- `GET /api/agent/tasks/:id` 返回 OpenMuse TaskDetail 契约 `{task,events,artifacts,files,browsers}`；定时任务只投影真实的创建、最近控制和最近一次运行事实，空能力数组不会伪造文件/浏览器/审批数据。
+- `POST /api/agent/tasks/:id/control` 支持 `pause/resume/cancel/retry`。暂停/取消只阻止未来调度，不中断已在运行的会话或回滚副作用；retry 只由用户显式触发一次。非法请求 400、任务不存在 404、忙或非法状态 409。
+- `tools.presentation` 是服务端展示投影配置，不需要客户端改动：`hidden` 工具不发送整组 `TOOL_CALL_*` 或对应历史工具消息；`summary` 保留工具名/ID但只发送受控参数与结果。pi canonical JSONL 和模型上下文仍保留完整工具结果，不能把客户端 history snapshot 当作 pi 历史。
+- 实时 AG-UI 与 GET/replay 的历史投影使用同一策略；工具结果按 toolCallId 关联，未知关联默认不透传正文。summary 不得破坏专用 `search_web` renderer 的 `{results,warnings,truncated}` schema。
 - stop 等待 pi idle 后返回，HTTP 退订取消其拥有的 run。错误/停止终态为 RUN_ERROR，不再伪造 RUN_FINISHED。
 - 登录 token 为持久签名的 24h token，重启可用，更换工作区访问密钥后旧 token 失效。
 - 验证已通过本地 HTTP 模拟 endpoint + 真实 pi SDK 自动测试与 OpenMuse Web 手动联调；真实目标 endpoint 与原生端待验收。

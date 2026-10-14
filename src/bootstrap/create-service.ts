@@ -10,10 +10,15 @@ import { createMemoryRepository } from "../adapters/storage/memory-repository.js
 import { createHttpApp } from "../http/app.js";
 import { createDataLayout } from "../adapters/storage/data-layout.js";
 import { createScheduler } from "../features/jobs/scheduler.js";
+import { createWebService } from "../features/web/web-service.js";
+import { createHttpWebTransport } from "../adapters/web/http-transport.js";
+import { createOpenMeteoTransport } from "../adapters/weather/open-meteo.js";
+import { createWeatherService } from "../features/weather/weather-service.js";
 import { createSessionHistory } from "../adapters/pi/session-history.js";
 import { openPi } from "../adapters/pi/session-factory.js";
 import { createPiExecution } from "../adapters/pi/execution.js";
 import type { ServiceContainer } from "./types.js";
+import { createToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
 
 /**
  * 应用唯一的运行时组装入口。
@@ -35,15 +40,29 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const identity = createIdentityService(memoryRepository);
   const jobs = createJobService(createJobRepository(layout.jobsFile));
   await jobs.reconcileOnStart();
-  const { manager, history } = await createSessionHistory(layout);
+  const presentation = createToolPresentation(config.presentation);
+  const { manager, history } = await createSessionHistory(layout, presentation);
+  // Web 工具是只读能力；未启用时不创建 transport，也不向 pi 声明工具。
+  const weather = config.weather.enabled
+    ? createWeatherService(createOpenMeteoTransport(config.web), {
+        defaultCity: config.weather.defaultCity,
+      })
+    : undefined;
+  const web = config.web.enabled
+    ? createWebService(createHttpWebTransport(config.web), {
+        searchResults: config.web.searchResults,
+        maxSearchResults: 10,
+        maxContentChars: config.web.maxContentChars,
+      })
+    : undefined;
   const conversation = createConversation(config, {
     history,
     openSession: async () => createPiExecution(
-      await openPi(config, manager, memory, jobs, layout), manager,
+      await openPi(config, manager, memory, jobs, layout, web, weather), manager,
     ),
   });
   const scheduler = createScheduler(config, jobs, conversation);
-  const dependencies = { config, layout, auth, memory, identity, jobs, conversation, scheduler };
+  const dependencies = { config, layout, auth, memory, identity, jobs, conversation, scheduler, presentation };
   let app: Awaited<ReturnType<typeof createHttpApp>>;
   try {
     app = await createHttpApp(dependencies);

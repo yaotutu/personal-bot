@@ -8,6 +8,8 @@
 - 一个 OpenAI-compatible Chat Completions endpoint/model，服务端配置凭据。
 - OpenMuse session/workspace/agent/conversation 接口，以及本地 CopilotKit + AG-UI SSE。
 - 固定单主会话 `local-main`：流式回答、多轮上下文、稳定消息 ID、刷新与服务重启恢复。
+- Web 搜索与抓取：`search_web` 返回标题、URL 和摘要，优先 DuckDuckGo，被 challenge 时用 Bing RSS 兜底；`web_fetch` 抓取公网页面并提取 Markdown/text。二者均只读，带 DNS/SSRF 校验、重定向校验、超时和大小限制，并把外部内容标记为不可信数据。
+- 实时天气：`get_weather` 使用无密钥 Open-Meteo Geocoding + Forecast API，返回当前温度、体感、湿度、降水、风力和今日概要；可在 config 中配置默认城市。天气请求不再依赖通用搜索，网络请求复用公网 DNS/SSRF 防护。
 - 只读工具集：`currentTime`（本地时钟）+ `read`/`grep`/`find`/`ls`（复用 pi 内置只读文件工具，
   执行前强制路径边界——解析后必须落在 `DATA_DIR/workspace` 资料目录内，绝对路径与 `../` 逃逸一律拒绝）；
   工具调用与结果按 AG-UI 四类事件（START/ARGS/END/RESULT）透传给 OpenMuse 卡片展示，
@@ -22,7 +24,7 @@
   Apps 页 Personality & memory 界面增改忘）；每轮注入 system prompt，改完下一轮生效；
   身份设置（名字/语气）同存并注入。不做自动提取。
 - 定时任务（P4）：对话说"X 点提醒我 Y"→ schedule 工具创建（ISO 一次性或每日 HH:mm）；
-  调度器每 `PERSONAL_SCHEDULER_INTERVAL_MS`（默认 30s）扫表，到点且空闲时触发一轮，
+  调度器每 `runtime.schedulerIntervalMs`（默认 30s）扫表，到点且空闲时触发一轮，
   结果作为 ⏰ 消息进入聊天流并持久化；一次性任务跑完即关闭，服务重启时已过期的一次性任务不再补跑。
   崩溃哲学：失败只诚实标记，不做断点续跑。
 - 停止、HTTP 断流、超时、并发拒绝；等待 pi idle 后才释放运行锁（含工具执行轮）。
@@ -31,7 +33,7 @@
 - OpenMuse 的 serverOwnedHistory 可选能力开关；旧服务端未返回开关时保持原行为。
 
 暂不实现：写文件、shell、附件、自动记忆提取（Dream）、heartbeat、外部 channel、多会话、多用户、运行中 reconnect。
-已开放工具：currentTime / memory / schedule / read / grep / find / ls（均只读或受控写入）；未实现功能不伪装成功：不支持的 API 返回 501。
+已开放工具：currentTime / memory / schedule / read / grep / find / ls / search_web / web_fetch / get_weather（均只读或受控写入）；未实现功能不伪装成功：不支持的 API 返回 501。
 
 ## 客户端兼容策略
 
@@ -48,12 +50,17 @@
 ~~~sh
 cd /Users/yaotutu/Desktop/code/personal-bot
 pnpm install
-cp .env.example .env
+mkdir -p .personal-bot
+cp config.example.json .personal-bot/config.json
+chmod 600 .personal-bot/config.json
 ~~~
 
-在本地 `.env` 填写 `PERSONAL_MODEL_BASE_URL`、`PERSONAL_MODEL_ID` 和按需的 `PERSONAL_MODEL_API_KEY`。
+所有启动配置都来自 `.personal-bot/config.json`：模型、端口、超时、调度间隔、访问密钥
+和模型 API key 都直接写在这个文件中。项目不再读取旧的环境变量配置。完整字段说明见
+`docs/configuration.md`。
+
 base URL 是包含 /v1 等前缀的 API 根地址，不是完整 /chat/completions URL。
-访问密钥 `PERSONAL_ACCESS_KEY` 与模型 key 分离；不用把任何 key 发到聊天里。
+`server.accessKey` 是工作区访问密钥；`model.apiKey` 是模型凭据。不要把任何 key 发到聊天里。
 
 ~~~sh
 pnpm dev
@@ -88,18 +95,18 @@ cd /Users/yaotutu/Desktop/code/openmuse
 EXPO_PUBLIC_API_URL=http://localhost:8788 pnpm dev:web
 ~~~
 
-mock 默认监听 8788，使用真实 pi SDK + 本地模拟 OpenAI SSE endpoint，不读取 .env，不调用真实供应商。
+mock 默认监听 8788，使用真实 pi SDK + 本地模拟 OpenAI SSE endpoint，不读取正式 config.json，不调用真实供应商。
 模拟回复展示收到的用户轮数；发送 slow 可测试停止；发送含「时间/几点」的消息走 currentTime 工具闭环（模拟模型先发起 tool_calls，pi 执行工具后生成回答）。
 模拟历史在 `.personal-bot/mock`，与正式历史隔离。
-可通过 PORT / MOCK_DATA_DIR 覆盖 mock 端口和目录。
+mock 端口和数据目录由脚本内显式配置固定，不提供环境变量覆盖。
 
 ## 存储与安全边界
 
-默认目录 `.personal-bot`（已忽略）：sessions/ 是 pi 会话，auth.key 是随机 token 签名密钥，workspace/ 与 agent/ 是专用运行目录。
-模型 key 只驻留服务端内存，不写入 pi auth.json、不返回客户端；供应商错误诊断在持久化前脱敏。
+默认目录 `.personal-bot`（已忽略）：`config.json` 是必需服务配置，sessions/ 是 pi 会话，auth.key 是随机 token 签名密钥，workspace/ 与 agent/ 是专用运行目录。
+模型 key 只驻留受保护的 `.personal-bot/config.json` 与服务端内存，不写入 pi auth.json、不返回客户端；供应商错误诊断在持久化前脱敏。
 对话本身按明文落盘，应保护或备份数据目录。登录 token 有效 24 小时，服务重启仍有效；更换访问密钥会使旧 token 失效。
 
-这是可信本机、单进程、单 owner 服务，不是公开互联网生产部署。不要让两个进程共用一个 DATA_DIR。
+这是可信本机、单进程、单 owner 服务，不是公开互联网生产部署。不要让两个进程共用同一个实例数据目录。
 P1 未做速率限制、跨进程锁、细粒度权限或数据加密；CORS 不是鉴权。
 监听非回环地址必须设置访问密钥；远程访问还需要 TLS/反向代理。手机的 localhost 不是 Mac，真机验收需单独配置地址。
 
@@ -110,7 +117,7 @@ pi 自动压缩已开启（参数随上下文窗口收缩），展示历史完�
 
 ## 验证状态与后续
 
-- 当前 `pnpm test` 共 135 项通过，覆盖真实 HTTP/pi/fake-provider 主链路、unit/integration 边界、协议事件、历史安全、停止/断流/超时、工具副作用、provider 异常、鉴权、调度器、并发写、初始化失败和存储损坏保护。
+- 当前 `pnpm test` 共 146 项通过，覆盖真实 HTTP/pi/fake-provider 主链路、unit/integration 边界、协议事件、历史安全、停止/断流/超时、工具副作用、provider 异常、鉴权、调度器、并发写、初始化失败和存储损坏保护。
 - 架构重构 R0-R6 与 R7A 已完成：`bootstrap/create-service.ts` 是唯一组装入口；业务规则位于 `features/`；pi、AG-UI、OpenMuse、storage 位于 `adapters/`；`http/app.ts` 不拥有调度器。
 - 持久化仍保持既有 `memory.json` 对象和 `jobs.json` 裸数组格式；缺失文件默认空值，损坏/未知版本/读写错误拒绝继续写，不静默覆盖用户数据；R7B 物理目录迁移延期。
 - mock 进程使用隔离数据目录和 fake provider；关键进程级启动/关闭、占用端口、非法配置和 mock SSE 检查已通过。

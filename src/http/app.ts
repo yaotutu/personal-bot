@@ -9,7 +9,7 @@ import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
 // 只挂载 HTTP/协议适配：使用已组装的服务，不创建 store，也不启动或关闭调度器。
 export async function createHttpApp(dependencies: HttpDependencies) {
   const { config, auth, conversation } = dependencies;
-  const runtimeRoutes = await createAgUiRoutes(conversation);
+  const runtimeRoutes = await createAgUiRoutes(conversation, dependencies.presentation);
   const app = new Hono();
   app.use(
     "*",
