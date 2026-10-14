@@ -1,6 +1,32 @@
 # Personal Bot 交接文档
 
-> 更新日期：2026-10-12 ｜ 状态：产品 P1-P4 已完成；架构重构 R0-R6 与 R7A 已完成，R7B 延期；第一阶段 prompt 修正与真实模型 Web 核心复验已完成；第二阶段 P5A/P5B 服务端与 Web 验收已完成；当前配置入口已改为必需 config.json，Web Search/Fetch 已实现。当前以 OpenMuse Web 页面跑通为准，原生客户端暂不作为交付门槛。
+> ## 2026-10-15 v2 现状（最新，先读这节）
+>
+> 产品方向已变更为 **OpenMuse 式工作台形态 + 自研客户端**（不兼容 OpenMuse 客户端，API 自主设计）。
+> 本节以下、10-12 历史段落中的“OpenMuse Web 页面跑通为准”等描述已过时，仅作验收历史保留。
+>
+> **已完成（v2 段落，全部真实验收）**：
+> - 接口契约单一事实源 `src/http/contracts/`（REST + SSE 事件子集），自研 Web 编译期共享类型
+> - 多会话 threads：任意合法 threadId、`sessions/<threadId>/` 目录、GET /api/threads、旧数据一次性迁移
+> - **自研 Web**（`web/`，Vite+React+Tailwind，gzip 72KB）：聊天（流式/工具卡片/停止/多会话侧栏）、
+>   任务页（定时+后台混合列表/创建/控制）、设置页（身份/记忆/SOUL/USER 编辑）
+> - **后台任务域**：delegate_task 工具 + POST /api/agent/tasks；独立 thread 执行（工具全可用）；
+>   worker 串行；完成 📋 通知主聊天流；重启遗留 running 标记 failed 可重试
+> - SOUL/USER 管理 REST（GET/PUT /api/profile）；base prompt 不钉死人设（SOUL > identity > 默认）
+> - **OpenMuse 客户端兼容层已移除**（自有端点迁 `src/http/workspace-routes.ts`；patch 归档
+>   `docs/archive/compat-openmuse/`）；OpenMuse 页面不再使用
+> - 测试 178/178 全绿
+>
+> **运行环境**：服务端 config.json `server.port`=8790（8787 曾被外部进程占用）；自研 Web
+> `cd web && API_TARGET=http://127.0.0.1:8790 pnpm dev`（5173）。
+> **config.json 的 `runtime.dataDir` 必须绝对路径**：相对路径按进程 cwd 解析，曾因此产生
+> `.personal-bot/.personal-bot/` 嵌套目录（数据分裂/workspace 读空），已合并修复并记入 AGENTS.md。
+>
+> **剩余候选**：goals/monitors 域、PGlite 存储、PWA 化、写文件+审批、MCP（详见 AGENTS.md 与 v2-plan）。
+>
+> ---
+>
+> 更新日期：2026-10-12 ｜ 状态（历史快照）：产品 P1-P4 已完成；架构重构 R0-R6 与 R7A 已完成，R7B 延期；第一阶段 prompt 修正与真实模型 Web 核心复验已完成；第二阶段 P5A/P5B 服务端与 Web 验收已完成；当前配置入口已改为必需 config.json，Web Search/Fetch 已实现。当前以 OpenMuse Web 页面跑通为准，原生客户端暂不作为交付门槛。
 
 ## 1. 项目一句话
 
