@@ -38,7 +38,7 @@ const setup = async (t: TestContext) => {
       isError: false,
     }),
   };
-  const tools = createTools(layout.workspaceDir, memory, jobs, web, weather);
+  const tools = createTools({ root: layout.workspaceDir, memory, jobs, web, weather });
   // SDK ToolDefinition 的 context 与本测试无关；工具不访问 session 环境。
   const execute = (name: string, params: unknown) => tools.find((tool) => tool.name === name)!
     .execute("test-call", params as never, undefined, undefined, {} as never);

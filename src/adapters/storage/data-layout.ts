@@ -14,6 +14,7 @@ export type DataLayout = {
   piAuthFile: string;
   memoryFile: string;
   jobsFile: string;
+  tasksFile: string;
   soulFile: string;
   userFile: string;
   authKeyFile: string;
@@ -29,6 +30,7 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     piAuthFile: join(root, "agent", "auth.json"),
     memoryFile: join(root, "memory.json"),
     jobsFile: join(root, "jobs.json"),
+    tasksFile: join(root, "tasks.json"),
     soulFile: join(root, "SOUL.md"),
     userFile: join(root, "USER.md"),
     authKeyFile: join(root, "auth.key"),

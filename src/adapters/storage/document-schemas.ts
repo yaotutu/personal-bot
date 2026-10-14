@@ -4,7 +4,7 @@ import type { Job } from "../../features/jobs/types.js";
 
 /** 固定安全文案，不在错误里附带原文、文件路径或用户资料。 */
 export class InvalidDocumentError extends Error {
-  constructor(kind: "memory" | "jobs") {
+  constructor(kind: "memory" | "jobs" | "tasks") {
     super(`Invalid ${kind} document; restore a valid backup before writing`);
     this.name = "InvalidDocumentError";
   }
@@ -32,6 +32,20 @@ export const readMemoryDocument = (value: unknown): MemoryState => {
     ),
     identity: { ...defaultIdentity, ...identity },
   };
+};
+
+/** tasks 同为裸数组；状态枚举校验保证 worker 读到合法状态机。 */
+export const readTasksDocument = (value: unknown): import("../../features/tasks/types.js").Task[] => {
+  if (!Array.isArray(value)) throw new InvalidDocumentError("tasks");
+  const statuses = ["queued", "running", "succeeded", "failed", "cancelled"];
+  return value.filter(
+    (item): item is import("../../features/tasks/types.js").Task =>
+      isObject(item) &&
+      typeof item.id === "string" &&
+      typeof item.prompt === "string" &&
+      typeof item.status === "string" &&
+      statuses.includes(item.status),
+  );
 };
 
 /** jobs 继续写裸数组，不做包裹版本升级；旧条目筛选语义维持 id/prompt。 */

@@ -3,12 +3,13 @@ import { Hono } from "hono";
 import type { HttpDependencies } from "../bootstrap/types.js";
 import {
   createMemorySchema,
+  createTaskSchema,
   editMemorySchema,
   identitySchema,
   taskControlSchema,
 } from "./contracts/rest.js";
 import { conversationSchema } from "./legacy-conversation-schema.js";
-import { presentJob, presentJobDetail } from "./job-presenters.js";
+import { presentAsyncTask, presentJob, presentJobDetail } from "./job-presenters.js";
 
 /**
  * 自研 Web 的业务端点（原 OpenMuse 兼容层中保留下来的部分）：
@@ -18,20 +19,27 @@ import { presentJob, presentJobDetail } from "./job-presenters.js";
 export const createWorkspaceRoutes = (
   dependencies: Pick<
     HttpDependencies,
-    "config" | "memory" | "identity" | "jobs" | "conversationHub" | "scheduler"
+    "config" | "memory" | "identity" | "jobs" | "tasks" | "taskWorker" | "conversationHub" | "scheduler"
   >,
 ) => {
-  const { config, memory, identity: identityService, jobs, conversationHub, scheduler } =
+  const { config, memory, identity: identityService, jobs, tasks, taskWorker, conversationHub, scheduler } =
     dependencies;
   const app = new Hono();
   app.get("/api/agent", async (c) => {
-    const [memories, identity, scheduledJobs] = await Promise.all([
+    // tasks 数组混合定时任务（kind=monitor）与异步任务（kind=agent），
+    // 按更新时间倒序；两者状态机不同但 DTO 同形。
+    const [memories, identity, scheduledJobs, asyncTasks] = await Promise.all([
       memory.list(),
       identityService.get(),
       jobs.list(),
+      tasks.list(),
     ]);
+    const merged = [
+      ...scheduledJobs.map(presentJob),
+      ...asyncTasks.map(presentAsyncTask),
+    ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     return c.json({
-      tasks: scheduledJobs.map(presentJob),
+      tasks: merged,
       memories,
       identity,
       // goals/monitors/ideas 等域尚未实现，诚实返回空集合而不是省略字段。
@@ -47,9 +55,24 @@ export const createWorkspaceRoutes = (
     const job = await jobs.get(c.req.param("id"));
     return job ? c.json(presentJobDetail(job)) : c.json({ error: "Task not found" }, 404);
   });
+  // 创建异步任务（后台独立会话执行），立即 kick worker。
+  app.post("/api/agent/tasks", async (c) => {
+    const parsed = createTaskSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: "Invalid task request" }, 400);
+    const task = await tasks.create(parsed.data.prompt, "web", parsed.data.title);
+    taskWorker.kick();
+    return c.json(presentAsyncTask(task));
+  });
   app.post("/api/agent/tasks/:id/control", async (c) => {
     const parsed = taskControlSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid task control request" }, 400);
+    if (parsed.data.target === "task") {
+      const result = await tasks.control(c.req.param("id"), parsed.data.action === "retry" ? "retry" : "cancel");
+      if (result.ok) taskWorker.kick();
+      if (!result.ok)
+        return c.json({ error: result.message }, result.code === "not_found" ? 404 : 409);
+      return c.json(presentAsyncTask(result.task));
+    }
     const main = await conversationHub.forThread("local-main");
     const result = await jobs.control(c.req.param("id"), parsed.data.action, () =>
       main.isRunning() || scheduler.isBusy(),

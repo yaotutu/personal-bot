@@ -4,10 +4,13 @@ import type { Config } from "../config/load-config.js";
 import { createConversation } from "../features/conversation/conversation-service.js";
 import { createConversationHub } from "../features/conversation/conversation-hub.js";
 import { createJobService } from "../features/jobs/job-service.js";
+import { createTaskService } from "../features/tasks/task-service.js";
+import { createTaskWorker, type TaskWorker } from "../features/tasks/task-worker.js";
 import { createMemoryService } from "../features/memory/memory-service.js";
 import { createIdentityService } from "../features/identity/identity-service.js";
 import { readProfileFile, writeProfileFile } from "../adapters/storage/profile-files.js";
 import { createJobRepository } from "../adapters/storage/job-repository.js";
+import { createTaskRepository } from "../adapters/storage/task-repository.js";
 import { createMemoryRepository } from "../adapters/storage/memory-repository.js";
 import { createHttpApp } from "../http/app.js";
 import { createDataLayout, ensureThreadLayout, threadSessionsDir } from "../adapters/storage/data-layout.js";
@@ -62,6 +65,11 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
         maxContentChars: config.web.maxContentChars,
       })
     : undefined;
+  // 异步任务域先建 service；worker 依赖 hub，hub 的工具装配又需要 worker，
+  // 用可变引用解开循环（worker 在 hub 就绪后立即补上，首个请求前必然完成）。
+  const tasks = createTaskService(createTaskRepository(layout.tasksFile));
+  const workerRef: { current?: TaskWorker } = {};
+
   // 多会话：每个 thread 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
   const conversationHub = createConversationHub(
     async (threadId) => {
@@ -69,7 +77,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       return createConversation(config, {
         history,
         openSession: async () => createPiExecution(
-          await openPi(config, manager, memory, jobs, layout, web, weather), manager,
+          await openPi(config, manager, memory, jobs, layout, web, weather, tasks, workerRef.current), manager,
         ),
       });
     },
@@ -90,7 +98,10 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   // 定时任务结果固定进入主会话（与现有语义一致）；启动时确保 main thread 就绪。
   const mainConversation = await conversationHub.forThread("local-main");
   const scheduler = createScheduler(config, jobs, mainConversation);
-  const dependencies = { config, layout, auth, memory, identity, jobs, conversationHub, scheduler, presentation };
+  // 异步任务 worker：串行执行 + 完成通知主会话；遗留 running 标记 failed 可重试。
+  const taskWorker = createTaskWorker(tasks, conversationHub, mainConversation);
+  workerRef.current = taskWorker;
+  const dependencies = { config, layout, auth, memory, identity, jobs, tasks, taskWorker, conversationHub, scheduler, presentation };
   let app: Awaited<ReturnType<typeof createHttpApp>>;
   try {
     app = await createHttpApp(dependencies);
@@ -99,6 +110,12 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     throw error;
   }
   scheduler.start();
+  {
+    // 启动恢复：把上次进程中断遗留的 running 任务标记为 failed，再跑排队任务。
+    const leftovers = (await tasks.list()).filter((task) => task.status === "running");
+    for (const task of leftovers) await tasks.markFinished(task.id, "failed");
+    taskWorker.kick();
+  }
 
   let closing: Promise<void> | undefined;
   return {
@@ -111,7 +128,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       const stopped = scheduler.close();
       closing = (async () => {
         try {
-          await conversationHub.closeAll();
+          await Promise.all([conversationHub.closeAll(), taskWorker.close()]);
         } finally {
           await stopped;
         }

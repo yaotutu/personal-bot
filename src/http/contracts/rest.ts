@@ -79,6 +79,12 @@ export type IdentityPatch = z.infer<typeof identitySchema>;
 // ---------------------------------------------------------------------------
 export const taskControlSchema = z.object({
   action: z.enum(["pause", "resume", "cancel", "retry"]),
+  /** 分发目标：job（定时任务，默认）或 task（异步任务）。 */
+  target: z.enum(["job", "task"]).optional(),
+});
+export const createTaskSchema = z.object({
+  prompt: z.string().trim().min(1).max(12000),
+  title: z.string().trim().min(1).max(160).optional(),
 });
 export type TaskControlAction = z.infer<typeof taskControlSchema>;
 

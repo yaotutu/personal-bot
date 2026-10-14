@@ -161,6 +161,30 @@ export async function createFakeModel() {
           ((tool as { function?: { name?: string } }).function?.name === name ||
             (tool as { name?: string }).name === name),
       );
+    // 任务 thread 的执行轮。
+    if (/^后台任务测试/.test(last)) {
+      event({ role: "assistant" });
+      event({ content: "TASK-RAN " + last });
+      event({}, "stop");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
+    // 任务完成通知轮（📋 前缀）。
+    if (/^📋/.test(last)) {
+      event({ role: "assistant" });
+      event({ content: "NOTIFIED " + last.slice(0, 40) });
+      event({}, "stop");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
+    // 异步任务路径：触发词"后台" + 声明了 delegate_task。
+    if (declaresTool("delegate_task") && /后台/.test(last) && !pendingToolResult) {
+      event({ role: "assistant" });
+      event(toolCall("delegate_task", { action: "create", prompt: "后台任务测试：回复 TASK-MARKER" }));
+      event({}, "tool_calls");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
     // 定时任务路径：触发词"提醒我" + 声明了 schedule 工具。测试用 15 秒后的一次性任务。
     if (declaresTool("schedule") && /提醒我/.test(last) && !pendingToolResult) {
       event({ role: "assistant" });

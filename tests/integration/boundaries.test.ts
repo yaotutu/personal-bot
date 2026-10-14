@@ -255,7 +255,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
         for (const [path, method] of [
           ["/api/files", "GET"],
           ["/api/notifications", "GET"],
-          ["/api/agent/tasks", "POST"],
+          ["/api/monitors", "GET"],
           ["/api/copilotkit/threads", "GET"],
           ["/api/copilotkit/agent/default/connect", "POST"],
         ] as const) {

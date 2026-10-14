@@ -185,13 +185,23 @@ export const getAgentSnapshot = async (): Promise<{
   return response.json();
 };
 
+export const createTask = async (prompt: string, title?: string): Promise<TaskView> => {
+  const response = await request("/api/agent/tasks", {
+    method: "POST",
+    body: JSON.stringify({ prompt, title }),
+  });
+  if (!response.ok) throw new ApiError(response.status, "创建失败");
+  return response.json();
+};
+
 export const controlTask = async (
   id: string,
   action: "pause" | "resume" | "cancel" | "retry",
+  target?: "job" | "task",
 ): Promise<{ ok: boolean; error?: string }> => {
   const response = await request(`/api/agent/tasks/${id}/control`, {
     method: "POST",
-    body: JSON.stringify({ action }),
+    body: JSON.stringify({ action, target }),
   });
   if (!response.ok) {
     const data = (await response.json().catch(() => ({}))) as { error?: string };

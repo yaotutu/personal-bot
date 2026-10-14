@@ -71,6 +71,7 @@ const declaredTools = (request: ModelRequest) =>
     .sort();
 const expectedTools = [
   "currentTime",
+  "delegate_task",
   "find",
   "get_weather",
   "grep",
@@ -1214,4 +1215,63 @@ test("multi-thread: independent histories, thread listing and stop scoped per th
   assert.deepEqual(after, ["local-main", "trip-2026"]);
   const mainAfter = await h.getHistory();
   assert.ok(!mainAfter.some((x) => String(x.content).includes("trip")));
+});
+
+test("task domain: chat-delegated background task runs in its own thread and notifies main", {
+  timeout: 30000,
+}, async (t) => {
+  const h = await harness();
+  t.after(h.close);
+  // 对话创建：说"后台" → delegate_task 工具 → tasks.json 出现 queued 任务。
+  const ev = await h.events(input([user("帮我在后台跑一下")], "task-run"));
+  assert.equal(ev.at(-1)?.type, "RUN_FINISHED");
+  const delegateStart = ev.filter((x) => x.type === "TOOL_CALL_START").at(0)! as unknown as {
+    toolCallName: string;
+  };
+  assert.equal(delegateStart.toolCallName, "delegate_task");
+  // worker 串行执行：任务 thread 跑完 → 主会话收到 📋 通知轮 → 任务 succeeded。
+  let agent: { tasks: { id: string; kind: string; status: string; result?: string }[] };
+  let notified = false;
+  for (let i = 0; i < 20; i++) {
+    await sleep(500);
+    agent = await h.request("/api/agent").then((x) => x.json());
+    const task = agent.tasks.find((x) => x.kind === "agent");
+    const main = await h.getHistory();
+    notified = main.some((x) => String(x.content).includes("📋"));
+    if (task?.status === "succeeded" && notified) break;
+  }
+  const task = agent!.tasks.find((x) => x.kind === "agent")!;
+  assert.equal(task.status, "succeeded");
+  assert.match(task.result ?? "", /TASK-RAN/);
+  const main = await h.getHistory();
+  assert.ok(notified, "main thread should receive the 📋 notification turn");
+  // 任务 thread 的执行历史独立存在（threads 列表出现 task- 前缀）。
+  const threads = await h
+    .request("/api/threads")
+    .then((x) => x.json())
+    .then((x) => (x.threads as { id: string }[]).map((x) => x.id));
+  assert.ok(threads.some((id) => id.startsWith("task-")));
+  // 控制分发：对 task target 的 cancel 幂等拒绝（已 succeeded）。
+  const control = await h
+    .request(`/api/agent/tasks/${task.id}/control`, { action: "cancel", target: "task" })
+    .then((x) => x.status);
+  assert.equal(control, 409);
+  // 重启：遗留 running 任务被标记 failed（可重试）。
+  const state = JSON.parse(await readFile(join(h.dataDir, "tasks.json"), "utf8"));
+  state[0].status = "running";
+  await writeFile(join(h.dataDir, "tasks.json"), JSON.stringify(state));
+  await h.restart();
+  agent = await h.request("/api/agent").then((x) => x.json());
+  assert.equal(agent.tasks.find((x) => x.kind === "agent")!.status, "failed");
+  // 重试重新排队并完成。
+  const retry = await h
+    .request(`/api/agent/tasks/${task.id}/control`, { action: "retry", target: "task" })
+    .then((x) => x.status);
+  assert.equal(retry, 200);
+  for (let i = 0; i < 20; i++) {
+    await sleep(500);
+    agent = await h.request("/api/agent").then((x) => x.json());
+    if (agent.tasks.find((x) => x.kind === "agent")!.status === "succeeded") break;
+  }
+  assert.equal(agent.tasks.find((x) => x.kind === "agent")!.status, "succeeded");
 });

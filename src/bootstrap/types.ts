@@ -5,6 +5,8 @@ import type { MemoryService } from "../features/memory/memory-service.js";
 import type { IdentityService } from "../features/identity/identity-service.js";
 import type { DataLayout } from "../adapters/storage/data-layout.js";
 import type { Scheduler } from "../features/jobs/scheduler.js";
+import type { TaskService } from "../features/tasks/task-service.js";
+import type { TaskWorker } from "../features/tasks/task-worker.js";
 import type { createAuth } from "../adapters/auth/token-service.js";
 import type { ToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
 
@@ -19,10 +21,12 @@ export type ServiceContainer = {
   jobs: JobService;
   conversationHub: ConversationHub;
   scheduler: Scheduler;
+  tasks: TaskService;
+  taskWorker: TaskWorker;
   presentation: ToolPresentation;
 };
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "config" | "auth" | "memory" | "identity" | "jobs" | "conversationHub" | "presentation" | "scheduler"
+  "config" | "auth" | "memory" | "identity" | "jobs" | "tasks" | "taskWorker" | "conversationHub" | "presentation" | "scheduler"
 >;

@@ -56,3 +56,22 @@ export const presentJobDetail = (job: Job) => {
 };
 
 export type PresentedJobDetail = ReturnType<typeof presentJobDetail>;
+
+/** 异步任务投影：与定时任务同形状（AgentTask DTO），kind 区分来源。 */
+export const presentAsyncTask = (task: import("../features/tasks/types.js").Task) => ({
+  id: task.id,
+  title: task.title,
+  prompt: task.prompt,
+  kind: "agent" as const,
+  status: task.status,
+  plan: [] as unknown[],
+  evidence: [] as unknown[],
+  input: {} as Record<string, unknown>,
+  state: {} as Record<string, unknown>,
+  createdAt: task.createdAt,
+  updatedAt: task.finishedAt ?? task.startedAt ?? task.createdAt,
+  attempts: task.status === "failed" ? 1 : 0,
+  artifactIds: [] as string[],
+  result: task.result,
+  error: task.error ?? null,
+});
