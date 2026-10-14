@@ -17,6 +17,8 @@ export const App = () => {
   const [error, setError] = useState("");
   type View = "chat" | "jobs" | "settings";
   const [view, setView] = useState<View>("chat");
+  // 小屏（<768px）侧栏变为抽屉；默认开抽屉选会话，选完自动收起。
+  const [drawer, setDrawer] = useState(false);
 
   useEffect(() => {
     if (!authed) return;
@@ -75,7 +77,18 @@ export const App = () => {
 
   return (
     <div className="flex h-screen bg-stone-100">
-      <aside className="flex w-56 flex-col border-r border-stone-200 bg-white">
+      {/* 小屏抽屉遮罩 */}
+      {drawer && (
+        <div
+          className="fixed inset-0 z-30 bg-black/30 md:hidden"
+          onClick={() => setDrawer(false)}
+        />
+      )}
+      <aside
+        className={`flex w-56 shrink-0 flex-col border-r border-stone-200 bg-white max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:transition-transform ${
+          drawer ? "max-md:translate-x-0" : "max-md:-translate-x-full"
+        }`}
+      >
         <div className="px-4 py-4 text-sm font-semibold tracking-wide text-stone-700">
           Personal Bot
         </div>
@@ -83,7 +96,10 @@ export const App = () => {
           {navItems.map((item) => (
             <button
               key={item.key}
-              onClick={() => setView(item.key)}
+              onClick={() => {
+                setView(item.key);
+                setDrawer(false);
+              }}
               className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium ${
                 view === item.key
                   ? "bg-stone-800 text-white"
@@ -101,6 +117,7 @@ export const App = () => {
               onClick={() => {
                 setActive(thread.id);
                 setView("chat");
+                setDrawer(false);
               }}
               className={`w-full truncate rounded-lg px-3 py-2 text-left text-sm ${
                 thread.id === active
@@ -135,10 +152,23 @@ export const App = () => {
           />
         </div>
       </aside>
-      <main className="flex-1">
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="flex items-center gap-3 border-b border-stone-200 bg-white px-4 py-2.5 md:hidden">
+          <button
+            onClick={() => setDrawer(true)}
+            aria-label="打开会话列表"
+            className="rounded-lg border border-stone-300 px-2.5 py-1 text-sm text-stone-600"
+          >
+            ☰
+          </button>
+          <span className="text-sm font-semibold text-stone-700">Personal Bot</span>
+          <span className="ml-auto truncate text-xs text-stone-400">{active}</span>
+        </header>
+        <div className="min-h-0 flex-1">
         {view === "chat" && <ChatView threadId={active} />}
         {view === "jobs" && <JobsView />}
         {view === "settings" && <SettingsView />}
+        </div>
       </main>
     </div>
   );

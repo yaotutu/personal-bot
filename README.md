@@ -95,7 +95,19 @@ API_TARGET=http://127.0.0.1:8790 pnpm dev   # 5173，/api 代理到服务端
 ```
 
 功能：多会话列表/新建、流式对话（AG-UI SSE 子集）、工具卡片、停止、历史刷新恢复。
-OpenMuse 客户端兼容层保留至该页覆盖全部用法后移除。
+
+### PWA（手机可安装）
+
+`web/` 已内置 manifest + 图标 + Service Worker 离线壳（静态资产缓存、/api 永不缓存、
+小屏抽屉式会话列表 + 安全区适配）。构建产物自带 PWA：
+
+```sh
+cd web && pnpm build && API_TARGET=http://127.0.0.1:8790 npx vite preview  # 4173
+```
+
+安装边界（诚实说明）：Android Chrome 要求 secure context，局域网 HTTP IP 不能安装
+（需 HTTPS 或经 adb reverse 映射为 localhost）；iOS Safari 在局域网 HTTP 下可直接
+"添加到主屏幕"。离线时应用壳可打开，聊天需服务端在线。
 
 ## 无凭据本地联调
 
