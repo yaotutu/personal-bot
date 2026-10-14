@@ -206,7 +206,8 @@ test("system prompt describes explicit memory and schedules without expanding pe
 test("system prompt reads profile files in order, omits blanks and refreshes memory/identity", async (t) => {
   const { layout, memory, identity } = await setup(t);
   const base = await buildSystemPrompt(layout, memory);
-  assert.ok(base.startsWith("You are Personal Bot"));
+  // 人设不钉死在 base：名字来自 identity/SOUL 注入段。
+  assert.ok(base.startsWith("You are the user's personal assistant"));
   assert.ok(!base.includes("## Your identity"));
   await writeFile(layout.soulFile, "  gentle assistant  \n");
   await writeFile(layout.userFile, "  tea lover\n");

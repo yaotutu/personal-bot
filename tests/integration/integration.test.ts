@@ -335,7 +335,7 @@ test("OpenMuse info + SDK streaming, second-turn context, restart, stale PUT and
     ),
   );
   assert.deepEqual(declaredTools(modelInput), expectedTools);
-  assert.ok(String(modelInput.messages[0]?.content).includes("Personal Bot"));
+  assert.ok(String(modelInput.messages[0]?.content).includes("personal assistant"));
   const all = await h.getHistory();
   assert.equal(all.length, 4);
   const calls = h.model.requests.length;
@@ -983,7 +983,7 @@ test("identity files SOUL.md and USER.md are injected into the system prompt onl
   const ev = await h.events(input([user("hello")], "identity-run"));
   assert.equal(ev.at(-1)?.type, "RUN_FINISHED");
   const system = String(h.model.requests.at(-1)!.messages[0]?.content);
-  assert.ok(system.includes("Personal Bot"));
+  assert.ok(system.includes("personal assistant"));
   assert.ok(system.includes("SOUL-MARKER"));
   assert.ok(system.includes("USER-MARKER"));
   // 身份只进 system prompt，不进聊天流与历史投影。
