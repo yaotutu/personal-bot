@@ -121,8 +121,16 @@ R0-R6 与 R7A 已完成；R7B（物理数据目录迁移）条件性延期，当
 - 写入先在内存序列化，以 `wx`、`0600` 创建同目录临时文件，再 `rename` 替换；失败清理本次临时文件并保留原始错误。底层 writer 不做 fsync、自动重试、跨进程锁或 durable execution；scheduler 的补存仅重用已经得到的运行结果和完成时间。
 - 损坏文档需停止服务、保留原件并从有效备份恢复，不直接删文件消除报错。未来若改格式或路径，单独设计离线迁移与回退，不运行中双写。
 
+## 异步任务域（worker）
+
+- `src/features/tasks/`：一次性后台任务（与定时 jobs 分域），独立 thread（`task-<id>`）执行完整 pi 轮；
+  worker 进程内串行；完成向主会话发 📋 通知轮；重启遗留 running 标记 failed 可重试（崩了重跑）。
+- 入口：聊天 `delegate_task` 工具 / `POST /api/agent/tasks`；控制经 `/control` 按 `target: job|task` 分发。
+- `/api/agent` 的 tasks 数组混合两类（kind: monitor=定时 / agent=后台）。
+
 ## 已知限制（诚实声明）
 
+- **dataDir 必须用绝对路径**（config.json `runtime.dataDir`）：相对路径按进程 cwd 解析，曾因服务进程 cwd 异常产生 `.personal-bot/.personal-bot/` 嵌套目录导致数据分裂与 workspace 读空。
 - 真实模型 endpoint 为局域网网关（`silicon/deepseek-ai/DeepSeek-V4-Flash`）；模型偶尔省略工具参数（已用 schema 必填缓解）或偷懒不调工具（提示明确要求即可）。
 - 定时触发轮无实时 SSE 推送（用户刷新/下轮同步后可见）；客户端旧历史与触发轮冲突时收到一次 409 后自动同步。服务启动时按 nanobot 语义重算 daily 任务，已过期的一次性任务不补跑。
 - 第一阶段已修正基础 prompt 并完成隔离数据的真实模型 HTTP/OpenMuse Web 核心复验，范围见 `docs/archive/first-stage-acceptance.md`；真实链路曾发生 120 秒超时，后续新轮恢复。工具已完成的记忆/任务写入不会因后续模型超时而回滚，不引入自动重试。
