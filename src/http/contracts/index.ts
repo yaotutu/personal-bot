@@ -1,3 +1,2 @@
-/** 接口契约统一出口：REST（rest.ts）与 SSE 事件（events.ts）。 */
+/** 接口契约统一出口（当前仅 REST 校验 schema）。 */
 export * from "./rest.js";
-export * from "./events.js";

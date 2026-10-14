@@ -6,7 +6,7 @@ import { rejectConversation } from "./errors.js";
  * 字符集限制保证可直接作为目录名；契约层（src/http/contracts）从此处 re-export。
  * 纯函数校验，不引入 schema 库（features 层只依赖 features/shared 与原生能力）。
  */
-export const THREAD_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
+const THREAD_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 export const isThreadId = (value: unknown): value is string =>
   typeof value === "string" &&
   value.length >= 1 &&

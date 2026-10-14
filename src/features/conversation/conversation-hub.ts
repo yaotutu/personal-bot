@@ -8,7 +8,7 @@ import { rejectConversation } from "./errors.js";
  * 能力由组合入口在工厂里共享。hub 不接触存储或 SDK；创建是异步的，
  * 缓存 Promise 保证并发请求拿到同一实例。
  */
-export type ThreadSnapshot = { id: string; updatedAt: string };
+type ThreadSnapshot = { id: string; updatedAt: string };
 export type ConversationHub = {
   /** 校验并返回（首次创建）该 thread 的会话；非法 id 抛 UNSUPPORTED_THREAD。 */
   forThread: (threadId: string) => Promise<Conversation>;

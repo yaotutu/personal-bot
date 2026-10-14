@@ -1,4 +1,3 @@
-import { MessageSchema } from "@ag-ui/core";
 import { Hono } from "hono";
 import type { HttpDependencies } from "../bootstrap/types.js";
 import {
@@ -8,7 +7,6 @@ import {
   identitySchema,
   taskControlSchema,
 } from "./contracts/rest.js";
-import { conversationSchema } from "./legacy-conversation-schema.js";
 import { presentAsyncTask, presentJob, presentJobDetail } from "./job-presenters.js";
 
 /**
@@ -110,22 +108,7 @@ export const createWorkspaceRoutes = (
       return c.json({ error: "Invalid threadId" }, 400);
     }
   });
-  // PUT 保留为“一致性确认”（历史客户端同步习惯）：内容必须与服务端一致。
-  app.put("/api/conversation", async (c) => {
-    const parsed = conversationSchema.safeParse(await c.req.json().catch(() => undefined));
-    if (
-      !parsed.success ||
-      parsed.data.messages.some((message) => !MessageSchema.safeParse(message).success)
-    )
-      return c.json({ error: "Invalid conversation messages" }, 400);
-    const conversation = await conversationHub.forThread("local-main");
-    if (JSON.stringify(parsed.data.messages) !== JSON.stringify(conversation.history()))
-      return c.json(
-        { error: "History is server-owned; GET /api/conversation to synchronize" },
-        409,
-      );
-    return c.json({ ok: true });
-  });
+
   void config;
   return app;
 };

@@ -288,7 +288,7 @@ for (const stage of ["configuration", "service", "login"] as const) {
   });
 }
 
-test("OpenMuse info + SDK streaming, second-turn context, restart, stale PUT and dedup", {
+test("OpenMuse info + SDK streaming, second-turn context, restart and dedup", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
@@ -343,15 +343,11 @@ test("OpenMuse info + SDK streaming, second-turn context, restart, stale PUT and
   const replay = await h.events(input(all, "run-second"));
   assert.equal(replay.at(-1)?.type, "RUN_FINISHED");
   assert.equal(h.model.requests.length, calls);
-  const stale = await h.request(
-    "/api/conversation",
-    { messages: history },
-    "PUT",
+  // PUT 回写端点已随 OpenMuse 兼容移除：历史只读，同步靠 GET（落到未知 API 501）。
+  assert.equal(
+    (await h.request("/api/conversation", { messages: history }, "PUT")).status,
+    501,
   );
-  assert.equal(stale.status, 409);
-  assert.deepEqual(await h.getHistory(), all);
-  const ack = await h.request("/api/conversation", { messages: all }, "PUT");
-  assert.equal(ack.status, 200);
   await h.restart();
   assert.deepEqual(await h.getHistory(), all);
   const after = await h.events(input([...all, user("after-restart")]));
@@ -772,8 +768,7 @@ test("hidden tool presentation keeps complete model/pi result while OpenMuse see
   assert.ok(sessionFile);
   const canonical = await readFile(join(h.dataDir, "sessions", "local-main", sessionFile!), "utf8");
   assert.match(canonical, /HIDDEN-FIXTURE secret body/);
-  const synced = await h.request("/api/conversation", { messages: history }, "PUT");
-  assert.equal(synced.status, 200);
+
   // 同一完成轮 replay、下一轮与重启均使用已经隐藏工具的同一展示历史。
   const replay = await h.events(input(history, "hidden-read"));
   const snapshot = replay.find((event) => event.type === "MESSAGES_SNAPSHOT") as BaseEvent & { messages: Message[] };

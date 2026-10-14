@@ -27,16 +27,6 @@ export const createTaskWorker = (
   let closing: Promise<void> | undefined;
   let current: Promise<void> = Promise.resolve();
 
-  /** 启动恢复：把上次进程留下的 running 任务标为 failed（诚实，可重试）。 */
-  const reconcile = async () => {
-    for (const task of await tasks.list()) {
-      if (task.status === "running") {
-        // 直接迁移：此时不可能有真实执行（单进程串行），标记失败等待重试。
-        await tasks.markFinished(task.id, "failed");
-      }
-    }
-  };
-
   const notifyMain = async (title: string, status: string, result?: string) => {
     if (mainConversation.isRunning()) return;
     const summary = (result ?? "").slice(0, 600);
@@ -96,13 +86,4 @@ export const createTaskWorker = (
       return closing;
     },
   };
-};
-
-/** 组合入口在启动时调用：先恢复遗留状态，再 kick 排队任务。 */
-export const startTaskWorker = async (
-  worker: TaskWorker,
-  reconcile: () => Promise<void>,
-) => {
-  await reconcile();
-  worker.kick();
 };

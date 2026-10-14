@@ -3,9 +3,6 @@
  * token 持久化在 localStorage；401 时清除并要求重新登录。
  */
 
-// 契约类型只做类型引用（import type），不把服务端模块打进 Web 产物。
-type ContractModule = typeof import("../../../src/http/contracts/index.js");
-
 export type ApiMessage = {
   id: string;
   role: "user" | "assistant" | "system" | "tool";

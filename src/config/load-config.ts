@@ -72,7 +72,7 @@ const configFileSchema = z.object({
 }).strict();
 
 export type ConfigFileInput = z.input<typeof configFileSchema>;
-export const defaultConfigFile = ".personal-bot/config.json";
+const defaultConfigFile = ".personal-bot/config.json";
 const defaultUserAgent =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36";
 

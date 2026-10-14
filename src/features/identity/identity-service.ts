@@ -2,7 +2,7 @@ import type { MemoryRepository } from "../memory/types.js";
 import type { Identity } from "./types.js";
 
 /** SOUL/USER 自由文本的读写 port；实现由 storage adapter 注入，feature 不碰 fs。 */
-export type ProfileFiles = {
+type ProfileFiles = {
   read: (which: "soul" | "user") => Promise<string>;
   write: (which: "soul" | "user", content: string) => Promise<void>;
 };

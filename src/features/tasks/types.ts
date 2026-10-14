@@ -4,7 +4,7 @@
  * Web 任务页投影。执行 = 独立 thread 的一次完整 pi 轮（含工具调用），
  * 结果回写任务记录；失败只诚实标记，可手动重试，无断点续跑。
  */
-export type TaskStatus =
+type TaskStatus =
   | "queued"
   | "running"
   | "succeeded"

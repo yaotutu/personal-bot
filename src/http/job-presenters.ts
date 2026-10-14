@@ -55,7 +55,7 @@ export const presentJobDetail = (job: Job) => {
   return { task: presentJob(job), events, artifacts: [], files: [], browsers: [] };
 };
 
-export type PresentedJobDetail = ReturnType<typeof presentJobDetail>;
+type PresentedJobDetail = ReturnType<typeof presentJobDetail>;
 
 /** 异步任务投影：与定时任务同形状（AgentTask DTO），kind 区分来源。 */
 export const presentAsyncTask = (task: import("../features/tasks/types.js").Task) => ({

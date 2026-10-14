@@ -354,46 +354,19 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
     );
 
     await t.test(
-      "conversation validates input and refuses client-owned history",
+      "conversation history is read-only (PUT removed with compat layer)",
       async () => {
-        for (const body of [
-          "{",
-          "{}",
-          JSON.stringify({ messages: "invalid" }),
-          JSON.stringify({ messages: [{ role: "invalid" }] }),
-        ]) {
-          await jsonError(
-            await authorized("/api/conversation", {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body,
-            }),
-            400,
-          );
-        }
-        const unchanged = await authorized("/api/conversation", {
+        // PUT 回写端点已删除：任何 PUT 都落到未知 API 的 501，历史只能 GET。
+        const response = await authorized("/api/conversation", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: [] }),
-        });
-        assert.equal(unchanged.status, 200);
-        assert.deepEqual(await unchanged.json(), { ok: true });
-        await jsonError(
-          await authorized("/api/conversation", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              messages: [
-                {
-                  id: "forged",
-                  role: "assistant",
-                  content: "client overwrite",
-                },
-              ],
-            }),
+          body: JSON.stringify({
+            messages: [
+              { id: "forged", role: "assistant", content: "client overwrite" },
+            ],
           }),
-          409,
-        );
+        });
+        assert.equal(response.status, 501);
         assert.deepEqual(await (await authorized("/api/conversation")).json(), {
           messages: [],
         });

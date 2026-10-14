@@ -7,7 +7,7 @@ import { ConversationError } from "../../src/features/conversation/errors.js";
 import { PiAgent } from "../../src/adapters/ag-ui/agent.js";
 import { createRunner } from "../../src/adapters/ag-ui/runner.js";
 import { presentJob } from "../../src/http/job-presenters.js";
-import { createMemorySchema, editMemorySchema, identitySchema, conversationSchema } from "../../src/http/legacy-conversation-schema.js";
+import { createMemorySchema, editMemorySchema, identitySchema } from "../../src/http/contracts/rest.js";
 import type { Job } from "../../src/features/jobs/types.js";
 
 const input: RunAgentInput = {
@@ -126,7 +126,6 @@ test("OpenMuse schemas retain trimming, bounds, optional fields and unknown-fiel
   assert.deepEqual(identitySchema.parse({}), {});
   assert.equal(identitySchema.safeParse({ tone: "unknown" }).success, false);
   assert.equal(identitySchema.safeParse({ showChatUpdates: "false" }).success, false);
-  assert.equal(conversationSchema.safeParse({ messages: Array(1001).fill(null) }).success, false);
 });
 
 test("AG-UI agent forwards events and signal, completes and does not cancel a settled run", async () => {

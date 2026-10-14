@@ -1,7 +1,7 @@
 import type { Config } from "../../config/load-config.js";
 import type { ConversationHistory, HistoryMessage } from "../../features/conversation/types.js";
 
-export type ToolPresentationMode = "hidden" | "summary";
+type ToolPresentationMode = "hidden" | "summary";
 
 export type ToolPresentation = {
   modeFor: (name: string) => ToolPresentationMode;
