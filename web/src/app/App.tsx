@@ -1,0 +1,115 @@
+import { useEffect, useState } from "react";
+import { ChatView } from "../chat/ChatView";
+import { isLoggedIn, listThreads, login } from "../lib/api";
+
+/**
+ * 应用骨架：左侧会话列表（threads），右侧聊天区。
+ * 新 thread 通过侧栏输入创建（合法 id：字母数字开头，可含 _ -）。
+ */
+export const App = () => {
+  const [authed, setAuthed] = useState(isLoggedIn());
+  const [threads, setThreads] = useState<{ id: string; updatedAt: string }[]>([]);
+  const [active, setActive] = useState("local-main");
+  const [newThread, setNewThread] = useState("");
+  const [accessKey, setAccessKey] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!authed) return;
+    void listThreads()
+      .then((list) => {
+        setThreads(list);
+        if (list.length && !list.some((x) => x.id === active)) setActive(list[0]!.id);
+      })
+      .catch((e: Error) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
+
+  if (!authed) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-stone-100">
+        <div className="w-80 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+          <h1 className="text-lg font-semibold text-stone-800">Personal Bot</h1>
+          <p className="mt-1 text-sm text-stone-500">
+            {accessKey === "" && error ? error : "输入服务端访问密钥（未配置密钥时直接进入）"}
+          </p>
+          <input
+            type="password"
+            value={accessKey}
+            onChange={(e) => setAccessKey(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter")
+                void login(accessKey).then((ok) => {
+                  setAuthed(ok);
+                  setError(ok ? "" : "访问密钥不正确");
+                });
+            }}
+            placeholder="访问密钥"
+            className="mt-4 w-full rounded-xl border border-stone-300 px-3 py-2 text-sm outline-none focus:border-stone-500"
+          />
+          <button
+            onClick={() =>
+              void login(accessKey).then((ok) => {
+                setAuthed(ok);
+                setError(ok ? "" : "访问密钥不正确");
+              })
+            }
+            className="mt-3 w-full rounded-xl bg-stone-800 py-2 text-sm font-medium text-white hover:bg-stone-700"
+          >
+            进入
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen bg-stone-100">
+      <aside className="flex w-56 flex-col border-r border-stone-200 bg-white">
+        <div className="px-4 py-4 text-sm font-semibold tracking-wide text-stone-700">
+          Personal Bot
+        </div>
+        <div className="flex-1 space-y-0.5 overflow-y-auto px-2">
+          {threads.map((thread) => (
+            <button
+              key={thread.id}
+              onClick={() => setActive(thread.id)}
+              className={`w-full truncate rounded-lg px-3 py-2 text-left text-sm ${
+                thread.id === active
+                  ? "bg-stone-800 text-white"
+                  : "text-stone-600 hover:bg-stone-100"
+              }`}
+            >
+              {thread.id}
+            </button>
+          ))}
+        </div>
+        <div className="border-t border-stone-200 p-2">
+          <input
+            value={newThread}
+            onChange={(e) => setNewThread(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" || !newThread.trim()) return;
+              const id = newThread.trim();
+              if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(id)) {
+                setError("会话名：字母或数字开头，可含 _ -");
+                return;
+              }
+              if (!threads.some((x) => x.id === id)) {
+                setThreads([...threads, { id, updatedAt: new Date().toISOString() }]);
+              }
+              setActive(id);
+              setNewThread("");
+              setError("");
+            }}
+            placeholder="新会话名称…"
+            className="w-full rounded-lg border border-stone-300 px-2.5 py-1.5 text-sm outline-none focus:border-stone-500"
+          />
+        </div>
+      </aside>
+      <main className="flex-1">
+        <ChatView threadId={active} />
+      </main>
+    </div>
+  );
+};

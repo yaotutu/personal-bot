@@ -85,6 +85,19 @@ pnpm build
 pnpm start
 ~~~
 
+## 自研 Web 客户端（web/）
+
+~~（PWA 路线第一步）~~ Vite + React + Tailwind，契约类型直接引用 `src/http/contracts`。
+
+```sh
+cd web
+pnpm install
+API_TARGET=http://127.0.0.1:8790 pnpm dev   # 5173，/api 代理到服务端
+```
+
+功能：多会话列表/新建、流式对话（AG-UI SSE 子集）、工具卡片、停止、历史刷新恢复。
+OpenMuse 客户端兼容层保留至该页覆盖全部用法后移除。
+
 ## 无凭据本地联调
 
 ~~~sh
