@@ -197,7 +197,8 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
       "protected and unsupported API routes require a valid token",
       async () => {
         for (const path of [
-          "/api/workspace",
+          "/api/threads",
+          "/api/profile",
           "/api/agent",
           "/api/conversation",
           "/api/copilotkit/info",
@@ -215,30 +216,11 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
     );
 
     await t.test(
-      "workspace exposes server-owned history and text-only capabilities",
+      "OpenMuse workspace snapshot is gone with the compat layer",
       async () => {
+        // 兼容层已移除：/api/workspace 不再返回 OpenMuse 形状的快照。
         const response = await authorized("/api/workspace");
-        assert.equal(response.status, 200);
-        const workspace = await response.json();
-        assert.equal(workspace.mode, "live");
-        [
-          "mail",
-          "events",
-          "files",
-          "browsers",
-          "actions",
-          "activity",
-          "connections",
-        ].forEach((name) => {
-          assert.deepEqual(workspace[name], []);
-        });
-        assert.deepEqual(workspace.runtime, {
-          provider: "model",
-          configured: false,
-          openbotConfigured: false,
-          richThreads: false,
-          serverOwnedHistory: true,
-        });
+        assert.equal(response.status, 501);
       },
     );
 

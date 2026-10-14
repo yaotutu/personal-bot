@@ -30,8 +30,7 @@
 - 停止、HTTP 断流、超时、并发拒绝；等待 pi idle 后才释放运行锁（含工具执行轮）。
 - 完成请求去重、失败/取消后的同消息重试，拒绝陈旧用户历史和冲突 run ID；客户端伪造的 tools 不透传给模型。
 - 专用 pi 数据/资源目录；不加载个人 CLI 的全局配置、skills、extensions 或 MCP。
-- OpenMuse 的 serverOwnedHistory 可选能力开关；旧服务端未返回开关时保持原行为。
-
+- 
 暂不实现：写文件、shell、附件、自动记忆提取（Dream）、heartbeat、外部 channel、多会话、多用户、运行中 reconnect。
 已开放工具：currentTime / memory / schedule / read / grep / find / ls / search_web / web_fetch / get_weather（均只读或受控写入）；未实现功能不伪装成功：不支持的 API 返回 501。
 

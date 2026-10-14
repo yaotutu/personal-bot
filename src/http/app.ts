@@ -3,7 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { z } from "zod/v3";
 import type { HttpDependencies } from "../bootstrap/types.js";
-import { createOpenMuseRoutes } from "../adapters/openmuse/routes.js";
+import { createWorkspaceRoutes } from "./workspace-routes.js";
 import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
 import { saveProfileSchema } from "./contracts/rest.js";
 
@@ -61,13 +61,13 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     return c.json(await dependencies.identity.saveProfile(parsed.data));
   });
   // 先鉴权，再挂载兼容/运行协议，最后处理未知 API；顺序是现有安全边界。
-  app.route("/", createOpenMuseRoutes(dependencies));
+  app.route("/", createWorkspaceRoutes(dependencies));
   app.route("/", runtimeRoutes);
   app.all("/api/*", (c) =>
     c.json(
       {
         error:
-          "This feature is not implemented; this server currently supports text conversation only",
+          "This feature is not implemented",
       },
       501,
     ),

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createJobRepository } from "../../src/adapters/storage/job-repository.js";
 import { createJobService } from "../../src/features/jobs/job-service.js";
-import { presentJob, presentJobDetail } from "../../src/adapters/openmuse/presenters.js";
+import { presentJob, presentJobDetail } from "../../src/http/job-presenters.js";
 import { readJobsDocument } from "../../src/adapters/storage/document-schemas.js";
 import type { Job } from "../../src/features/jobs/types.js";
 

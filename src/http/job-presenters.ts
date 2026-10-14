@@ -1,4 +1,4 @@
-import type { Job } from "../../features/jobs/types.js";
+import type { Job } from "../features/jobs/types.js";
 
 const latestDate = (...values: (string | undefined)[]) =>
   values.filter((value): value is string => !!value && Number.isFinite(Date.parse(value)))
@@ -34,7 +34,7 @@ export const presentJob = (job: Job) => ({
  * 每个事件 ID 由 job + 事实类型 + 时间组成，重启/刷新保持稳定。
  */
 export const presentJobDetail = (job: Job) => {
-  const controlTitles = { pause: "Task paused", resume: "Task resumed", cancel: "Task cancelled", retry: "Retry requested" };
+  const controlTitles: Record<Job["lastControl"] extends { action: infer A } | undefined ? A & string : never, string> = { pause: "Task paused", resume: "Task resumed", cancel: "Task cancelled", retry: "Retry requested" };
   const events = [
     {
       id: `${job.id}:created`, taskId: job.id, date: job.createdAt,

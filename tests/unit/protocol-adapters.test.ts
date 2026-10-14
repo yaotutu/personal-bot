@@ -6,8 +6,8 @@ import type { Conversation } from "../../src/features/conversation/conversation-
 import { ConversationError } from "../../src/features/conversation/errors.js";
 import { PiAgent } from "../../src/adapters/ag-ui/agent.js";
 import { createRunner } from "../../src/adapters/ag-ui/runner.js";
-import { presentJob } from "../../src/adapters/openmuse/presenters.js";
-import { createMemorySchema, editMemorySchema, identitySchema, conversationSchema } from "../../src/adapters/openmuse/schemas.js";
+import { presentJob } from "../../src/http/job-presenters.js";
+import { createMemorySchema, editMemorySchema, identitySchema, conversationSchema } from "../../src/http/legacy-conversation-schema.js";
 import type { Job } from "../../src/features/jobs/types.js";
 
 const input: RunAgentInput = {
