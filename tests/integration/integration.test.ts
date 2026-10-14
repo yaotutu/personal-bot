@@ -359,12 +359,12 @@ test("OpenMuse info + SDK streaming, second-turn context, restart, stale PUT and
     h.model.requests.at(-1)!.messages.filter((x) => x.role === "user").length,
     3,
   );
-  const sessionFile = (await readdir(join(h.dataDir, "sessions"))).find((x) =>
+  const sessionFile = (await readdir(join(h.dataDir, "sessions", "local-main"))).find((x) =>
     x.endsWith(".jsonl"),
   )!;
   assert.ok(
     !(
-      await readFile(join(h.dataDir, "sessions", sessionFile), "utf8")
+      await readFile(join(h.dataDir, "sessions", "local-main", sessionFile), "utf8")
     ).includes("test-secret-model-key"),
   );
 });
@@ -378,12 +378,12 @@ test("failed request retry keeps one canonical user and ignores forged assistant
   const first = await h.events(input([submitted], "fail-1"));
   assert.equal(first.at(-1)?.type, "RUN_ERROR");
   assert.ok(!JSON.stringify(first).includes("test-secret-model-key"));
-  const sessionFile = (await readdir(join(h.dataDir, "sessions"))).find((x) =>
+  const sessionFile = (await readdir(join(h.dataDir, "sessions", "local-main"))).find((x) =>
     x.endsWith(".jsonl"),
   )!;
   assert.ok(
     !(
-      await readFile(join(h.dataDir, "sessions", sessionFile), "utf8")
+      await readFile(join(h.dataDir, "sessions", "local-main", sessionFile), "utf8")
     ).includes("test-secret-model-key"),
   );
   let messages = await h.getHistory();
@@ -424,12 +424,11 @@ test("early stop during retry preserves failed history, then retry after restart
   );
   const previous = await h.getHistory();
   const emitted: BaseEvent[] = [];
-  const pending = h
-    .service()
-    .conversation.run(input(previous, "early-retry"), createEventProjector((event) => {
-      emitted.push(event);
-    }));
-  await h.service().conversation.cancel();
+  const conversation = await h.service().conversationHub.forThread("local-main");
+  const pending = conversation.run(input(previous, "early-retry"), createEventProjector((event) => {
+    emitted.push(event);
+  }));
+  await conversation.cancel();
   await pending;
   assert.equal(emitted.at(-1)?.code, "STOPPED");
   assert.deepEqual(await h.getHistory(), previous);
@@ -487,7 +486,10 @@ test("stop waits for pi idle, rejects concurrent run, preserves partial text and
     .request("/api/copilotkit/agent/default/stop/local-main", {})
     .then((x) => x.json());
   assert.equal(stop.stopped, true);
-  assert.equal(h.service().conversation.isRunning(), false);
+  assert.equal(
+    (await h.service().conversationHub.forThread("local-main")).isRunning(),
+    false,
+  );
   const events = await pending;
   assert.equal(events.at(-1)?.code, "STOPPED");
   assert.ok(!events.some((x) => x.type === "RUN_FINISHED"));
@@ -526,7 +528,8 @@ test("HTTP SSE disconnect aborts provider and releases session", {
   await until(() => h.model.requests.length > 0);
   await sleep(100);
   await reader.cancel();
-  await until(() => !h.service().conversation.isRunning());
+  const released = await h.service().conversationHub.forThread("local-main");
+  await until(() => !released.isRunning());
   await until(() => h.model.slowClosed() > 0);
   const messages = await h.getHistory();
   assert.equal(
@@ -543,7 +546,10 @@ test("timeout and broken endpoint terminate with errors; validation cannot mutat
   t.after(h.close);
   const timed = await h.events(input([user("freeze")]));
   assert.equal(timed.at(-1)?.code, "TIMEOUT");
-  assert.equal(h.service().conversation.isRunning(), false);
+  assert.equal(
+    (await h.service().conversationHub.forThread("local-main")).isRunning(),
+    false,
+  );
   const messages = await h.getHistory();
   const broken = await h.events(input([...messages, user("broken")]));
   assert.equal(broken.at(-1)?.type, "RUN_ERROR");
@@ -563,7 +569,10 @@ for (const failure of ["empty", "malformed", "broken"] as const) {
     const events = await h.events(input([user(failure)]));
     assert.equal(events.at(-1)?.type, "RUN_ERROR");
     assert.ok(!events.some((event) => event.type === "RUN_FINISHED"));
-    assert.equal(h.service().conversation.isRunning(), false);
+    assert.equal(
+    (await h.service().conversationHub.forThread("local-main")).isRunning(),
+    false,
+  );
     assert.equal(h.model.requests.length, 1, "provider failures must not auto-retry");
     const history = await h.getHistory();
     assert.equal((await h.events(input([...history, user("next turn")]))).at(-1)?.type, "RUN_FINISHED");
@@ -579,7 +588,10 @@ for (const tool of ["memory", "schedule"] as const) {
     assert.ok(events.some((event) => event.type === "TOOL_CALL_RESULT"));
     assert.equal(events.at(-1)?.code, "MODEL_ERROR");
     assert.match(String(events.at(-1)?.message), /not rolled back/);
-    assert.equal(h.service().conversation.isRunning(), false);
+    assert.equal(
+    (await h.service().conversationHub.forThread("local-main")).isRunning(),
+    false,
+  );
     assert.equal(h.model.requests.length, 2, "one tool round and one failed final reply, without retries");
     const file = join(h.dataDir, tool === "memory" ? "memory.json" : "jobs.json");
     const stored = JSON.parse(await readFile(file, "utf8"));
@@ -604,7 +616,10 @@ test("tool effects survive a final model timeout without automatic execution ret
   assert.match(String(events.at(-1)?.message), /not rolled back/);
   assert.equal((await h.service().memory.list()).length, 1);
   assert.equal(h.model.requests.length, 2);
-  assert.equal(h.service().conversation.isRunning(), false);
+  assert.equal(
+    (await h.service().conversationHub.forThread("local-main")).isRunning(),
+    false,
+  );
   const history = await h.getHistory();
   assert.ok(history.some((message) => message.role === "tool"));
   assert.equal((await h.events(input([...history, user("next turn")]))).at(-1)?.type, "RUN_FINISHED");
@@ -618,7 +633,10 @@ test("stop after a tool preserves its effect and displayed history while pi filt
   await sleep(100);
   assert.equal((await h.request("/api/copilotkit/agent/default/stop/local-main", {}).then((response) => response.json())).stopped, true);
   assert.equal((await pending).at(-1)?.code, "STOPPED");
-  assert.equal(h.service().conversation.isRunning(), false);
+  assert.equal(
+    (await h.service().conversationHub.forThread("local-main")).isRunning(),
+    false,
+  );
   assert.equal((await h.service().memory.list()).length, 1);
   const history = await h.getHistory();
   assert.ok(history.some((message) => message.role === "tool"));
@@ -749,9 +767,9 @@ test("hidden tool presentation keeps complete model/pi result while OpenMuse see
   const history = await h.getHistory();
   assert.ok(history.every((message) => message.role !== "tool" &&
     !(message.role === "assistant" && Array.isArray(message.toolCalls))));
-  const sessionFile = (await readdir(join(h.dataDir, "sessions"))).find((name) => name.endsWith(".jsonl"));
+  const sessionFile = (await readdir(join(h.dataDir, "sessions", "local-main"))).find((name) => name.endsWith(".jsonl"));
   assert.ok(sessionFile);
-  const canonical = await readFile(join(h.dataDir, "sessions", sessionFile!), "utf8");
+  const canonical = await readFile(join(h.dataDir, "sessions", "local-main", sessionFile!), "utf8");
   assert.match(canonical, /HIDDEN-FIXTURE secret body/);
   const synced = await h.request("/api/conversation", { messages: history }, "PUT");
   assert.equal(synced.status, 200);
@@ -1156,4 +1174,44 @@ test("P4 scheduled jobs: chat-created reminder fires into history; missed one-sh
   const synced = await h.getHistory();
   const reply = await h.events(input([...synced, user("after-job")], "after-job"));
   assert.equal(reply.at(-1)?.type, "RUN_FINISHED");
+});
+
+test("multi-thread: independent histories, thread listing and stop scoped per thread", {
+  timeout: 30000,
+}, async (t) => {
+  const h = await harness();
+  t.after(h.close);
+  // 两个 thread 各聊一轮，历史互不污染。
+  await h.events(input([user("main thread question")], "t-main-1"));
+  const trip = input([user("trip plan question")], "t-trip-1");
+  trip.threadId = "trip-2026";
+  await h.events(trip);
+  const mainHistory = await h.getHistory();
+  assert.ok(mainHistory.some((x) => x.role === "user" && String(x.content).includes("main thread")));
+  assert.ok(!mainHistory.some((x) => String(x.content).includes("trip plan")));
+  const tripHistory = await h
+    .request("/api/conversation?threadId=trip-2026")
+    .then((x) => x.json())
+    .then((x) => x.messages as Message[]);
+  assert.ok(tripHistory.some((x) => String(x.content).includes("trip plan")));
+  const follow = input([...tripHistory, user("trip followup")], "t-trip-2");
+  follow.threadId = "trip-2026";
+  assert.equal((await h.events(follow)).at(-1)?.type, "RUN_FINISHED");
+  // thread 列表包含两个 id；非法 id 的请求被拒绝。
+  const threads = await h
+    .request("/api/threads")
+    .then((x) => x.json())
+    .then((x) => (x.threads as { id: string }[]).map((y) => y.id).sort());
+  assert.deepEqual(threads, ["local-main", "trip-2026"]);
+  const evil = input([user("x")], "t-evil");
+  evil.threadId = "../evil";
+  assert.equal((await h.events(evil)).at(-1)?.code, "UNSUPPORTED_THREAD");
+  // 重启后两个 thread 历史仍独立。
+  await h.restart();
+  const after = await h.request("/api/threads")
+    .then((x) => x.json())
+    .then((x) => (x.threads as { id: string }[]).map((y) => y.id).sort());
+  assert.deepEqual(after, ["local-main", "trip-2026"]);
+  const mainAfter = await h.getHistory();
+  assert.ok(!mainAfter.some((x) => String(x.content).includes("trip")));
 });

@@ -1,14 +1,20 @@
 import { MessageSchema } from "@ag-ui/core";
 import { Hono } from "hono";
 import type { HttpDependencies } from "../../bootstrap/types.js";
-import { createMemorySchema, editMemorySchema, identitySchema, conversationSchema, taskControlSchema } from "./schemas.js";
+import {
+  createMemorySchema,
+  editMemorySchema,
+  identitySchema,
+  taskControlSchema,
+} from "../../http/contracts/rest.js";
+import { conversationSchema } from "./schemas.js";
 import { presentJob, presentJobDetail } from "./presenters.js";
 
 /** 客户端兼容路由只调用业务入口，不拥有存储、会话锁或调度器。 */
 export const createOpenMuseRoutes = (
-  dependencies: Pick<HttpDependencies, "config" | "memory" | "identity" | "jobs" | "conversation" | "scheduler">,
+  dependencies: Pick<HttpDependencies, "config" | "memory" | "identity" | "jobs" | "conversationHub" | "scheduler">,
 ) => {
-  const { config, memory, identity: identityService, jobs, conversation, scheduler } = dependencies;
+  const { config, memory, identity: identityService, jobs, conversationHub, scheduler } = dependencies;
   const app = new Hono();
   app.get("/api/workspace", (c) =>
     c.json({
@@ -58,9 +64,10 @@ export const createOpenMuseRoutes = (
   app.post("/api/agent/tasks/:id/control", async (c) => {
     const parsed = taskControlSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid task control request" }, 400);
+    const main = await conversationHub.forThread("local-main");
     const result = await jobs.control(
       c.req.param("id"), parsed.data.action,
-      () => conversation.isRunning() || scheduler.isBusy(),
+      () => main.isRunning() || scheduler.isBusy(),
     );
     if (!result.ok)
       return c.json({ error: result.message }, result.code === "not_found" ? 404 : 409);
@@ -97,9 +104,16 @@ export const createOpenMuseRoutes = (
       return c.json({ error: "Invalid identity request" }, 400);
     return c.json(await identityService.save(parsed.data));
   });
-  app.get("/api/conversation", (c) =>
-    c.json({ messages: conversation.history() }),
-  );
+  app.get("/api/conversation", async (c) => {
+    // threadId 查询参数选择会话（自研 Web 契约）；缺省回退主会话保持旧客户端兼容。
+    const threadId = c.req.query("threadId") || "local-main";
+    try {
+      const conversation = await conversationHub.forThread(threadId);
+      return c.json({ messages: conversation.history() });
+    } catch {
+      return c.json({ error: "Invalid threadId" }, 400);
+    }
+  });
   app.put("/api/conversation", async (c) => {
     const parsed = conversationSchema
       .safeParse(await c.req.json().catch(() => undefined));
@@ -111,6 +125,7 @@ export const createOpenMuseRoutes = (
     )
       return c.json({ error: "Invalid conversation messages" }, 400);
     // 兼容旧调用，但不信任 client assistant；一致时只确认，不一致时拒绝覆盖。
+    const conversation = await conversationHub.forThread("local-main");
     if (
       JSON.stringify(parsed.data.messages) !==
       JSON.stringify(conversation.history())

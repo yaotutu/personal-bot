@@ -1,14 +1,29 @@
 import type { ConversationInput, ConversationRecords, HistoryMessage } from "./types.js";
 import { rejectConversation } from "./errors.js";
 
+/**
+ * threadId：单 owner 多会话的稳定标识（如 main / trip-2026）。
+ * 字符集限制保证可直接作为目录名；契约层（src/http/contracts）从此处 re-export。
+ * 纯函数校验，不引入 schema 库（features 层只依赖 features/shared 与原生能力）。
+ */
+export const THREAD_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
+export const isThreadId = (value: unknown): value is string =>
+  typeof value === "string" &&
+  value.length >= 1 &&
+  value.length <= 64 &&
+  THREAD_ID_PATTERN.test(value);
+
 /** 仅校验用户序列；客户端伪造的模型/工具历史不进入执行上下文。 */
 export const validateConversationInput = (
   input: ConversationInput,
   history: readonly HistoryMessage[],
   records: ConversationRecords,
 ) => {
-  if (input.threadId !== "local-main")
-    rejectConversation("UNSUPPORTED_THREAD", "Only local-main is supported");
+  if (!isThreadId(input.threadId))
+    rejectConversation(
+      "UNSUPPORTED_THREAD",
+      "threadId must match ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ (max 64)",
+    );
   if (input.runId.length > 200 || !input.runId)
     rejectConversation("INVALID_INPUT", "Invalid run ID");
   // 客户端传来的 assistant/system/tool/context 都不导入 pi，防止历史伪造或越权。

@@ -23,18 +23,18 @@
 - 2026-10-12 已加入服务端工具展示策略：`tools.presentation` 默认 `hidden`，可按工具覆盖 `summary`；实时 AG-UI 与 GET/replay 历史统一过滤，完整结果仍留在模型/pi 权威历史，未修改 OpenMuse 客户端。专项 unit/integration 已覆盖隐藏卡片、搜索 schema、刷新/重启与 canonical 历史隔离。
 - 2026-10-12 已补齐 OpenMuse Activity 定时任务详情闭环：`GET /api/agent/tasks/:id` 返回真实任务/最近事实时间线，控制 POST 支持 pause/resume/cancel/retry；暂停/取消不回滚副作用，retry 仅用户显式触发，未引入第二套历史或自动重试。OpenMuse Web 已实际打开正式喝水任务详情，原 501 消失；Workspace timeline 仍为空，因为 actions/activity 审批体系未开放。
 - 隔离 DATA_DIR 的进程检查通过：编译入口未配置模型时 health/session/SIGTERM；mock health/session/currentTime SSE/SIGTERM；占用端口和非法配置失败后退出。
-- 第一阶段：基础 prompt 修正，真实模型 HTTP/OpenMuse Web 核心复验通过（流式、停止/刷新、时间/文件工具、记忆、定时执行、重启历史）；发生过一次实际超时并验证新轮恢复。范围和证据见 `docs/first-stage-acceptance.md`。
+- 第一阶段：基础 prompt 修正，真实模型 HTTP/OpenMuse Web 核心复验通过（流式、停止/刷新、时间/文件工具、记忆、定时执行、重启历史）；发生过一次实际超时并验证新轮恢复。范围和证据见 `docs/archive/first-stage-acceptance.md`。
 - 第二阶段第一轮：复现并修复 scheduler 在 `trigger` 完成但 `markRun` 未落盘时的重复执行，以及任务取消后旧 due 快照仍执行的问题；新增 6 项架构回归测试，未修改 pi、数据格式或 OpenMuse。
 - 第二阶段 P5B 自动化：按用户“nanobot 怎么做就怎么做”的决定，启动时重算 daily 日程，过期一次性任务不补跑（覆盖旧 P4 的补跑行为）；保留任务记录且不改变 JSON 格式。一次性成功/失败不再展示为 cancelled。补齐跨日、长任务、多任务串行、正常重启、无改动不落盘及损坏文档保护测试。
 - 第二阶段 P5A 自动化：借鉴 nanobot 的副作用保留与状态失败补存，保留本项目的“模型/工具不自动重试”约束；新增工具后 401/超时、空 choices、畸形 SSE、主动断流和工具后停止测试，确认工具写入可在最终模型失败后保留，失败后锁释放且下一轮可继续。
-- 第二阶段真实模型/Web 补验：隔离临时数据目录中已验证真实对话、`currentTime`、任务创建与到点执行、一次性任务 `succeeded` 展示、重启后过期一次性任务不补跑、每日任务重算与真实触发、多个到期任务串行、真实网关 401 脱敏与恢复，以及真实工具写入后最终 401 不回滚。完整证据见 `docs/second-stage-acceptance.md`。
+- 第二阶段真实模型/Web 补验：隔离临时数据目录中已验证真实对话、`currentTime`、任务创建与到点执行、一次性任务 `succeeded` 展示、重启后过期一次性任务不补跑、每日任务重算与真实触发、多个到期任务串行、真实网关 401 脱敏与恢复，以及真实工具写入后最终 401 不回滚。完整证据见 `docs/archive/second-stage-acceptance.md`。
 - 第二阶段收尾真实模型/Web 补验：通过代理故障注入验证真实模型链路的主动断流和畸形 SSE 以脱敏 `RUN_ERROR` 结束且下一轮恢复；Web 实际验证 Stop 后换题、客户端长轮跨午夜与 daily 争锁、长 daily 跨多个日程点不重复，以及 Activity 的失败/取消展示。代理注入不等于供应商自然故障。
 - 已确认的 pi 边界：停止后的半截 assistant 文本保留在展示历史，但 pi 会在下一次 provider 请求前过滤 `error/aborted` assistant；未为追求 nanobot 完全一致而修改 pi 底层。
 - 第二阶段收尾补验：隔离临时数据的 mock health/session 登录与 SIGTERM 正常；端口占用和 DATA_DIR 为普通文件时初始化失败后及时退出，未遗留进程。本项不替代真实模型/Web 验收。
 
 未做或不应误称为已完成：
 
-- 真实模型/Web 补验已覆盖第二阶段服务端交付范围；仍不能把代理故障注入称为供应商自然故障，也不能把一次 Web 观察扩展成模型行为绝对保证。具体证据和边界见 `docs/second-stage-acceptance.md`。
+- 真实模型/Web 补验已覆盖第二阶段服务端交付范围；仍不能把代理故障注入称为供应商自然故障，也不能把一次 Web 观察扩展成模型行为绝对保证。具体证据和边界见 `docs/archive/second-stage-acceptance.md`。
 - 原生客户端暂不纳入当前交付门槛。Android 隔离模拟器已有核心 smoke test 记录；iOS 因本机缺少完整 Xcode 未验收。真机、后台断线、生产签名包和 Android Stop 提示均延期处理，不影响 Web 页面跑通与服务端交付。
 - 未修改 OpenMuse 仓库，也未执行数据目录迁移。
 - 未自动 commit 或 push。
@@ -145,17 +145,17 @@ EXPO_PUBLIC_API_URL=http://localhost:8787 pnpm dev:web
 2. 不把新能力直接塞进 conversation、HTTP app 或 session factory；不创建全局 `utils.ts`、事件总线、DI 容器或空壳抽象。
 3. 新增写文件、web fetch、MCP、子代理等能力前，分别设计权限和错误边界，不顺手放宽现有 allowlist。
 4. 若未来必须改 JSON 格式，先停服务并备份 `.personal-bot/`，做一次性离线迁移和回滚说明；不要在运行中双写。
-5. 第一阶段核心 Web 复验、P5A/P5B 故障矩阵与调度/展示自动化，以及第二阶段服务端/Web 补验已完成；当前以 OpenMuse Web 页面跑通为交付标准，原生客户端暂不阻塞，供应商自然坏流仍未观察。准确范围见 `docs/second-stage-acceptance.md`；不引入自动重试。
+5. 第一阶段核心 Web 复验、P5A/P5B 故障矩阵与调度/展示自动化，以及第二阶段服务端/Web 补验已完成；当前以 OpenMuse Web 页面跑通为交付标准，原生客户端暂不阻塞，供应商自然坏流仍未观察。准确范围见 `docs/archive/second-stage-acceptance.md`；不引入自动重试。
 
 ## 7. 参考文档
 
 - `AGENTS.md`：项目硬边界、目录职责、fake-model 触发词和数据目录。
-- `docs/refactoring-plan.md`：R0-R7A 实施记录和后续约束。
+- `docs/archive/refactoring-plan.md`：R0-R7A 实施记录和后续约束。
 - `docs/architecture.md`：当前职责、状态所有权、持久化策略与新能力接入。
-- `docs/first-stage-acceptance.md`：第一阶段真实验收、隔离环境、已通过与未覆盖项。
-- `docs/second-stage-plan.md`：nanobot 行为对照、第二阶段实施边界、已修复调度竞态和剩余验收顺序。
-- `docs/second-stage-acceptance.md`：第二阶段真实模型/Web 补验证据、故障注入方式和未覆盖范围。
+- `docs/archive/first-stage-acceptance.md`：第一阶段真实验收、隔离环境、已通过与未覆盖项。
+- `docs/archive/second-stage-plan.md`：nanobot 行为对照、第二阶段实施边界、已修复调度竞态和剩余验收顺序。
+- `docs/archive/second-stage-acceptance.md`：第二阶段真实模型/Web 补验证据、故障注入方式和未覆盖范围。
 - `README.md`：启动、联调、安全和验证状态。
-- `docs/implementation-plan.md`：原始 P1-P4 功能实施历史。
+- `docs/archive/implementation-plan.md`：原始 P1-P4 功能实施历史。
 - `docs/openmuse-api-contract.md`：客户端接口契约。
 - `docs/pi-reuse.md`：pi 复用边界。

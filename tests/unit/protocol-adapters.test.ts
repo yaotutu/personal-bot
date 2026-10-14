@@ -24,6 +24,17 @@ const job: Job = {
 const stubConversation = (methods: Pick<Conversation, "run" | "cancel" | "isRunning">) =>
   methods as Conversation;
 
+const hubOf = (conversation: ReturnType<typeof stubConversation>) => ({
+    // 与真实 hub 一致：非法 threadId 抛错，由调用方捕获。
+    forThread: async (id: string) => {
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(id))
+        throw new Error("UNSUPPORTED_THREAD");
+      return conversation;
+    },
+    threads: async () => [],
+    closeAll: async () => {},
+  });
+
 test("OpenMuse task presenter preserves every legacy field without mutating the job", () => {
   const before = structuredClone(job);
   assert.deepEqual(presentJob(job), {
@@ -132,7 +143,7 @@ test("AG-UI agent forwards events and signal, completes and does not cancel a se
     cancel: async (...args) => { cancelled.push(args); return true; },
     isRunning: () => false,
   });
-  const agent = new PiAgent(conversation, controller.signal);
+  const agent = new PiAgent(hubOf(conversation), controller.signal);
   assert.notEqual(agent.clone(), agent);
   await new Promise<void>((resolve, reject) => agent.run(input).subscribe({
     next: (event) => events.push(event), complete: resolve, error: reject,
@@ -141,15 +152,17 @@ test("AG-UI agent forwards events and signal, completes and does not cancel a se
   assert.deepEqual(cancelled, []);
 });
 
-test("AG-UI unsubscribe cancels only the request's own run", () => {
+test("AG-UI unsubscribe cancels only the request's own run", async () => {
   const cancelled: unknown[] = [];
   const conversation = stubConversation({
     run: () => new Promise<void>(() => {}),
     cancel: async (...args) => { cancelled.push(args); return true; },
     isRunning: () => true,
   });
-  const subscription = new PiAgent(conversation, new AbortController().signal).run(input).subscribe();
+  const subscription = new PiAgent(hubOf(conversation), new AbortController().signal).run(input).subscribe();
   subscription.unsubscribe();
+  // hub.forThread 是异步的；退订后等微任务跑完再断言补偿取消已发出。
+  await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(cancelled, [["DISCONNECTED", input.runId]]);
 });
 
@@ -162,27 +175,28 @@ test("AG-UI startup rejection exposes only controlled ConversationError or gener
       run: async () => { throw error; }, cancel: async () => false, isRunning: () => false,
     });
     const events: BaseEvent[] = [];
-    await new Promise<void>((resolve, reject) => new PiAgent(conversation, new AbortController().signal).run(input).subscribe({
+    await new Promise<void>((resolve, reject) => new PiAgent(hubOf(conversation), new AbortController().signal).run(input).subscribe({
       next: (event) => events.push(event), complete: resolve, error: reject,
     }));
     assert.deepEqual(events, [{ type: EventType.RUN_ERROR, code, message }]);
   }
 });
 
-test("AG-UI runner rejects reconnect and scopes running/stop to the main thread", async () => {
+test("AG-UI runner rejects reconnect and scopes running/stop per thread", async () => {
   let checks = 0;
   let stops = 0;
   const conversation = stubConversation({
     run: async () => {}, isRunning: () => { checks++; return true; },
     cancel: async () => { stops++; return true; },
   });
-  const runner = createRunner(conversation);
-  assert.equal(await runner.isRunning({ threadId: "other" }), false);
-  assert.equal(await runner.stop({ threadId: "other" }), false);
-  assert.equal(checks, 0);
-  assert.equal(stops, 0);
-  assert.equal(await runner.isRunning({ threadId: "local-main" }), true);
-  assert.equal(await runner.stop({ threadId: "local-main" }), true);
+  const runner = createRunner(hubOf(conversation));
+  // hub 按 threadId 定位会话；任意合法 id 都能查询/停止，非法 id 安全返回 false。
+  assert.equal(await runner.isRunning({ threadId: "any-thread" }), true);
+  assert.equal(await runner.stop({ threadId: "any-thread" }), true);
+  assert.equal(checks, 1);
+  assert.equal(stops, 1);
+  assert.equal(await runner.isRunning({ threadId: "../evil" }), false);
+  assert.equal(await runner.stop({ threadId: "../evil" }), false);
   assert.equal(checks, 1);
   assert.equal(stops, 1);
   assert.deepEqual(await firstValueFrom(runner.connect()), {

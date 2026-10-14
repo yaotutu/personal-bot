@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { DataLayout } from "../storage/data-layout.js";
+import { threadSessionsDir, type DataLayout } from "../storage/data-layout.js";
 import type { ConversationHistoryPort } from "../../features/conversation/ports.js";
 import { RESULT_ENTRY_TYPE, TURN_ENTRY_TYPE, type ConversationTurn } from "../../features/conversation/types.js";
 import { collectConversationRecords, projectConversationHistory } from "./history-projection.js";
@@ -16,13 +16,18 @@ const turnIndex = (branch: readonly SessionEntry[], runId: string) =>
  * pi entry tree 是历史唯一事实来源。
  * 展示读取完整 branch（不读压缩后的 model context）；重试只追加 context edit。
  */
-export const createSessionHistory = async (layout: DataLayout, presentation?: ToolPresentation) => {
+export const createSessionHistory = async (
+  layout: DataLayout,
+  threadId: string,
+  presentation?: ToolPresentation,
+) => {
+  const sessionsDir = threadSessionsDir(layout, threadId);
   await Promise.all(
-    [layout.workspaceDir, layout.sessionsDir, layout.agentDir].map((path) =>
+    [layout.workspaceDir, sessionsDir, layout.agentDir].map((path) =>
       mkdir(path, { recursive: true, mode: 0o700 }),
     ),
   );
-  const manager = SessionManager.continueRecent(layout.workspaceDir, layout.sessionsDir);
+  const manager = SessionManager.continueRecent(layout.workspaceDir, sessionsDir);
   const history: ConversationHistoryPort = {
     history: () => {
       const projected = projectConversationHistory(manager.getBranch());

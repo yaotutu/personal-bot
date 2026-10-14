@@ -8,8 +8,8 @@ import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
 
 // 只挂载 HTTP/协议适配：使用已组装的服务，不创建 store，也不启动或关闭调度器。
 export async function createHttpApp(dependencies: HttpDependencies) {
-  const { config, auth, conversation } = dependencies;
-  const runtimeRoutes = await createAgUiRoutes(conversation, dependencies.presentation);
+  const { config, auth, conversationHub } = dependencies;
+  const runtimeRoutes = await createAgUiRoutes(conversationHub, dependencies.presentation);
   const app = new Hono();
   app.use(
     "*",
@@ -46,6 +46,10 @@ export async function createHttpApp(dependencies: HttpDependencies) {
       return c.json({ error: "Unauthorized: open a new session" }, 401);
     await next();
   });
+  // 单 owner 多会话：列出已存在的 thread（按最近活跃倒序）。
+  app.get("/api/threads", async (c) =>
+    c.json({ threads: await conversationHub.threads() }),
+  );
   // 先鉴权，再挂载兼容/运行协议，最后处理未知 API；顺序是现有安全边界。
   app.route("/", createOpenMuseRoutes(dependencies));
   app.route("/", runtimeRoutes);

@@ -1,5 +1,5 @@
 import type { Config } from "../config/load-config.js";
-import type { Conversation } from "../features/conversation/conversation-service.js";
+import type { ConversationHub } from "../features/conversation/conversation-hub.js";
 import type { JobService } from "../features/jobs/job-service.js";
 import type { MemoryService } from "../features/memory/memory-service.js";
 import type { IdentityService } from "../features/identity/identity-service.js";
@@ -17,12 +17,12 @@ export type ServiceContainer = {
   memory: MemoryService;
   identity: IdentityService;
   jobs: JobService;
-  conversation: Conversation;
+  conversationHub: ConversationHub;
   scheduler: Scheduler;
   presentation: ToolPresentation;
 };
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "config" | "auth" | "memory" | "identity" | "jobs" | "conversation" | "presentation" | "scheduler"
+  "config" | "auth" | "memory" | "identity" | "jobs" | "conversationHub" | "presentation" | "scheduler"
 >;

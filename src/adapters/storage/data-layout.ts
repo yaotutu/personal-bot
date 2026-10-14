@@ -34,3 +34,30 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     authKeyFile: join(root, "auth.key"),
   };
 };
+
+/** 单 owner 多会话：每个 thread 独占 sessions/<threadId>/ 下的 pi 会话树。 */
+export const threadSessionsDir = (layout: DataLayout, threadId: string) =>
+  join(layout.sessionsDir, threadId);
+
+/**
+ * 一次性把旧布局（会话文件直接放在 sessions/ 根）迁入 sessions/local-main/。
+ * 已是目录布局时幂等；迁移失败不阻塞启动（旧目录保留，错误向上抛）。
+ */
+export const ensureThreadLayout = async (layout: DataLayout) => {
+  const { readdir, mkdir, rename, access } = await import("node:fs/promises");
+  await mkdir(layout.sessionsDir, { recursive: true, mode: 0o700 });
+  const legacy = await readdir(layout.sessionsDir, { withFileTypes: true });
+  const files = legacy.filter((x) => x.isFile() && x.name.endsWith(".jsonl"));
+  if (!files.length) return;
+  const mainDir = threadSessionsDir(layout, "local-main");
+  await mkdir(mainDir, { recursive: true, mode: 0o700 });
+  for (const file of files) {
+    const from = join(layout.sessionsDir, file.name);
+    const to = join(mainDir, file.name);
+    try {
+      await access(to);
+    } catch {
+      await rename(from, to);
+    }
+  }
+};

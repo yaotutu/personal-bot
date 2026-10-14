@@ -125,19 +125,16 @@ R0-R6 与 R7A 已完成；R7B（物理数据目录迁移）条件性延期，当
 
 - 真实模型 endpoint 为局域网网关（`silicon/deepseek-ai/DeepSeek-V4-Flash`）；模型偶尔省略工具参数（已用 schema 必填缓解）或偷懒不调工具（提示明确要求即可）。
 - 定时触发轮无实时 SSE 推送（用户刷新/下轮同步后可见）；客户端旧历史与触发轮冲突时收到一次 409 后自动同步。服务启动时按 nanobot 语义重算 daily 任务，已过期的一次性任务不补跑。
-- 第一阶段已修正基础 prompt 并完成隔离数据的真实模型 HTTP/OpenMuse Web 核心复验，范围见 `docs/first-stage-acceptance.md`；真实链路曾发生 120 秒超时，后续新轮恢复。工具已完成的记忆/任务写入不会因后续模型超时而回滚，不引入自动重试。
-- 第二阶段已按 nanobot 的兼容行为补齐：工具副作用不回滚；最终模型失败不自动重试；scheduler 在状态写入失败时只补存同一次结果，成功前不重跑模型或执行其他任务；异常响应由 pi 负责解析，业务层只做终态和脱敏。停止后的半截 assistant 文本仍受 pi 的 `error/aborted` 历史过滤规则限制，不为此修改 pi。行为对照和剩余验收见 `docs/second-stage-plan.md`。
-- 第二阶段服务端/Web 验收已完成：除既有主路径外，真实模型链路的代理注入断流/畸形 SSE、Web Stop 后换题、跨午夜长轮争锁、长 daily 跨多个日程点、Web 失败/取消展示、真实网关 401 和工具写入后最终 401 保留记忆均已补验。代理故障注入不等于供应商自然故障；详细证据和边界见 `docs/second-stage-acceptance.md`。
+- 第一阶段已修正基础 prompt 并完成隔离数据的真实模型 HTTP/OpenMuse Web 核心复验，范围见 `docs/archive/first-stage-acceptance.md`；真实链路曾发生 120 秒超时，后续新轮恢复。工具已完成的记忆/任务写入不会因后续模型超时而回滚，不引入自动重试。
+- 第二阶段已按 nanobot 的兼容行为补齐：工具副作用不回滚；最终模型失败不自动重试；scheduler 在状态写入失败时只补存同一次结果，成功前不重跑模型或执行其他任务；异常响应由 pi 负责解析，业务层只做终态和脱敏。停止后的半截 assistant 文本仍受 pi 的 `error/aborted` 历史过滤规则限制，不为此修改 pi。行为对照和剩余验收见 `docs/archive/second-stage-plan.md`。
+- 第二阶段服务端/Web 验收已完成：除既有主路径外，真实模型链路的代理注入断流/畸形 SSE、Web Stop 后换题、跨午夜长轮争锁、长 daily 跨多个日程点、Web 失败/取消展示、真实网关 401 和工具写入后最终 401 保留记忆均已补验。代理故障注入不等于供应商自然故障；详细证据和边界见 `docs/archive/second-stage-acceptance.md`。
 - 当前第二阶段交付以 OpenMuse Web 页面跑通为准，原生客户端暂不作为门槛。Android 隔离模拟器已有核心 smoke test 记录；iOS、真机、后台断线、生产签名包和客户端 Stop 提示延期处理。多会话/多用户/外部 channel 明确不做。
 
 ## 文档索引
 
 - `docs/HANDOFF.md`：当前进度、验证记录、联调注意事项与后续工作，接手项目先读。
 - `docs/architecture.md`：当前职责边界、状态所有权、生命周期、数据策略和新能力接入。
-- `docs/first-stage-acceptance.md`：prompt 修正与真实模型 Web 核心验收、隔离方式、实际观察和未覆盖范围。
-- `docs/second-stage-plan.md`：nanobot 行为对照、第二阶段边界、调度竞态修复与后续验收顺序。
-- `docs/second-stage-acceptance.md`：第二阶段真实模型/Web 补验范围、证据和剩余空缺。
-- `docs/refactoring-plan.md`：R0-R7A 重构实施记录及 R7B 延期条件，不是待从头执行的计划。
+- `docs/archive/`：已完成阶段的历史记录（实施计划、各阶段验收、重构记录、冒烟截图）。
 - `docs/configuration.md`：必需 JSON 配置、直接密钥、错误策略和字段对照。
 - `docs/openmuse-api-contract.md`：客户端协议契约；`docs/pi-reuse.md`：pi 复用边界。
-- `README.md`：启动与使用；`docs/implementation-plan.md`：原始 P1-P4 功能实施历史。
+- `README.md`：启动与使用。

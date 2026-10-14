@@ -455,7 +455,8 @@ test("HTTP construction does not own or implicitly restart the scheduler", async
   await service.scheduler.close();
   t.mock.timers.enable({ apis: ["setInterval"] });
   const scans = t.mock.method(service.jobs, "list");
-  const triggers = t.mock.method(service.conversation, "trigger");
+  const main = await service.conversationHub.forThread("local-main");
+  const triggers = t.mock.method(main, "trigger");
   const app = await createHttpApp(service);
   t.mock.timers.tick(60_000);
   await flush();
@@ -479,8 +480,9 @@ test("HTTP and pi tools use the same composed stores; conversation exposes no st
       finally { await rm(dataDir, { recursive: true, force: true }); }
     }
   });
-  assert.equal("memory" in service.conversation, false);
-  assert.equal("jobs" in service.conversation, false);
+  const main = await service.conversationHub.forThread("local-main");
+  assert.equal("memory" in main, false);
+  assert.equal("jobs" in main, false);
   const memoryWrites = t.mock.method(service.memory, "add");
   const jobWrites = t.mock.method(service.jobs, "add");
   const headers = {
@@ -491,9 +493,9 @@ test("HTTP and pi tools use the same composed stores; conversation exposes no st
     method: "POST", headers, body: JSON.stringify({ text: "UI memory" }),
   })).status, 200);
   assert.equal(memoryWrites.mock.callCount(), 1);
-  const run = (content: string, id: string) => service.conversation.run({
+  const run = (content: string, id: string) => main.run({
     threadId: "local-main", runId: id,
-    messages: [...service.conversation.history(), { role: "user", id, content }],
+    messages: [...main.history(), { role: "user", id, content }],
   }, () => {});
   await run("记住我喜欢喝茶", "memory-turn");
   assert.equal(memoryWrites.mock.callCount(), 2, "pi tool must share the UI writer");
@@ -527,8 +529,9 @@ test("service close cancels a running scheduled pi turn before draining its stat
     try { await closeProvider(); await service.close(); }
     finally { await rm(dataDir, { recursive: true, force: true }); }
   });
-  const trigger = service.conversation.trigger;
-  t.mock.method(service.conversation, "trigger", (_text: string, id: string) => trigger("freeze", id));
+  const main = await service.conversationHub.forThread("local-main");
+  const trigger = main.trigger;
+  t.mock.method(main, "trigger", (_text: string, id: string) => trigger("freeze", id));
   const job = await service.jobs.add("test close", false, new Date(0).toISOString());
   const waitFor = async (predicate: () => boolean) => {
     for (let i = 0; i < 200; i++) {
@@ -538,12 +541,12 @@ test("service close cancels a running scheduled pi turn before draining its stat
     assert.fail("Condition timed out");
   };
   await waitFor(() => model.requests.length > 0);
-  assert.equal(service.conversation.isRunning(), true);
+  assert.equal(main.isRunning(), true);
   let closed = false;
   const closing = service.close().then(() => { closed = true; });
   await waitFor(() => closed);
   await closing;
-  assert.equal(service.conversation.isRunning(), false);
+  assert.equal(main.isRunning(), false);
   const stored = (await service.jobs.list()).find((item) => item.id === job.id)!;
   assert.equal(stored.lastStatus, "failed");
   assert.equal(stored.enabled, false);

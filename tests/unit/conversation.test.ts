@@ -90,7 +90,10 @@ test("validator accepts new users, ignores forged non-user history, and replays 
 });
 
 test("validator rejects malformed IDs, duplicate users, conflicting run IDs and stale canonical history", () => {
-  expectError("UNSUPPORTED_THREAD", { ...input([user]), threadId: "other" });
+  // threadId 已参数化：合法 id 不再拒绝，非法形状（路径逃逸/超长）仍拒绝。
+  expectError("UNSUPPORTED_THREAD", { ...input([user]), threadId: "../evil" });
+  expectError("UNSUPPORTED_THREAD", { ...input([user]), threadId: "x".repeat(65) });
+  expectError("UNSUPPORTED_THREAD", { ...input([user]), threadId: "-bad" });
   expectError("INVALID_INPUT", input([user], ""));
   expectError("INVALID_INPUT", input([{ ...user, id: " " }]));
   expectError("INVALID_INPUT", input([{ ...user, content: " " }]));

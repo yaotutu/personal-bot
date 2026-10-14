@@ -2,13 +2,14 @@ import { mkdir } from "node:fs/promises";
 import { createAuth } from "../adapters/auth/token-service.js";
 import type { Config } from "../config/load-config.js";
 import { createConversation } from "../features/conversation/conversation-service.js";
+import { createConversationHub } from "../features/conversation/conversation-hub.js";
 import { createJobService } from "../features/jobs/job-service.js";
 import { createMemoryService } from "../features/memory/memory-service.js";
 import { createIdentityService } from "../features/identity/identity-service.js";
 import { createJobRepository } from "../adapters/storage/job-repository.js";
 import { createMemoryRepository } from "../adapters/storage/memory-repository.js";
 import { createHttpApp } from "../http/app.js";
-import { createDataLayout } from "../adapters/storage/data-layout.js";
+import { createDataLayout, ensureThreadLayout, threadSessionsDir } from "../adapters/storage/data-layout.js";
 import { createScheduler } from "../features/jobs/scheduler.js";
 import { createWebService } from "../features/web/web-service.js";
 import { createHttpWebTransport } from "../adapters/web/http-transport.js";
@@ -41,7 +42,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const jobs = createJobService(createJobRepository(layout.jobsFile));
   await jobs.reconcileOnStart();
   const presentation = createToolPresentation(config.presentation);
-  const { manager, history } = await createSessionHistory(layout, presentation);
+  await ensureThreadLayout(layout);
   // Web 工具是只读能力；未启用时不创建 transport，也不向 pi 声明工具。
   const weather = config.weather.enabled
     ? createWeatherService(createOpenMeteoTransport(config.web), {
@@ -55,19 +56,40 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
         maxContentChars: config.web.maxContentChars,
       })
     : undefined;
-  const conversation = createConversation(config, {
-    history,
-    openSession: async () => createPiExecution(
-      await openPi(config, manager, memory, jobs, layout, web, weather), manager,
-    ),
-  });
-  const scheduler = createScheduler(config, jobs, conversation);
-  const dependencies = { config, layout, auth, memory, identity, jobs, conversation, scheduler, presentation };
+  // 多会话：每个 thread 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
+  const conversationHub = createConversationHub(
+    async (threadId) => {
+      const { manager, history } = await createSessionHistory(layout, threadId, presentation);
+      return createConversation(config, {
+        history,
+        openSession: async () => createPiExecution(
+          await openPi(config, manager, memory, jobs, layout, web, weather), manager,
+        ),
+      });
+    },
+    async () => {
+      const { readdir, stat } = await import("node:fs/promises");
+      const entries = await readdir(layout.sessionsDir, { withFileTypes: true });
+      const snapshots = await Promise.all(
+        entries
+          .filter((x) => x.isDirectory())
+          .map(async (x) => ({
+            id: x.name,
+            updatedAt: (await stat(threadSessionsDir(layout, x.name))).mtime.toISOString(),
+          })),
+      );
+      return snapshots.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    },
+  );
+  // 定时任务结果固定进入主会话（与现有语义一致）；启动时确保 main thread 就绪。
+  const mainConversation = await conversationHub.forThread("local-main");
+  const scheduler = createScheduler(config, jobs, mainConversation);
+  const dependencies = { config, layout, auth, memory, identity, jobs, conversationHub, scheduler, presentation };
   let app: Awaited<ReturnType<typeof createHttpApp>>;
   try {
     app = await createHttpApp(dependencies);
   } catch (error) {
-    await conversation.close();
+    await conversationHub.closeAll();
     throw error;
   }
   scheduler.start();
@@ -83,7 +105,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       const stopped = scheduler.close();
       closing = (async () => {
         try {
-          await conversation.close();
+          await conversationHub.closeAll();
         } finally {
           await stopped;
         }
