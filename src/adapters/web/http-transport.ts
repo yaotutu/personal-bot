@@ -12,6 +12,8 @@ type WebHttpConfig = {
   timeoutMs: number;
   maxResponseBytes: number;
   userAgent?: string;
+  /** 本机联调/测试用：允许回环与私网目标（默认拒绝，见 config tools.web）。 */
+  allowPrivateTargets?: boolean;
 };
 
 type ResolvedAddress = { address: string; family: number };
@@ -56,20 +58,32 @@ const isPublicIp = (value: string) => {
   return family !== 0 && !blocked.check(ip, family === 6 ? "ipv6" : "ipv4");
 };
 
-export const resolvePublicHost = async (hostname: string): Promise<ResolvedAddress> => {
+/**
+ * 解析并校验主机地址。allowPrivateTargets 显式放宽回环/私网限制——
+ * 仅供本机联调与测试（config 默认关闭）；放宽时仍要求合法 IP/主机名，
+ * 且不改变 pinned 连接（校验结果固定，防 rebinding）语义。
+ */
+export const resolvePublicHost = async (
+  hostname: string,
+  allowPrivateTargets = false,
+): Promise<ResolvedAddress> => {
   const normalized = hostname.replace(/\.$/, "").toLowerCase();
-  if (normalized === "localhost" || normalized.endsWith(".localhost"))
-    throw new Error("Blocked local hostname");
+  if (!allowPrivateTargets) {
+    if (normalized === "localhost" || normalized.endsWith(".localhost"))
+      throw new Error("Blocked local hostname");
+  }
   if (isIP(normalized)) {
-    if (!isPublicIp(normalized)) throw new Error("Blocked private address");
+    if (!allowPrivateTargets && !isPublicIp(normalized))
+      throw new Error("Blocked private address");
     return { address: normalized, family: isIP(normalized) };
   }
   const addresses = await dnsLookup(normalized, { all: true, verbatim: true });
   if (!addresses.length) throw new Error("DNS unavailable");
   // 每个解析结果都必须是公网地址；本次连接固定使用第一个已验证结果，
   // 避免校验后 DNS 再次解析被 rebinding 到内网地址。
-  for (const address of addresses)
-    if (!isPublicIp(address.address)) throw new Error("Blocked private address");
+  if (!allowPrivateTargets)
+    for (const address of addresses)
+      if (!isPublicIp(address.address)) throw new Error("Blocked private address");
   return addresses[0]!;
 };
 
@@ -149,7 +163,7 @@ export const safePublicGet = async (
   config: WebHttpConfig,
 ) => {
   let url = new URL(rawUrl);
-  let pinned = await resolvePublicHost(url.hostname);
+  let pinned = await resolvePublicHost(url.hostname, config.allowPrivateTargets);
   for (let redirects = 0; redirects < 6; redirects++) {
     const response = await requestOnce(url, config, pinned);
     const location = response.headers.location;
@@ -168,7 +182,7 @@ export const safePublicGet = async (
     }
     if (!location) throw new Error("Redirect without location");
     url = new URL(Array.isArray(location) ? location[0]! : location, url);
-    pinned = await resolvePublicHost(url.hostname);
+    pinned = await resolvePublicHost(url.hostname, config.allowPrivateTargets);
   }
   throw new Error("Too many redirects");
 };

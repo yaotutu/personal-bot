@@ -50,6 +50,7 @@ const configFileSchema = z.object({
           maxContentChars: z.number().int().optional(),
           searchResults: z.number().int().optional(),
           userAgent: z.string().optional(),
+          allowPrivateTargets: z.boolean().optional(),
         })
         .strict()
         .optional(),
@@ -184,6 +185,8 @@ export const createConfig = (
     ),
     searchResults: integer(file.tools.web?.searchResults, 5, "tools.web.searchResults", 10),
     userAgent: text(file.tools.web?.userAgent) || defaultUserAgent,
+    // 默认拒绝回环/私网目标；本机联调（如本地页面监控验收）显式打开。
+    allowPrivateTargets: file.tools.web?.allowPrivateTargets ?? false,
   };
 
   // 写文件默认开启（每次执行都需人工审批）；审批等待默认 5 分钟超时。

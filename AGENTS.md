@@ -132,9 +132,12 @@ R0-R6 与 R7A 已完成；R7B（物理数据目录迁移）条件性延期，当
   `z.toJSONSchema`（请求 io=input、响应 io=output）自动拼装 OpenAPI 3.1。
 - 运行时端点：`GET /openapi.json`（规范本体）、`GET /docs`（Scalar 页，
   本地 bundle `/scalar.js` 优先、加载失败回退 CDN）。三者免鉴权。
-- **防漂移**：`tests/integration/docs-contract.test.ts` 三重守卫——结构完整
+- **防漂移**：`tests/integration/docs-contract.test.ts` 四重守卫——结构完整
   （每端点有 summary+schema）、文档路由可达、无副作用 GET 响应被注册表
-  schema safeParse。改接口不改 schema，测试红。
+  schema safeParse、**双向路由审计**（Hono 实际路由表 ↔ 注册表逐条比对：
+  加了路由不登记→"文档会漏掉它"红；登记了不实现→"文档在撒谎"红。
+  例外：/docs 三条文档基础设施路由；AG-UI run/stop/info 挂通配处理器）。
+  改接口不改 schema，测试红；漏登记新端点，测试红。
 - SSE 端点在 OpenAPI 里标 `text/event-stream`，事件契约挂 `x-sse-events` 扩展
   （agent 可直接读）；非法 threadId 在宿主预校验即 HTTP 400（不进 SSE 流）。
 

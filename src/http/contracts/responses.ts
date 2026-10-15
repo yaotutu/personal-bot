@@ -151,3 +151,11 @@ export const agentSnapshot = z.object({
   identity: identityView,
   worker: z.object({ running: z.boolean() }),
 });
+
+// AG-UI 运行时信息（info 端点；字段由 CopilotKit runtime 决定，做宽松投影）
+export const runtimeInfoResponse = z.object({
+  version: z.string().describe("CopilotKit runtime 版本"),
+  agents: z.record(z.string(), z.object({ name: z.string(), description: z.string() }))
+    .describe("可用 agent：目前仅 default（PiAgent）"),
+  mode: z.literal("sse").describe("传输模式：SSE 流"),
+}).loose();

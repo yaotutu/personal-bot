@@ -63,6 +63,11 @@ export const endpoints: EndpointSpec[] = [
     auth: true, request: req.runRequestSchema, response: z.object({}).describe("SSE 流"), sse: true,
   },
   {
+    method: "get", path: "/api/copilotkit/info", tag: "会话", summary: "AG-UI 运行时信息",
+    hint: "CopilotKit runtime 能力探测；自研客户端一般不需要，AG-UI SDK 初始化时使用。",
+    auth: true, response: resp.runtimeInfoResponse,
+  },
+  {
     method: "post", path: "/api/copilotkit/agent/default/stop/:threadId", tag: "会话", summary: "停止指定会话的当前回复",
     hint: "路径段为 threadId；返回 {stopped:boolean}，空闲时 false。",
     auth: true, response: z.object({ stopped: z.boolean() }),

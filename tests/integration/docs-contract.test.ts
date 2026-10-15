@@ -103,3 +103,50 @@ test("docs: live GET responses parse against registry schemas (no drift)", async
   const profileEndpoint = endpoints.find((e) => e.path === "/api/profile" && e.method === "get")!;
   assert.ok(profileEndpoint.response.safeParse(await profile.json()).success, "profile response drifted");
 });
+
+test("docs: every served route is registered and every registration is served (no shadow API)", async (t) => {
+  const model = await createFakeModel();
+  const dataDir = await mkdtemp(join(tmpdir(), "personal-bot-audit-"));
+  t.after(async () => {
+    await service.close();
+    await model.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+  const service = await createService(
+    createConfig({
+      schemaVersion: 1,
+      server: {},
+      model: { baseUrl: model.baseUrl, id: "test-model", apiKey: "k" },
+      runtime: { dataDir, runTimeoutMs: 3000, schedulerIntervalMs: 60000, monitorScanIntervalMs: 60000 },
+    }),
+  );
+  const allRoutes = (service.app as unknown as { routes: { method: string; path: string }[] }).routes;
+  const served = allRoutes
+    .filter((r) => ["GET", "POST", "PUT"].includes(r.method))
+    .map((r) => `${r.method.toLowerCase()} ${r.path}`);
+  const copilotkitWildcard = allRoutes.some(
+    (r) => r.method === "ALL" && r.path === "/api/copilotkit/*",
+  );
+  // 文档基础设施路由：自身即文档面，不进注册表（登记会造成自引用）。
+  const docsInfra = new Set(["get /openapi.json", "get /docs", "get /scalar.js"]);
+  const registry = new Set(endpoints.map((e) => `${e.method} ${e.path}`));
+
+  for (const key of served) {
+    if (docsInfra.has(key)) continue;
+    assert.ok(
+      registry.has(key),
+      `路由已注册到 Hono 但未登记端点注册表（文档会漏掉它）：${key}`,
+    );
+  }
+  for (const endpoint of endpoints) {
+    const key = `${endpoint.method} ${endpoint.path}`;
+    const servedDirectly = served.includes(key);
+    // AG-UI run/stop/info 挂在 /api/copilotkit/* 通配处理器下，无具体路由行。
+    const coveredByWildcard =
+      copilotkitWildcard && endpoint.path.startsWith("/api/copilotkit/");
+    assert.ok(
+      servedDirectly || coveredByWildcard,
+      `注册表登记了 ${key}，但服务端没有对应路由（文档在撒谎）`,
+    );
+  }
+});
