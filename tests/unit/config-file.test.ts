@@ -71,6 +71,7 @@ test("config defaults allow an unconfigured loopback instance", async (t) => {
       ],
       configured: false,
       web: {
+        allowPrivateTargets: false,
         enabled: true,
         timeoutMs: 30000,
         maxResponseBytes: 2000000,
