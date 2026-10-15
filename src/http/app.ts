@@ -1,3 +1,4 @@
+import { TaskQueueFullError } from "../features/tasks/task-service.js";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
@@ -14,6 +15,11 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   const { config, auth, conversationHub } = dependencies;
   const runtimeRoutes = await createAgUiRoutes(conversationHub, dependencies.presentation);
   const app = new Hono();
+  app.use("*", async (c, next) => {
+    if (dependencies.lifecycle?.isClosing()) return c.json({ error: "Service is closing" }, 503);
+    const leave = dependencies.lifecycle?.enter();
+    try { await next(); } finally { leave?.(); }
+  });
   app.use(
     "*",
     cors({
@@ -29,7 +35,9 @@ export async function createHttpApp(dependencies: HttpDependencies) {
       onError: (c) => c.json({ error: "Request body exceeds 1 MiB" }, 413),
     }),
   );
-  app.onError((_error, c) => c.json({ error: "Internal server error" }, 500));
+  app.onError((error, c) => error instanceof TaskQueueFullError
+    ? c.json({ error: error.message }, 429)
+    : c.json({ error: "Internal server error" }, 500));
   // ---- API 文档（自动生成，免鉴权）----
   app.get("/openapi.json", (c) => c.json(buildOpenApiDocument()));
   app.get("/docs", (c) => c.html(docsPage));
@@ -70,7 +78,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     if (!parsed.success) return c.json({ error: "Invalid profile request" }, 400);
     return c.json(await dependencies.identity.saveProfile(parsed.data));
   });
-  // 先鉴权，再挂载兼容/运行协议，最后处理未知 API；顺序是现有安全边界。
+  // 先鉴权，再挂载业务/运行协议，最后处理未知 API；顺序是现有安全边界。
   app.route("/", createWorkspaceRoutes(dependencies));
   app.route("/", runtimeRoutes);
   app.all("/api/*", (c) =>

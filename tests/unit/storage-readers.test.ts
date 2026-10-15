@@ -83,3 +83,25 @@ for (const kind of ["memory", "jobs"] as const) {
     }
   });
 }
+
+test("tasks reader rejects any malformed record instead of dropping it", async () => {
+  const { readTasksDocument } = await import("../../src/adapters/storage/document-schemas.js");
+  const task = { id: "task", title: "Title", prompt: "Prompt", status: "queued", source: "web", createdAt: "2026-01-01T00:00:00.000Z" };
+  assert.deepEqual(readTasksDocument([task]), [task]);
+  for (const invalid of [null, { id: "partial", prompt: "prompt", status: "queued" },
+    { ...task, source: "other" }, { ...task, status: ["queued"] }, { ...task, createdAt: "invalid" }, { ...task, result: 1 }]) {
+    assert.throws(() => readTasksDocument([task, invalid]), InvalidDocumentError);
+  }
+});
+
+test("session layout initialization never migrates files from the root", async (t) => {
+  const { createDataLayout, ensureThreadLayout } = await import("../../src/adapters/storage/data-layout.js");
+  const { directory } = await setup(t);
+  const layout = createDataLayout(directory);
+  await ensureThreadLayout(layout);
+  const source = join(layout.sessionsDir, "old.jsonl");
+  await writeFile(source, "original session");
+  await ensureThreadLayout(layout);
+  assert.equal(await readFile(source, "utf8"), "original session");
+  assert.deepEqual(await readdir(layout.sessionsDir), ["old.jsonl"]);
+});

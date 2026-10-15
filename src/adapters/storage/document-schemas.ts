@@ -1,4 +1,3 @@
-import { defaultIdentity } from "../../features/identity/types.js";
 import type { MemoryState } from "../../features/memory/types.js";
 import type { Job } from "../../features/jobs/types.js";
 
@@ -12,59 +11,59 @@ export class InvalidDocumentError extends Error {
 const isObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
+/** 日期字段在存储边界校验，防止无效值进入调度和状态展示。 */
+const isDate = (value: unknown): value is string =>
+  typeof value === "string" && Number.isFinite(Date.parse(value));
+const optionalString = (value: unknown) => value === undefined || typeof value === "string";
+const optionalDate = (value: unknown) => value === undefined || isDate(value);
+
 /**
- * 明确承认旧格式：memory 对象 + 可缺省/局部 identity。
- * 条目仍按历史 reader 的 id/text 条件筛选，保留旧 partial entry 的兼容性；
- * 文档根形状/identity 字段损坏则拒绝写入，不能降级为空文档覆盖用户数据。
- * 本轮不写 schemaVersion；任何带版本字段的对象都必须由未来显式 reader 处理。
+ * 已存在的 memory 文档必须完整满足当前域类型；缺省只由 repository 在文件不存在时生成。
+ * 任一坏条目都拒绝整个文档，禁止读改写时静默过滤并丢失原始数据。
  */
 export const readMemoryDocument = (value: unknown): MemoryState => {
   if (!isObject(value) || "schemaVersion" in value || !Array.isArray(value.memories))
     throw new InvalidDocumentError("memory");
-  const identity = value.identity ?? {};
+  const identity = value.identity;
   if (!isObject(identity) ||
-    ["name", "tone", "avatar"].some((key) => identity[key] !== undefined && typeof identity[key] !== "string") ||
-    (identity.showChatUpdates !== undefined && typeof identity.showChatUpdates !== "boolean"))
+    ["name", "tone", "avatar"].some((key) => typeof identity[key] !== "string") ||
+    typeof identity.showChatUpdates !== "boolean")
     throw new InvalidDocumentError("memory");
-  return {
-    memories: value.memories.filter((item): item is MemoryState["memories"][number] =>
-      isObject(item) && typeof item.id === "string" && typeof item.text === "string",
-    ),
-    identity: { ...defaultIdentity, ...identity },
-  };
+  if (!value.memories.every((item) =>
+    isObject(item) && typeof item.id === "string" && typeof item.text === "string" &&
+    typeof item.source === "string" && isDate(item.createdAt) && isDate(item.updatedAt)))
+    throw new InvalidDocumentError("memory");
+  return value as unknown as MemoryState;
 };
 
-/** tasks 同为裸数组；状态枚举校验保证 worker 读到合法状态机。 */
+/** tasks 使用当前完整状态结构；可选字段仅允许缺失或符合其声明类型。 */
 export const readTasksDocument = (value: unknown): import("../../features/tasks/types.js").Task[] => {
-  if (!Array.isArray(value)) throw new InvalidDocumentError("tasks");
-  const statuses = ["queued", "running", "succeeded", "failed", "cancelled"];
-  return value.filter(
-    (item): item is import("../../features/tasks/types.js").Task =>
-      isObject(item) &&
-      typeof item.id === "string" &&
-      typeof item.prompt === "string" &&
-      typeof item.status === "string" &&
-      statuses.includes(item.status),
-  );
+  if (!Array.isArray(value) || !value.every((item) =>
+    isObject(item) && typeof item.id === "string" && typeof item.title === "string" &&
+    typeof item.prompt === "string" &&
+    typeof item.status === "string" && ["queued", "running", "succeeded", "failed", "cancelled"].includes(item.status) &&
+    typeof item.source === "string" && ["chat", "web"].includes(item.source) && isDate(item.createdAt) &&
+    optionalDate(item.startedAt) && optionalDate(item.finishedAt) &&
+    [item.originThreadId, item.attemptId, item.result, item.error].every(optionalString)))
+    throw new InvalidDocumentError("tasks");
+  return value;
 };
 
-/** jobs 继续写裸数组，不做包裹版本升级；旧条目筛选语义维持 id/prompt。 */
+/** jobs 保持裸数组；不接纳缺字段记录，避免调度器读到非法时间或控制状态。 */
 export const readJobsDocument = (value: unknown): Job[] => {
-  if (!Array.isArray(value)) throw new InvalidDocumentError("jobs");
-  const jobs = value.filter((item): item is Job =>
-    isObject(item) && typeof item.id === "string" && typeof item.prompt === "string",
-  );
-  // 只校验本轮新增的控制字段；旧 id/prompt 筛选与其他历史字段兼容语义不收紧。
-  for (const job of jobs) {
-    if (job.controlState !== undefined && !["paused", "cancelled", "retry_pending"].includes(job.controlState))
-      throw new InvalidDocumentError("jobs");
-    if (job.lastControl !== undefined && (
-      !isObject(job.lastControl) ||
-      !["pause", "resume", "cancel", "retry"].includes(String(job.lastControl.action)) ||
-      typeof job.lastControl.at !== "string" || !Number.isFinite(Date.parse(job.lastControl.at))
-    )) throw new InvalidDocumentError("jobs");
-  }
-  return jobs;
+  if (!Array.isArray(value) || !value.every((item) =>
+    isObject(item) && typeof item.id === "string" && typeof item.prompt === "string" &&
+    typeof item.daily === "boolean" && typeof item.at === "string" &&
+    (item.daily ? /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(item.at) : isDate(item.at)) &&
+    typeof item.enabled === "boolean" && isDate(item.createdAt) && isDate(item.nextRunAt) &&
+    optionalDate(item.lastRunAt) && optionalString(item.lastResult) &&
+    (item.lastStatus === undefined || (typeof item.lastStatus === "string" && ["completed", "failed"].includes(item.lastStatus))) &&
+    (item.controlState === undefined || (typeof item.controlState === "string" && ["paused", "cancelled", "retry_pending"].includes(item.controlState))) &&
+    (item.lastControl === undefined || (isObject(item.lastControl) &&
+      typeof item.lastControl.action === "string" && ["pause", "resume", "cancel", "retry"].includes(item.lastControl.action) &&
+      isDate(item.lastControl.at)))))
+    throw new InvalidDocumentError("jobs");
+  return value;
 };
 
 /** goals 裸数组；状态与里程碑形状校验，损坏文档整体抛错不静默清空。 */
@@ -94,7 +93,7 @@ export const readActionsDocument = (
   value: unknown,
 ): import("../../features/actions/types.js").PendingAction[] => {
   if (!Array.isArray(value)) throw new InvalidDocumentError("actions");
-  const statuses = ["pending", "approved", "denied", "expired"];
+  const statuses = ["pending", "approved", "denied", "expired", "cancelled"];
   const kinds = ["file_write", "file_edit"];
   const list = value.filter(
     (item): item is import("../../features/actions/types.js").PendingAction =>

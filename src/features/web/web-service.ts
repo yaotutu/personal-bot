@@ -89,8 +89,8 @@ const pageText = (page: FetchedWebPage, mode: "markdown" | "text") => {
 };
 
 const formatSearch = (results: WebSearchResult[]) =>
-  // OpenMuse 的 SearchToolCard 只认这个 JSON 形状；snippet 额外保留给模型使用。
-  JSON.stringify({
+  // 保留工具卡片使用的字段；业务层返回对象，工具层负责 JSON 编码。
+  ({
     results: results.map((item) => ({
       title: normalize(stripTags(item.title)),
       url: item.url,
@@ -112,8 +112,8 @@ const normalizeUrl = (value: string) => {
   }
 };
 
-const errorJson = (message: string, url?: string) =>
-  JSON.stringify({ error: message, ...(url ? { url } : {}) });
+const failure = (message: string, url?: string) =>
+  ({ error: message, ...(url ? { url } : {}) });
 
 /**
  * Web 业务规则只做输入约束、结果投影和不可信标记。
@@ -125,7 +125,7 @@ export const createWebService = (
 ): WebService => ({
   search: async (query, count) => {
     const text = query.trim();
-    if (!text) return errorJson("Search query is empty");
+    if (!text) return failure("Search query is empty");
     const resultCount = Math.min(
       Math.max(Number.isInteger(count) ? count ?? defaults.searchResults : defaults.searchResults, 1),
       defaults.maxSearchResults,
@@ -134,12 +134,12 @@ export const createWebService = (
       return formatSearch(await transport.search(text, resultCount));
     } catch {
       // 供应商 URL、DNS 错误和响应体都可能携带敏感信息，只返回受控失败。
-      return errorJson("Web search failed");
+      return failure("Web search failed");
     }
   },
   fetch: async (url, extractMode = "markdown", maxChars) => {
     const parsed = normalizeUrl(url);
-    if (!parsed) return errorJson("URL validation failed: only public HTTP(S) URLs are allowed", url.trim());
+    if (!parsed) return failure("URL validation failed: only public HTTP(S) URLs are allowed", url.trim());
     const limit = Math.min(
       Math.max(Number.isInteger(maxChars) ? maxChars ?? defaults.maxContentChars : defaults.maxContentChars, 100),
       defaults.maxContentChars,
@@ -157,11 +157,11 @@ export const createWebService = (
         !type.startsWith("text/") &&
         !type.includes("xml")
       )
-        return errorJson("Web fetch supports text, HTML, JSON and XML content", parsed.toString());
+        return failure("Web fetch supports text, HTML, JSON and XML content", parsed.toString());
       const { text, extractor } = pageText(page, extractMode);
       const truncated = text.length > limit;
       const output = `${UNTRUSTED_CONTENT_BANNER}\n\n${truncated ? text.slice(0, limit) : text}`;
-      return JSON.stringify({
+      return {
         url: parsed.toString(),
         finalUrl: page.finalUrl,
         status: page.status,
@@ -170,9 +170,9 @@ export const createWebService = (
         length: output.length,
         untrusted: true,
         text: output,
-      });
+      };
     } catch {
-      return errorJson("Web fetch failed", parsed.toString());
+      return failure("Web fetch failed", parsed.toString());
     }
   },
 });

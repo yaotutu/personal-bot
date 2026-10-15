@@ -1,159 +1,213 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
+import { link, lstat, mkdir, open, realpath, rename, unlink } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ActionService } from "../../../features/actions/action-service.js";
 import { guardPath } from "./path-guard.js";
 
-/**
- * 写文件工具（write/edit）：与 read 同一 workspace 边界，但每次执行都要先过
- * 人工审批——工具内登记 pending action 并轮询（2s 间隔），批准才落盘，拒绝/
- * 超时返回受控失败。等待期间 pi 的 abort signal 会立即中断轮询。
- * 审批详情（写入内容/前后文本）随 action 存储，Web 展示 diff 预览。
- */
 const MAX_BYTES = 100_000;
 const POLL_INTERVAL_MS = 2_000;
+type ApprovalContext = { threadId?: string; runId?: string };
+type Actions = Pick<ActionService, "submit" | "poll" | "cancel">;
+type Snapshot = { content: string; version: string };
 
-const preview = (text: string, max = 800) =>
-  text.length > max ? text.slice(0, max) + "…" : text;
+/** 同一物理 workspace 的不同工具工厂共用队列；审批等待不占锁，只有提交串行化。 */
+const commits = new Map<string, Promise<void>>();
+const serialCommit = async <T>(target: string, commit: () => Promise<T>): Promise<T> => {
+  const previous = commits.get(target) ?? Promise.resolve();
+  const result = previous.then(commit);
+  const tail = result.then(() => undefined, () => undefined);
+  commits.set(target, tail);
+  try { return await result; }
+  finally { if (commits.get(target) === tail) commits.delete(target); }
+};
 
+const denied = (text: string) => ({
+  content: [{ type: "text" as const, text }], details: { denied: true }, isError: true,
+});
+const aborted = () => denied("Operation aborted; nothing was written.");
+const isMissing = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
+
+/**
+ * 延续 guardPath 的目录边界，再逐段拒绝符号链接（包括指向 workspace 内的链接）。
+ * root 本身允许是部署时的链接，但后续提交必须仍解析到审批时的同一物理目录。
+ * 不跟随目标/父目录链接，避免表面合法的路径实际写到 workspace 外。
+ */
+const safeTarget = async (root: string, path: string): Promise<string> => {
+  const base = resolve(root);
+  if (!path.trim() || isAbsolute(path) || path.split(/[\\/]/).includes(".."))
+    throw new Error("Unsafe path");
+  const lexical = guardPath(base, path);
+  if (!lexical || lexical === base) throw new Error("Unsafe path");
+  const physicalRoot = await realpath(base);
+  let current = physicalRoot;
+  for (const component of relative(base, lexical).split(sep)) {
+    current = join(current, component);
+    try {
+      if ((await lstat(current)).isSymbolicLink()) throw new Error("Unsafe path");
+    } catch (error) { if (!isMissing(error)) throw error; }
+  }
+  return current;
+};
+
+/** 内容摘要和 inode/纳秒时间戳共同绑定版本：同内容重建或改后复原也不能复用旧审批。 */
+const readSnapshot = async (target: string): Promise<Snapshot | undefined> => {
+  let file;
+  try { file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+  catch (error) { if (isMissing(error)) return undefined; throw error; }
+  try {
+    const before = await file.stat({ bigint: true });
+    if (!before.isFile()) throw new Error("Not a regular file");
+    const bytes = await file.readFile();
+    const after = await file.stat({ bigint: true });
+    const metadata = (stat: typeof before) =>
+      `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+    const atPath = await lstat(target, { bigint: true });
+    if (atPath.isSymbolicLink() || metadata(before) !== metadata(after) || metadata(after) !== metadata(atPath))
+      throw new Error("File changed while reading");
+    return {
+      content: bytes.toString("utf8"),
+      version: `${metadata(after)}:${createHash("sha256").update(bytes).digest("hex")}`,
+    };
+  } finally { await file.close(); }
+};
+
+/**
+ * abort 监听覆盖 submit/poll/休眠：即使中止发生在登记落盘期间，也会补撤销刚登记的 pending。
+ * 只以服务端持久化的 expiresAt 过期；poll 的旧 timeout 参数不能延长授权。
+ */
 const awaitApproval = async (
-  actions: Pick<ActionService, "submit" | "poll">,
-  kind: "file_write" | "file_edit",
-  title: string,
-  payload: Record<string, string>,
-  timeoutMs: number,
-  signal?: AbortSignal,
-): Promise<{ ok: true } | { ok: false; reason: string }> => {
-  const action = await actions.submit(kind, title, payload);
-  for (;;) {
-    if (signal?.aborted)
-      return { ok: false, reason: "Operation aborted while awaiting approval" };
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-    const decision = await actions.poll(action.id, timeoutMs);
-    if (decision.status === "approved") return { ok: true };
-    if (decision.status === "denied")
-      return { ok: false, reason: "The user denied this write." };
-    if (decision.status === "expired")
-      return { ok: false, reason: "Approval timed out; nothing was written." };
+  actions: Actions, kind: "file_write" | "file_edit", title: string,
+  payload: Record<string, string>, timeoutMs: number, signal?: AbortSignal, context?: ApprovalContext,
+): Promise<number | undefined> => {
+  if (signal?.aborted) return undefined;
+  let wakeAbort!: () => void;
+  const interrupted = new Promise<undefined>((resolve) => { wakeAbort = () => resolve(undefined); });
+  signal?.addEventListener("abort", wakeAbort, { once: true });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const action = await actions.submit(kind, title, payload, { ...context, timeoutMs });
+    for (;;) {
+      if (signal?.aborted) { await actions.cancel(action.id); return undefined; }
+      const decision = await Promise.race([actions.poll(action.id), interrupted]);
+      if (signal?.aborted) { await actions.cancel(action.id); return undefined; }
+      if (decision?.status === "approved") return Date.parse(action.expiresAt);
+      if (decision?.status !== "pending") return undefined;
+      // 休眠可被 signal 立即唤醒，finally 清除计时器和监听器，不遗留轮询资源。
+      await Promise.race([
+        new Promise<void>((resolve) => { timer = setTimeout(resolve, POLL_INTERVAL_MS); }),
+        interrupted,
+      ]);
+      clearTimeout(timer);
+    }
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", wakeAbort);
   }
 };
 
+/**
+ * 在共享逐路径锁内重查版本；先写同目录临时文件，最后一次检查 signal/路径/版本才提交。
+ * 不截断原文件，避免写失败留下半份内容；新建用 link 的排他语义防止覆盖刚出现的文件。
+ * 这是单进程工具间的并发保护，不声称提供针对外部恶意进程的操作系统级路径 CAS。
+ */
+const commitFile = async (
+  root: string, path: string, target: string, original: Snapshot | undefined,
+  content: string, expiresAt: number, signal?: AbortSignal,
+) => serialCommit(target, async () => {
+  const unchanged = async () =>
+    await safeTarget(root, path) === target && (await readSnapshot(target))?.version === original?.version;
+  const expired = () => !Number.isFinite(expiresAt) || Date.now() >= expiresAt;
+  let temporary: string | undefined;
+  try {
+    if (signal?.aborted) return aborted();
+    if (expired()) return denied("Approval expired before commit; nothing was written.");
+    if (!await unchanged()) return denied("File changed since approval was requested; request a new approval.");
+    if (signal?.aborted) return aborted();
+    await mkdir(dirname(target), { recursive: true });
+    if (await safeTarget(root, path) !== target) return denied("Access denied: unsafe file path.");
+    if (signal?.aborted) return aborted();
+    temporary = join(dirname(target), `.approval-${randomUUID()}.tmp`);
+    const file = await open(temporary, "wx", 0o600);
+    try {
+      if (signal?.aborted) return aborted();
+      await file.writeFile(content, "utf8");
+    } finally { await file.close(); }
+    if (!await unchanged()) return denied("File changed since approval was requested; request a new approval.");
+    if (signal?.aborted) return aborted();
+    if (expired()) return denied("Approval expired before commit; nothing was written.");
+    if (original) await rename(temporary, target);
+    else await link(temporary, target);
+    return { content: [{ type: "text" as const, text: `Saved ${path}.` }], details: undefined };
+  } catch {
+    // 文件路径和底层 I/O 细节不透给模型；冲突、链接逃逸和写失败一律不自动重试。
+    return denied("File commit refused: the file changed, the path is unsafe, or writing failed.");
+  } finally {
+    if (temporary) await unlink(temporary).catch((error) => { if (!isMissing(error)) throw error; });
+  }
+});
+
+/** 每次 run 由组合方传入新的上下文；此工厂不推断或缓存当前 runId。 */
 export const createWritableFileTools = (
-  root: string,
-  actions: Pick<ActionService, "submit" | "poll">,
-  timeoutMs: number,
+  root: string, actions: Actions, timeoutMs: number, context?: ApprovalContext,
 ) => [
   defineTool({
-    name: "write",
-    label: "Write file",
-    description:
-      "Create or overwrite a text file inside the shared documents directory. " +
-      "Every write requires explicit user approval before it happens; show the user what will be written. " +
-      "Relative paths only (a leading / or .. is rejected). Max 100KB.",
-    parameters: Type.Object(
-      {
-        path: Type.String({ description: "File path relative to the documents directory." }),
-        content: Type.String({ description: "Full file content to write." }),
-      },
-      { additionalProperties: false },
-    ),
+    name: "write", label: "Write file",
+    description: "Create or overwrite a text file inside the shared documents directory. Every write requires explicit user approval. Relative paths only, no symlinks or ..; max 100KB. Concurrent changes require new approval.",
+    parameters: Type.Object({
+      path: Type.String({ description: "File path relative to the documents directory." }),
+      content: Type.String({ description: "Full file content to write." }),
+    }, { additionalProperties: false }),
     async execute(_id, params, signal) {
-      const target = guardPath(root, params.path);
-      if (!target)
-        return {
-          content: [{ type: "text", text: "Access denied: path is outside the documents directory." }],
-          details: { denied: true },
-          isError: true,
-        };
+      if (signal?.aborted) return aborted();
       if (Buffer.byteLength(params.content, "utf8") > MAX_BYTES)
-        return {
-          content: [{ type: "text", text: "File too large: writes are limited to 100KB." }],
-          details: undefined,
-          isError: true,
-        };
-      const verdict = await awaitApproval(
-        actions,
-        "file_write",
-        `写入 ${params.path}`,
-        { path: params.path, content: preview(params.content) },
-        timeoutMs,
-        signal,
-      );
-      if (!verdict.ok)
-        return { content: [{ type: "text", text: verdict.reason }], details: undefined, isError: true };
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, params.content, "utf8");
-      return {
-        content: [{ type: "text", text: `Wrote ${params.path} (${params.content.length} chars).` }],
-        details: undefined,
-      };
+        return denied("File too large: writes are limited to 100KB.");
+      let target: string;
+      let original: Snapshot | undefined;
+      try { target = await safeTarget(root, params.path); original = await readSnapshot(target); }
+      catch { return denied("Access denied: unsafe or unreadable file path."); }
+      // 保存完整原文和新内容供 UI 比较，不再用截断 preview 隐藏真正的写入内容。
+      const approved = await awaitApproval(actions, "file_write", `写入 ${params.path}`, {
+        path: params.path, content: params.content, originalContent: original?.content ?? "",
+        baseVersion: original?.version ?? "missing",
+      }, timeoutMs, signal, context);
+      if (approved === undefined) return denied("Write not approved (denied, expired or cancelled); nothing was written.");
+      return commitFile(root, params.path, target, original, params.content, approved, signal);
     },
   }),
   defineTool({
-    name: "edit",
-    label: "Edit file",
-    description:
-      "Replace one exact text occurrence inside an existing file in the documents directory. " +
-      "Requires explicit user approval; oldText must appear exactly once. Use write for whole files.",
-    parameters: Type.Object(
-      {
-        path: Type.String({ description: "File path relative to the documents directory." }),
-        oldText: Type.String({ description: "Exact existing text to replace." }),
-        newText: Type.String({ description: "Replacement text." }),
-      },
-      { additionalProperties: false },
-    ),
+    name: "edit", label: "Edit file",
+    description: "Replace one exact nonempty text occurrence in an existing file. Requires explicit user approval; oldText must appear exactly once; resulting file max 100KB. Concurrent changes require new approval.",
+    parameters: Type.Object({
+      path: Type.String({ description: "File path relative to the documents directory." }),
+      oldText: Type.String({ minLength: 1, description: "Nonempty exact existing text to replace." }),
+      newText: Type.String({ description: "Replacement text." }),
+    }, { additionalProperties: false }),
     async execute(_id, params, signal) {
-      const target = guardPath(root, params.path);
-      if (!target)
-        return {
-          content: [{ type: "text", text: "Access denied: path is outside the documents directory." }],
-          details: { denied: true },
-          isError: true,
-        };
-      let original: string;
-      try {
-        original = await readFile(target, "utf8");
-      } catch {
-        return {
-          content: [{ type: "text", text: `File not found: ${params.path}` }],
-          details: undefined,
-          isError: true,
-        };
-      }
-      const count = original.split(params.oldText).length - 1;
-      if (count === 0)
-        return {
-          content: [{ type: "text", text: "oldText not found in the file." }],
-          details: undefined,
-          isError: true,
-        };
-      if (count > 1)
-        return {
-          content: [{ type: "text", text: `oldText appears ${count} times; make it unique first.` }],
-          details: undefined,
-          isError: true,
-        };
-      const verdict = await awaitApproval(
-        actions,
-        "file_edit",
-        `编辑 ${params.path}`,
-        {
-          path: params.path,
-          oldText: preview(params.oldText, 400),
-          newText: preview(params.newText, 400),
-        },
-        timeoutMs,
-        signal,
-      );
-      if (!verdict.ok)
-        return { content: [{ type: "text", text: verdict.reason }], details: undefined, isError: true };
-      await writeFile(target, original.replace(params.oldText, params.newText), "utf8");
-      return {
-        content: [{ type: "text", text: `Edited ${params.path}.` }],
-        details: undefined,
-      };
+      if (signal?.aborted) return aborted();
+      if (!params.oldText.length) return denied("oldText must not be empty.");
+      let target: string;
+      let original: Snapshot | undefined;
+      try { target = await safeTarget(root, params.path); original = await readSnapshot(target); }
+      catch { return denied("Access denied: unsafe or unreadable file path."); }
+      if (!original) return denied("File not found.");
+      const first = original.content.indexOf(params.oldText);
+      if (first < 0) return denied("oldText not found in the file.");
+      // 从下一字符查找也能识别重叠命中，防止有歧义的替换通过唯一性检查。
+      if (original.content.indexOf(params.oldText, first + 1) >= 0)
+        return denied("oldText appears more than once; make it unique first.");
+      // 按索引拼接而非 replace 字符串模板，保证 $&/$`/$' 等也是字面内容。
+      const content = original.content.slice(0, first) + params.newText + original.content.slice(first + params.oldText.length);
+      if (Buffer.byteLength(content, "utf8") > MAX_BYTES)
+        return denied("File too large: edited files are limited to 100KB.");
+      const approved = await awaitApproval(actions, "file_edit", `编辑 ${params.path}`, {
+        path: params.path, oldText: params.oldText, newText: params.newText,
+        originalContent: original.content, content, baseVersion: original.version,
+      }, timeoutMs, signal, context);
+      if (approved === undefined) return denied("Edit not approved (denied, expired or cancelled); nothing was written.");
+      return commitFile(root, params.path, target, original, content, approved, signal);
     },
   }),
 ];

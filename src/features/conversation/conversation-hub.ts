@@ -2,48 +2,75 @@ import { isThreadId } from "./validate-input.js";
 import type { Conversation } from "./conversation-service.js";
 import { rejectConversation } from "./errors.js";
 
-/**
- * 单 owner 多会话协调：threadId → 独立 Conversation 实例的惰性缓存。
- * 每个 thread 拥有自己的运行锁与历史（pi 会话树），memory/jobs 等用户级
- * 能力由组合入口在工厂里共享。hub 不接触存储或 SDK；创建是异步的，
- * 缓存 Promise 保证并发请求拿到同一实例。
- */
 type ThreadSnapshot = { id: string; updatedAt: string };
 export type ConversationHub = {
-  /** 校验并返回（首次创建）该 thread 的会话；非法 id 抛 UNSUPPORTED_THREAD。 */
   forThread: (threadId: string) => Promise<Conversation>;
-  /** 已存在的 thread 列表（按最近活跃倒序）；目录扫描由组合入口注入。 */
   threads: () => Promise<ThreadSnapshot[]>;
+  /** 内部任务结束后释放缓存；历史仍由 pi JSONL 保留。 */
+  release: (threadId: string) => Promise<void>;
   closeAll: () => Promise<void>;
 };
 
+/**
+ * 每个 thread 只创建一份协调器，Promise 缓存同时覆盖异步初始化阶段。
+ * 关闭是永久门闩：先禁止新实例，再等待所有创建成功/失败并分别清理，
+ * 不能让某一个坏实例阻止其余会话释放。用户会话只回收至少闲置五分钟的
+ * 实例，且永不回收忙碌会话；主会话常驻，任务会话由 worker 主动释放。
+ */
 export const createConversationHub = (
   create: (threadId: string) => Promise<Conversation>,
   listThreads: () => Promise<ThreadSnapshot[]>,
 ): ConversationHub => {
-  const cache = new Map<string, Promise<Conversation>>();
+  type Cached = { promise: Promise<Conversation>; value?: Conversation; touchedAt: number };
+  const cache = new Map<string, Cached>();
+  let closed = false;
+  let closing: Promise<void> | undefined;
+  const release = async (id: string) => {
+    const entry = cache.get(id);
+    if (!entry?.value || entry.value.isRunning()) return;
+    cache.delete(id);
+    await entry.value.close();
+  };
   return {
     forThread(threadId) {
+      if (closed) rejectConversation("SHUTDOWN", "Service is closing");
       if (!isThreadId(threadId))
-        rejectConversation(
-          "UNSUPPORTED_THREAD",
-          "threadId must match ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ (max 64)",
-        );
-      let conversation = cache.get(threadId);
-      if (!conversation) {
-        conversation = create(threadId);
-        cache.set(threadId, conversation);
-        // 创建失败不缓存坏实例，下一次请求可以重试。
-        conversation.catch(() => cache.delete(threadId));
+        rejectConversation("UNSUPPORTED_THREAD", "Invalid threadId");
+      // 软上限避免刚取出的空闲会话马上被逐出；无定时器、无持久化缓存。
+      if (cache.size >= 32) {
+        for (const [id, entry] of cache) {
+          if (id !== "local-main" && id !== threadId && Date.now() - entry.touchedAt >= 300_000)
+            void release(id).catch(() => undefined);
+        }
       }
-      return conversation;
+      let entry = cache.get(threadId);
+      if (!entry) {
+        entry = { promise: Promise.resolve().then(() => create(threadId)), touchedAt: Date.now() };
+        cache.set(threadId, entry);
+        const owned = entry;
+        entry.promise.then((value) => { owned.value = value; }, () => {
+          if (cache.get(threadId) === owned) cache.delete(threadId);
+        });
+      }
+      entry.touchedAt = Date.now();
+      return entry.promise;
     },
     threads: listThreads,
-    closeAll: async () => {
-      const pending = [...cache.values()];
-      cache.clear();
-      const conversations = await Promise.all(pending);
-      await Promise.all(conversations.map((x) => x.close()));
+    release,
+    closeAll: () => {
+      if (closing) return closing;
+      closed = true;
+      const pending = [...cache.values()].map((entry) => entry.promise);
+      closing = (async () => {
+        const created = await Promise.allSettled(pending);
+        const disposed = await Promise.allSettled(created.flatMap((result) =>
+          result.status === "fulfilled" ? [result.value.close()] : [],
+        ));
+        cache.clear();
+        const failed = disposed.find((result) => result.status === "rejected");
+        if (failed?.status === "rejected") throw failed.reason;
+      })();
+      return closing;
     },
   };
 };

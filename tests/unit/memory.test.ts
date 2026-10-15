@@ -90,17 +90,19 @@ test("concurrent memory and identity writes share one complete read-modify-write
   assert.equal((await identity.get()).name, "Renamed");
 });
 
-test("memory legacy reader filters only id/text and merges partial identity defaults", async (t) => {
+test("memory rejects partial entries and identity without rewriting original bytes", async (t) => {
   const { file, repository } = await setup(t);
-  const partial = { id: "partial", text: "legacy fact" };
-  await writeFile(file, JSON.stringify({
-    memories: [null, 1, { text: "no id" }, { id: 1, text: "bad id" }, partial],
-    identity: { name: "Legacy" },
-  }));
-  assert.deepEqual(await repository.read(), {
-    memories: [partial], identity: { ...defaultIdentity, name: "Legacy" },
-  });
-
+  for (const value of [
+    { memories: [item("valid"), { id: "partial", text: "fact" }], identity: defaultIdentity },
+    { memories: [], identity: { name: "Partial" } },
+    { memories: [] },
+  ]) {
+    const source = JSON.stringify(value);
+    await writeFile(file, source);
+    await assert.rejects(repository.read(), /Invalid memory document/);
+    await assert.rejects(repository.update(() => ({ result: undefined })), /Invalid memory document/);
+    assert.equal(await readFile(file, "utf8"), source);
+  }
 });
 
 test("memory missing edit skips writing but missing forget preserves legacy write behavior", async (t) => {

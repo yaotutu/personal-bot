@@ -11,7 +11,7 @@ import {
 } from "../lib/api";
 
 const kindLabel = (task: TaskDto) =>
-  (task as { kind?: string }).kind === "agent" ? "后台任务" : "定时";
+  task.kind === "task" ? "后台任务" : "定时";
 
 const statusLabel: Record<string, { text: string; className: string }> = {
   scheduled: { text: "已排期", className: "bg-blue-50 text-blue-700" },
@@ -90,7 +90,7 @@ export const JobsView = () => {
   const act = async (
     id: string,
     action: "pause" | "resume" | "cancel" | "retry",
-    target?: "job" | "task",
+    target: "job" | "task",
   ) => {
     setBusy(`${id}:${action}`);
     const result = await controlTask(id, action, target);
@@ -111,7 +111,7 @@ export const JobsView = () => {
     action: "pause" | "resume" | "cancel" | "retry";
     label: string;
     danger?: boolean;
-    target?: "job" | "task";
+    target: "job" | "task";
   }) => (
     <button
       disabled={busy.length > 0}
@@ -196,15 +196,16 @@ export const JobsView = () => {
               )}
               <div className="mt-3 flex gap-2">
                 {(() => {
-                  const isAsync = kindLabel(task) === "后台任务";
-                  const t = isAsync ? ("task" as const) : undefined;
+                  // 控制请求显式携带业务域，避免同 ID 在两个存储域之间被猜测分发。
+                  const isAsync = task.kind === "task";
+                  const t = task.kind;
                   return (
                     <>
                       {!isAsync && active && (
-                        <Button id={task.id} action="pause" label="暂停" />
+                        <Button id={task.id} action="pause" label="暂停" target={t} />
                       )}
                       {!isAsync && task.status === "paused" && (
-                        <Button id={task.id} action="resume" label="恢复" />
+                        <Button id={task.id} action="resume" label="恢复" target={t} />
                       )}
                       {task.status !== "cancelled" && (
                         <Button id={task.id} action="cancel" label="取消" danger target={t} />

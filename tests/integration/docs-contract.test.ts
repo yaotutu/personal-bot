@@ -41,7 +41,7 @@ test("docs: /openapi.json and /docs are served without auth", async (t) => {
   const model = await createFakeModel();
   const dataDir = await mkdtemp(join(tmpdir(), "personal-bot-docs-"));
   t.after(async () => {
-    await (await serviceRef).close();
+    await serviceRef?.then((service) => service.close(), () => undefined);
     await model.close();
     await rm(dataDir, { recursive: true, force: true });
   });
@@ -71,11 +71,12 @@ test("docs: live GET responses parse against registry schemas (no drift)", async
   const model = await createFakeModel();
   const dataDir = await mkdtemp(join(tmpdir(), "personal-bot-drift-"));
   t.after(async () => {
-    await service.close();
+    await service?.close();
     await model.close();
     await rm(dataDir, { recursive: true, force: true });
   });
-  const service = await createService(
+  let service: Awaited<ReturnType<typeof createService>> | undefined;
+  service = await createService(
     createConfig({
       schemaVersion: 1,
       server: {},
@@ -108,11 +109,12 @@ test("docs: every served route is registered and every registration is served (n
   const model = await createFakeModel();
   const dataDir = await mkdtemp(join(tmpdir(), "personal-bot-audit-"));
   t.after(async () => {
-    await service.close();
+    await service?.close();
     await model.close();
     await rm(dataDir, { recursive: true, force: true });
   });
-  const service = await createService(
+  let service: Awaited<ReturnType<typeof createService>> | undefined;
+  service = await createService(
     createConfig({
       schemaVersion: 1,
       server: {},
@@ -124,9 +126,6 @@ test("docs: every served route is registered and every registration is served (n
   const served = allRoutes
     .filter((r) => ["GET", "POST", "PUT"].includes(r.method))
     .map((r) => `${r.method.toLowerCase()} ${r.path}`);
-  const copilotkitWildcard = allRoutes.some(
-    (r) => r.method === "ALL" && r.path === "/api/copilotkit/*",
-  );
   // 文档基础设施路由：自身即文档面，不进注册表（登记会造成自引用）。
   const docsInfra = new Set(["get /openapi.json", "get /docs", "get /scalar.js"]);
   const registry = new Set(endpoints.map((e) => `${e.method} ${e.path}`));
@@ -141,11 +140,8 @@ test("docs: every served route is registered and every registration is served (n
   for (const endpoint of endpoints) {
     const key = `${endpoint.method} ${endpoint.path}`;
     const servedDirectly = served.includes(key);
-    // AG-UI run/stop/info 挂在 /api/copilotkit/* 通配处理器下，无具体路由行。
-    const coveredByWildcard =
-      copilotkitWildcard && endpoint.path.startsWith("/api/copilotkit/");
     assert.ok(
-      servedDirectly || coveredByWildcard,
+      servedDirectly,
       `注册表登记了 ${key}，但服务端没有对应路由（文档在撒谎）`,
     );
   }

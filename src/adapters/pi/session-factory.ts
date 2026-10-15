@@ -27,8 +27,10 @@ export type PiDeps = {
   sessionManager: SessionManager;
   memory: MemoryService;
   jobs: JobService;
-  worker?: Pick<TaskWorker, "kick">;
+  worker?: Pick<TaskWorker, "kick" | "control">;
   tasks?: TaskService;
+  threadId?: string;
+  runId?: string;
   goals?: GoalService;
   actions?: ActionService;
   actionTimeoutMs?: number;
@@ -48,6 +50,8 @@ export async function openPi(deps: PiDeps) {
   const resourceLoader = createResourceLoader(systemPrompt);
   const customTools = createTools({
     root: cwd,
+    threadId: deps.threadId,
+    runId: deps.runId,
     memory,
     jobs,
     tasks,
@@ -59,31 +63,7 @@ export async function openPi(deps: PiDeps) {
     web,
     weather,
   });
-  modelRuntime.registerProvider("personal", {
-    baseUrl: config.baseUrl,
-    api: "openai-completions",
-    models: [
-      {
-        id: config.modelId!,
-        name: config.modelId!,
-        reasoning: false,
-        input: ["text"],
-        contextWindow: config.contextWindow,
-        maxTokens: config.maxTokens,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        compat: {
-          supportsStore: false,
-          supportsDeveloperRole: false,
-          maxTokensField: "max_tokens",
-        },
-      },
-    ],
-  });
-  // runtime key 只驻留内存，不写进 pi auth.json。无鉴权本地 endpoint 使用占位值。
-  await modelRuntime.setRuntimeApiKey(
-    "personal",
-    config.apiKey || "local-no-key",
-  );
+  // provider 与内存凭据由 bootstrap 唯一初始化；每轮仅查询模型，避免修改共享 runtime。
   const model = modelRuntime.getModel("personal", config.modelId!);
   if (!model) throw new Error("MODEL_NOT_CONFIGURED");
   const { session } = await createAgentSession({

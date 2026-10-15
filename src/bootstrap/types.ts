@@ -17,6 +17,7 @@ import type { ToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
 type Auth = Awaited<ReturnType<typeof createAuth>>;
 
 export type ServiceContainer = {
+  lifecycle?: { isClosing: () => boolean; enter: () => () => void };
   config: Config;
   layout: DataLayout;
   auth: Auth;
@@ -36,5 +37,5 @@ export type ServiceContainer = {
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "config" | "auth" | "memory" | "identity" | "jobs" | "goals" | "tasks" | "taskWorker" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler"
+  "lifecycle" | "config" | "auth" | "memory" | "identity" | "jobs" | "goals" | "tasks" | "taskWorker" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler"
 >;

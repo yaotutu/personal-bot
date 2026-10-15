@@ -14,7 +14,7 @@ const service = (transport: Partial<WebTransport>) =>
     { searchResults: 5, maxSearchResults: 10, maxContentChars: 1000 },
   );
 
-test("web service projects OpenMuse-compatible structured search results", async () => {
+test("web service projects structured search results", async () => {
   const web = service({
     search: async (query, count) => {
       assert.equal(query, "personal bot");
@@ -24,11 +24,7 @@ test("web service projects OpenMuse-compatible structured search results", async
       ];
     },
   });
-  const value = JSON.parse(await web.search("  personal bot  ", 2)) as {
-    results: { title: string; url: string; snippet: string }[];
-    warnings: string[];
-    truncated: boolean;
-  };
+  const value = await web.search("  personal bot  ", 2);
   assert.deepEqual(value, {
     results: [
       { title: "Example", url: "https://example.test/a", snippet: "Snippet" },
@@ -43,14 +39,14 @@ test("web service sanitizes transport failures and validates input", async () =>
     search: async () => { throw new Error("secret search endpoint"); },
     fetch: async () => { throw new Error("secret fetch endpoint"); },
   });
-  assert.deepEqual(JSON.parse(await failing.search("query")), {
+  assert.deepEqual(await failing.search("query"), {
     error: "Web search failed",
   });
-  assert.deepEqual(JSON.parse(await failing.fetch("https://example.test")), {
+  assert.deepEqual(await failing.fetch("https://example.test"), {
     error: "Web fetch failed",
     url: "https://example.test/",
   });
-  assert.deepEqual(JSON.parse(await failing.fetch("file:///etc/passwd")), {
+  assert.deepEqual(await failing.fetch("file:///etc/passwd"), {
     error: "URL validation failed: only public HTTP(S) URLs are allowed",
     url: "file:///etc/passwd",
   });
@@ -65,12 +61,8 @@ test("web fetch extracts, truncates and marks untrusted HTML", async () => {
       body: "<title>Title</title><script>ignore()</script><h1>Head</h1><p>Body &amp; more</p>",
     }),
   });
-  const result = JSON.parse(await web.fetch("https://example.test")) as {
-    finalUrl: string;
-    extractor: string;
-    truncated: boolean;
-    text: string;
-  };
+  const result = await web.fetch("https://example.test");
+  assert.ok(!("error" in result));
   assert.equal(result.finalUrl, "https://example.test/final");
   assert.equal(result.extractor, "markdown");
   assert.equal(result.truncated, false);

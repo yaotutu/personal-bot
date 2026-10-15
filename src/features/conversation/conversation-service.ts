@@ -1,7 +1,7 @@
 import { ConversationError, rejectConversation } from "./errors.js";
 import { validateConversationInput } from "./validate-input.js";
 import type { ConversationDependencies, ConversationExecution } from "./ports.js";
-import type { CancelReason, ConversationEvent, ConversationInput, ConversationResult, ConversationTurn } from "./types.js";
+import type { CancelReason, ConversationEvent, ConversationInput, ConversationResult, ConversationTurn, ConversationNotification } from "./types.js";
 
 type ActiveRun = {
   runId: string;
@@ -17,6 +17,35 @@ export function createConversation(
   const { history: historyPort, openSession } = dependencies;
   const { history, records } = historyPort;
   let active: ActiveRun | undefined;
+  let closed = false;
+  let closing: Promise<boolean> | undefined;
+  const notifications = new Map<string, {
+    notification: ConversationNotification;
+    resolve: () => void;
+    reject: (error: unknown) => void;
+    done: Promise<void>;
+  }>();
+  const flushNotifications = () => {
+    for (const [id, pending] of notifications) {
+      try {
+        if (!history().some((message) => message.id === id)) historyPort.appendNotification(pending.notification);
+        pending.resolve();
+      } catch (error) { pending.reject(error); }
+      notifications.delete(id);
+    }
+  };
+  // 忙碌时排队，真正写入 pi 树后才确认投递；通知失败不改变模型轮的执行结果。
+  const notify = (text: string, id: string): Promise<void> => {
+    if (closed) return Promise.reject(new Error("Conversation is closed"));
+    const existing = notifications.get(id);
+    if (existing) return existing.done;
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const done = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
+    notifications.set(id, { notification: { id, text }, resolve, reject, done });
+    if (!active) flushNotifications();
+    return done;
+  };
   const cancel = async (
     reason: ActiveRun["reason"] = "STOPPED",
     runId?: string,
@@ -24,23 +53,28 @@ export function createConversation(
     const running = active;
     if (!running || (runId && runId !== running.runId)) return false;
     running.reason ??= reason;
-    if (running.session) await running.session.abort();
-    await running.done;
+    try {
+      if (running.session) await running.session.abort();
+    } finally {
+      await running.done;
+    }
     return true;
   };
+  // 预检用于 HTTP 在开启 SSE 前返回 400/409；run 再检查一次，防止异步创建流期间争锁。
+  const validate = (input: ConversationInput) => {
+    if (closed) rejectConversation("SHUTDOWN", "Conversation is closed");
+    if (active) rejectConversation("agent_thread_locked", "Wait for the current response to stop");
+    const validated = validateConversationInput(input, history(), records(), historyPort.checkpoint() ?? "empty");
+    if (!config.configured) rejectConversation("MODEL_NOT_CONFIGURED", "Configure the server model before sending");
+    return validated;
+  };
+  const snapshot = () => ({ messages: history(), revision: historyPort.checkpoint() ?? "empty" });
   const run = async (
     input: ConversationInput,
     emit: (event: ConversationEvent) => void,
     signal?: AbortSignal,
   ) => {
-    if (active)
-      rejectConversation("agent_thread_locked", "Wait for the current response to stop");
-    const { user, previous, replay } = validateConversationInput(input, history(), records());
-    if (!config.configured)
-      rejectConversation(
-        "MODEL_NOT_CONFIGURED",
-        "Configure model.baseUrl and model.id in .personal-bot/config.json",
-      );
+    const { user, previous, replay } = validate(input);
     if (signal?.aborted)
       rejectConversation("DISCONNECTED", "Client disconnected before the run started");
     let release!: () => void;
@@ -52,11 +86,11 @@ export function createConversation(
     };
     active = running;
     const disconnected = () => {
-      void cancel("DISCONNECTED");
+      void cancel("DISCONNECTED").catch(() => undefined);
     };
     signal?.addEventListener("abort", disconnected, { once: true });
     const timeout = setTimeout(() => {
-      void cancel("TIMEOUT");
+      void cancel("TIMEOUT").catch(() => undefined);
     }, config.runTimeoutMs);
     let unsubscribe: (() => void) | undefined;
     const turn: ConversationTurn = {
@@ -87,7 +121,7 @@ export function createConversation(
       } else {
         // 初始化或刚开始就停止时，不应先隐藏待重试的旧消息。先打开宿主，
         // 再提交 context edit，并同步宿主内存中的模型上下文。
-        running.session = await openSession();
+        running.session = await openSession({ runId: running.runId });
         if (running.reason)
           throw new ConversationError(running.reason, "Response cancelled");
         // 只在宿主初始化成功且尚未取消时隐藏待重试轮，保持早停时旧历史可见。
@@ -163,15 +197,25 @@ export function createConversation(
       clearTimeout(timeout);
       signal?.removeEventListener("abort", disconnected);
       unsubscribe?.();
-      running.session?.dispose();
-      active = undefined;
-      release();
+      try {
+        running.session?.dispose();
+      } finally {
+        // SDK 清理异常也不能悬挂已排队通知，否则 monitor.close 会永远等待投递。
+        flushNotifications();
+        active = undefined;
+        release();
+      }
     }
   };
   // P4 定时任务触发的服务端轮次：与客户端 run 互斥共用一把锁，但不走 AG-UI
   // emit、不做客户端校验；turn 与结果照常落 pi 历史，用户刷新/下一轮同步可见。
   // 崩溃哲学：失败只诚实标记（result entry），不做断点续跑。
-  const trigger = async (text: string, runId: string) => {
+  const trigger = async (
+    text: string,
+    runId: string,
+    options: { signal?: AbortSignal; timeoutMs?: number } = {},
+  ) => {
+    if (closed || options.signal?.aborted) return { status: "failed" as const, text: "cancelled" };
     if (active) return { status: "failed" as const, text: "busy" };
     let release!: () => void;
     const running: ActiveRun = {
@@ -181,6 +225,12 @@ export function createConversation(
       }),
     };
     active = running;
+    const aborted = () => { void cancel("STOPPED", runId).catch(() => undefined); };
+    options.signal?.addEventListener("abort", aborted, { once: true });
+    // 只有后台 worker 显式提供 timeout；定时 jobs 保持既有的无客户端超时语义。
+    const timeout = options.timeoutMs === undefined ? undefined : setTimeout(() => {
+      void cancel("TIMEOUT", runId).catch(() => undefined);
+    }, options.timeoutMs);
     let unsubscribe: (() => void) | undefined;
     let finalReason: string | undefined;
     let finalText = "";
@@ -191,7 +241,8 @@ export function createConversation(
       assistantId: "assistant-" + runId,
     };
     try {
-      running.session = await openSession();
+      running.session = await openSession({ runId: running.runId });
+      if (running.reason) throw new ConversationError(running.reason, "Response cancelled");
       historyPort.appendTurn(turn);
       running.session.syncContext();
       unsubscribe = running.session.subscribe((event) => {
@@ -203,32 +254,48 @@ export function createConversation(
       });
       await running.session.prompt(text);
       await running.session.waitForIdle();
-      const ok = finalReason && finalReason !== "error" && finalReason !== "aborted";
+      const ok = !running.reason && finalReason && finalReason !== "error" && finalReason !== "aborted";
       historyPort.appendResult({
         runId,
         status: ok ? "completed" : "failed",
       } satisfies ConversationResult);
       return { status: ok ? ("completed" as const) : ("failed" as const), text: finalText };
     } catch {
+      if (running.session) {
+        await running.session.abort();
+        await running.session.waitForIdle();
+      }
       historyPort.appendResult({
         runId,
         status: "failed",
       } satisfies ConversationResult);
       return { status: "failed" as const, text: "" };
     } finally {
+      if (timeout) clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", aborted);
       unsubscribe?.();
-      running.session?.dispose();
-      active = undefined;
-      release();
+      try {
+        running.session?.dispose();
+      } finally {
+        flushNotifications();
+        active = undefined;
+        release();
+      }
     }
   };
   return {
     history,
+    snapshot,
+    validate,
     run,
     trigger,
+    notify,
     cancel,
     isRunning: () => Boolean(active),
-    close: () => cancel("SHUTDOWN"),
+    close: () => {
+      closed = true;
+      return closing ??= cancel("SHUTDOWN");
+    },
   };
 }
 export type Conversation = Awaited<ReturnType<typeof createConversation>>;

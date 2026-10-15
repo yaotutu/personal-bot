@@ -1,15 +1,29 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { MessageView, ToolCallView } from "./chat-state";
 import { StreamAggregator, projectHistory } from "./chat-state";
 import {
   loadHistory,
   runConversation,
   stopConversation,
-  type ApiMessage,
+  ApiError,
 } from "../lib/api.js";
 
 const randomRunId = () =>
   (globalThis.crypto?.randomUUID?.() ?? `run-${Date.now()}-${Math.random()}`);
+
+type ForegroundRun = {
+  threadId: string;
+  runId: string;
+  controller: AbortController;
+};
+
+type ChatSession = {
+  threadId: string;
+  controller: AbortController;
+  historyReady: boolean;
+  revision: string;
+  run?: ForegroundRun;
+};
 
 const toolLabel = (call: ToolCallView): string => {
   switch (call.name) {
@@ -93,22 +107,48 @@ const MessageBubble = ({ message }: { message: MessageView }) => {
 export const ChatView = ({ threadId }: { threadId: string }) => {
   const [views, setViews] = useState<MessageView[]>([]);
   const [draft, setDraft] = useState("");
-  const [running, setRunning] = useState(false);
+  const [running, setRunning] = useState<ForegroundRun | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [stopping, setStopping] = useState(false);
   const [error, setError] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
-  const historyRef = useRef<ApiMessage[]>([]);
+  const sessionRef = useRef<ChatSession | null>(null);
 
-  // 切换 thread 或首次加载：拉权威历史。
-  useEffect(() => {
+  // 每次挂载/切换都创建独立归属对象，避免 A→B→A 时仅比较 threadId 误认旧请求。
+  // layout cleanup 在新界面可交互前撤销归属；abort 只负责停 I/O，归属校验负责拦截已排队回调。
+  useLayoutEffect(() => {
+    const session: ChatSession = {
+      threadId,
+      controller: new AbortController(),
+      historyReady: false,
+      revision: "empty",
+    };
+    sessionRef.current = session;
+    const ownsSession = () => sessionRef.current === session && !session.controller.signal.aborted;
     setError("");
     setViews([]);
-    historyRef.current = [];
-    void loadHistory(threadId)
-      .then((messages) => {
-        historyRef.current = messages;
+    setDraft("");
+    setRunning(null);
+    setStopping(false);
+    setLoading(true);
+    void loadHistory(threadId, session.controller.signal)
+      .then(({ messages, revision }) => {
+        if (!ownsSession()) return;
+        session.revision = revision;
+        session.historyReady = true;
         setViews(projectHistory(messages));
       })
-      .catch((e: Error) => setError(e.message));
+      .catch((e: unknown) => {
+        if (ownsSession()) setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (ownsSession()) setLoading(false);
+      });
+    return () => {
+      if (sessionRef.current === session) sessionRef.current = null;
+      session.controller.abort();
+      session.run?.controller.abort();
+    };
   }, [threadId]);
 
   useEffect(() => {
@@ -117,9 +157,17 @@ export const ChatView = ({ threadId }: { threadId: string }) => {
 
   const send = async () => {
     const text = draft.trim();
-    if (!text || running) return;
+    const session = sessionRef.current;
+    // ref 同步占有 run，防止 React 尚未提交 running 状态时连续 Enter 发出重复请求。
+    // 首次历史未成功加载前不允许发送，否则空 历史版本会覆盖不了服务端已有历史。
+    if (!text || !session || session.threadId !== threadId || !session.historyReady || session.run) return;
+    const run: ForegroundRun = { threadId: session.threadId, runId: randomRunId(), controller: new AbortController() };
+    session.run = run;
+    const ownsRun = () =>
+      sessionRef.current === session && !session.controller.signal.aborted && session.run === run;
     setDraft("");
     setError("");
+    setStopping(false);
     // 乐观视图：用户消息 + 流式聚合器。
     const optimistic: MessageView = {
       id: `user-${Date.now()}`,
@@ -129,47 +177,82 @@ export const ChatView = ({ threadId }: { threadId: string }) => {
     };
     const aggregator = new StreamAggregator([...views, optimistic]);
     setViews([...aggregator.messages]);
-    setRunning(true);
-    const runId = randomRunId();
+    setRunning(run);
+    let restoredDraft = false;
+    const restoreDraft = () => {
+      if (restoredDraft || !ownsRun()) return;
+      restoredDraft = true;
+      // 请求未被接纳时恢复原文，同时保留用户运行期间新输入的草稿，不能静默丢消息。
+      setDraft((current) => current ? `${text}\n${current}` : text);
+    };
     try {
       await runConversation(
         {
-          threadId,
-          runId,
-          // 服务端校验 canonical 用户序列：已发消息 + 新消息。
-          messages: [
-            ...historyRef.current.filter((x) => x.role === "user"),
-            { id: optimistic.id, role: "user", content: text },
-          ],
+          threadId: run.threadId,
+          runId: run.runId,
+          expectedRevision: session.revision,
+          message: { id: optimistic.id, content: text },
         },
         (event) => {
+          if (!ownsRun() || run.controller.signal.aborted) return;
           aggregator.push(event);
           // 聚合器内部原位修改；拷贝触发渲染。
           setViews([...aggregator.messages]);
-          if (event.type === "RUN_ERROR") setError(event.message ?? "运行失败");
+          if (event.type === "RUN_ERROR") {
+            setError(event.message);
+            if (["HISTORY_CONFLICT", "agent_thread_locked", "MODEL_NOT_CONFIGURED"].includes(event.code)) restoreDraft();
+          }
         },
+        run.controller.signal,
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // 用户 Stop 或离开页面属于正常取消，不把 AbortError 显示成模型故障。
+      if (ownsRun() && !run.controller.signal.aborted) {
+        setError(e instanceof Error ? e.message : String(e));
+        if (e instanceof ApiError && [400, 409, 503].includes(e.status)) restoreDraft();
+      }
     } finally {
-      setRunning(false);
-      aggregator.settle();
-      // 以服务端权威历史收尾（含工具投影与最终文本）。
-      try {
-        const messages = await loadHistory(threadId);
-        historyRef.current = messages;
-        setViews(projectHistory(messages));
-      } catch {
+      if (ownsRun()) {
+        aggregator.settle();
         setViews([...aggregator.messages]);
+        // Stop 只取消本轮流，刷新使用会话级 signal；切换/卸载则两者都取消。
+        // 直到刷新结束才释放 run，防止旧 finally 覆盖新一轮视图或 历史版本。
+        try {
+          const { messages, revision } = await loadHistory(run.threadId, session.controller.signal);
+          if (ownsRun()) {
+            session.revision = revision;
+            setViews(projectHistory(messages));
+          }
+        } catch (e) {
+          if (ownsRun()) {
+            // 刷新失败时保留已展示的结果，但禁止用旧 历史版本继续发送。
+            session.historyReady = false;
+            setError(e instanceof Error ? e.message : String(e));
+          }
+        } finally {
+          if (ownsRun()) {
+            session.run = undefined;
+            setRunning(null);
+            setStopping(false);
+          }
+        }
       }
     }
   };
 
-  const stop = async () => {
+  const stop = async (run: ForegroundRun) => {
+    const session = sessionRef.current;
+    if (!session || session.threadId !== run.threadId || session.run !== run) return;
+    setStopping(true);
     try {
-      await stopConversation(threadId);
-    } catch {
-      // 停止失败由 run 轮的终态事件兜底。
+      // 等待服务端的 abort、结果落盘和通知队列释放；SSE 自然结束后才刷新并允许下一轮。
+      // 离开页面仍直接取消本轮流；迟到的显式 Stop 因 runId 不匹配而不会影响新轮。
+      await stopConversation(run.threadId, run.runId, session.controller.signal);
+    } catch (e) {
+      if (sessionRef.current === session && session.run === run) {
+        setError(e instanceof Error ? e.message : String(e));
+        setStopping(false);
+      }
     }
   };
 
@@ -178,7 +261,7 @@ export const ChatView = ({ threadId }: { threadId: string }) => {
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-5">
         {views.length === 0 && !error && (
           <div className="mt-16 text-center text-sm text-stone-400">
-            有什么可以帮你的？
+            {loading ? "正在加载历史…" : "有什么可以帮你的？"}
           </div>
         )}
         {views.map((message) => (
@@ -208,15 +291,16 @@ export const ChatView = ({ threadId }: { threadId: string }) => {
           />
           {running ? (
             <button
-              onClick={() => void stop()}
-              className="rounded-xl bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600"
+              onClick={() => void stop(running)}
+              disabled={stopping}
+              className="rounded-xl bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-40"
             >
-              停止
+              {stopping ? "停止中…" : "停止"}
             </button>
           ) : (
             <button
               onClick={() => void send()}
-              disabled={!draft.trim()}
+              disabled={!draft.trim() || loading || !sessionRef.current?.historyReady}
               className="rounded-xl bg-stone-800 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
             >
               发送

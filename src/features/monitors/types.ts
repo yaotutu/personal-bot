@@ -1,6 +1,5 @@
 /**
- * 监控域：周期抓取一个网页并按条件通知。借鉴 OpenMuse Monitor（砍掉
- * price_below——价格解析过重，change/contains 通用够用）。
+ * 监控域：周期抓取一个网页并按内容变化或关键词命中通知。
  * 检查与通知由 monitor-scheduler 驱动；域本身只维护状态与去重语义：
  * change 只在内容指纹变化时通知；contains 只在"未命中→命中"时通知。
  */
@@ -22,6 +21,9 @@ export type Monitor = {
   lastFingerprint?: string;
   lastMatched?: boolean;
   lastNotifiedAt?: string;
+  originThreadId?: string;
+  /** 已观察到的变化与通知投递分开，投递失败时下次扫描仅补通知。 */
+  pendingNotification?: { id: string; summary: string };
   checks: number;
   error?: string;
 };

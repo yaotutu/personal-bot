@@ -11,6 +11,7 @@ const fixture = () => {
   const history: ConversationHistoryPort = {
     history: () => [], records: () => ({ turns: [], results: new Map() }), checkpoint: () => "leaf",
     omitTurn: () => { calls.push("omit"); }, appendTurn: () => { calls.push("turn"); },
+    appendNotification: (notification) => { calls.push("notification:" + notification.text); },
     appendResult: (result) => { calls.push(result.status); }, restoreIfNoUser: () => { calls.push("restore"); },
   };
   const session: ConversationExecution = {
@@ -22,7 +23,7 @@ const fixture = () => {
   const dependencies: ConversationDependencies = { history, openSession: async () => session };
   return { calls, session, dependencies };
 };
-const input = { threadId: "local-main", runId: "run", messages: [{ id: "user", role: "user", content: "hello" }] };
+const input = { threadId: "local-main", runId: "run", expectedRevision: "leaf", message: { id: "user", content: "hello" } };
 
 test("coordinator finishes only after pi idle and persisted result and then releases its sole lock", async () => {
   const { calls, dependencies } = fixture();
@@ -37,7 +38,7 @@ test("coordinator finishes only after pi idle and persisted result and then rele
   assert.deepEqual(calls.slice(-2), ["unsubscribe", "dispose"]);
 });
 
-test("trigger keeps its legacy no-client-timeout behavior and shares the lock with client runs", async (t) => {
+test("trigger has an explicit timeout only when requested and shares the lock with client runs", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const { calls, dependencies } = fixture();
   let release!: () => void;

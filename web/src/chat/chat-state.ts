@@ -70,14 +70,13 @@ export class StreamAggregator {
   push(event: SseEvent): void {
     switch (event.type) {
       case "TEXT_MESSAGE_START": {
-        this.current = {
-          id: event.messageId ?? `assistant-${Date.now()}`,
-          role: "assistant",
-          text: "",
-          toolCalls: [],
-          streaming: true,
-        };
-        this.messages.push(this.current);
+        // 服务端同一轮工具与文本共用 assistant ID。工具先建出的占位消息
+        // 必须继续复用，不能再次 push 同 ID，否则 React key 重复且工具卡片闪动。
+        const id = event.messageId;
+        const existing = this.messages.find((message) => message.role === "assistant" && message.id === id);
+        this.current = existing ?? { id, role: "assistant", text: "", toolCalls: [] };
+        this.current.streaming = true;
+        if (!existing) this.messages.push(this.current);
         break;
       }
       case "TEXT_MESSAGE_CONTENT": {
@@ -103,8 +102,8 @@ export class StreamAggregator {
           this.messages.push(target);
         }
         target.toolCalls.push({
-          id: event.toolCallId ?? "",
-          name: event.toolCallName ?? "",
+          id: event.toolCallId,
+          name: event.toolCallName,
           args: "",
         });
         break;
@@ -147,6 +146,9 @@ export class StreamAggregator {
         if (event.messages) {
           this.messages.length = 0;
           this.messages.push(...projectHistory(event.messages));
+          // 快照替换了消息对象，不能再向旧 current 引用或旧参数缓存继续追加。
+          this.current = undefined;
+          this.args.clear();
         }
         break;
       }

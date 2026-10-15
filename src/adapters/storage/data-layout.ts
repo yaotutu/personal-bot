@@ -3,8 +3,7 @@ import { join, resolve } from "node:path";
 /**
  * 统一描述个人助手的数据文件布局。
  *
- * 第一版故意返回现有路径，不迁移任何用户数据；后续调整布局时只需要
- * 修改这里并增加显式迁移，不再让业务代码自己拼接 dataDir 路径。
+ * 业务代码通过这里读取当前布局，不在启动过程中隐式迁移文件。
  */
 export type DataLayout = {
   root: string;
@@ -47,25 +46,8 @@ export const createDataLayout = (dataDir: string): DataLayout => {
 export const threadSessionsDir = (layout: DataLayout, threadId: string) =>
   join(layout.sessionsDir, threadId);
 
-/**
- * 一次性把旧布局（会话文件直接放在 sessions/ 根）迁入 sessions/local-main/。
- * 已是目录布局时幂等；迁移失败不阻塞启动（旧目录保留，错误向上抛）。
- */
+/** 仅创建当前布局的会话根目录；启动时不探测或迁移任何旧会话文件。 */
 export const ensureThreadLayout = async (layout: DataLayout) => {
-  const { readdir, mkdir, rename, access } = await import("node:fs/promises");
+  const { mkdir } = await import("node:fs/promises");
   await mkdir(layout.sessionsDir, { recursive: true, mode: 0o700 });
-  const legacy = await readdir(layout.sessionsDir, { withFileTypes: true });
-  const files = legacy.filter((x) => x.isFile() && x.name.endsWith(".jsonl"));
-  if (!files.length) return;
-  const mainDir = threadSessionsDir(layout, "local-main");
-  await mkdir(mainDir, { recursive: true, mode: 0o700 });
-  for (const file of files) {
-    const from = join(layout.sessionsDir, file.name);
-    const to = join(mainDir, file.name);
-    try {
-      await access(to);
-    } catch {
-      await rename(from, to);
-    }
-  }
 };

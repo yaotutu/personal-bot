@@ -1,55 +1,58 @@
 import { Hono } from "hono";
-import { runRequestSchema } from "../../http/contracts/rest.js";
+import { streamSSE } from "hono/streaming";
+import { runRequestSchema, stopRequestSchema } from "../../http/contracts/rest.js";
 import type { ConversationHub } from "../../features/conversation/conversation-hub.js";
-import { PiAgent } from "./agent.js";
-import { createRunner } from "./runner.js";
+import { ConversationError } from "../../features/conversation/errors.js";
+import { createEventProjector } from "./events.js";
 import type { ToolPresentation } from "./tool-presentation.js";
 
-/** 只开放当前 runtime 的 info/run/stop，不提供重连或任意 runtime operation。 */
-export const createAgUiRoutes = async (conversationHub: ConversationHub, presentation: ToolPresentation) => {
-  // 必须在动态导入 runtime 前关闭全局 telemetry；未构造 Intelligence 或网络搜索。
-  process.env.COPILOTKIT_TELEMETRY_DISABLED = "true";
-  process.env.DO_NOT_TRACK = "1";
-  const { CopilotRuntime, createCopilotHonoHandler } = await import(
-    "@copilotkit/runtime/v2"
-  );
-  const runtime = new CopilotRuntime({
-    agents: ({ request }) => ({
-      default: new PiAgent(conversationHub, request.signal, presentation),
-    }),
-    runner: createRunner(conversationHub),
-  });
-  const handler = createCopilotHonoHandler({
-    runtime,
-    basePath: "/api/copilotkit",
-  });
+/**
+ * 自有 HTTP 输入与 AG-UI 输出之间的薄适配层，不需要 runtime/agent 宿主。
+ * 协调器仍独占运行锁；流断开和显式 Stop 都绑定 runId，拒绝迟到取消误伤下一轮。
+ */
+export const createAgUiRoutes = (hub: ConversationHub, presentation: ToolPresentation) => {
   const app = new Hono();
-  app.all("/api/copilotkit/*", async (c) => {
-    const path = c.req.path;
-    // stop 路径携带 threadId 段；形态校验交给 runner（非法 id 返回 false 而非 404）。
-    const stopMatch = path.match(/^\/api\/copilotkit\/agent\/default\/stop\/[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
-    const allowed =
-      (c.req.method === "GET" && path === "/api/copilotkit/info") ||
-      (c.req.method === "POST" &&
-        (path === "/api/copilotkit/agent/default/run" || stopMatch));
-    if (!allowed)
-      return c.json(
-        { error: "Runtime operation is not available in text-only mode" },
-        501,
-      );
-    if (path.endsWith("/run")) {
-      // SDK 自带验证，但错误日志可能打印请求内容；宿主先验证并返回清晰 JSON。
-      // 宿主预校验用自有 v4 契约（SDK 仍会做完整校验；错误日志不打印请求内容）。
-      const parsed = runRequestSchema.safeParse(
-        await c.req.raw
-          .clone()
-          .json()
-          .catch(() => undefined),
-      );
-      if (!parsed.success)
-        return c.json({ error: "Invalid AG-UI run request" }, 400);
+  app.post("/api/conversation/run", async (c) => {
+    const parsed = runRequestSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: "Invalid conversation request" }, 400);
+    const input = parsed.data;
+    const conversation = await hub.forThread(input.threadId);
+    try { conversation.validate(input); }
+    catch (error) {
+      if (!(error instanceof ConversationError)) throw error;
+      const status = error.code === "SHUTDOWN" || error.code === "MODEL_NOT_CONFIGURED" ? 503
+        : error.code === "INVALID_INPUT" || error.code === "UNSUPPORTED_THREAD" ? 400 : 409;
+      return c.json({ error: error.message, code: error.code }, status);
     }
-    return handler.fetch(c.req.raw);
+    return streamSSE(c, async (stream) => {
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      c.req.raw.signal.addEventListener("abort", abort, { once: true });
+      stream.onAbort(abort);
+      if (c.req.raw.signal.aborted) abort();
+      // 事件回调保持同步，实际写流串行排队。记录写入失败并取消执行，避免悬挂模型。
+      let writes = Promise.resolve();
+      const emit = createEventProjector((event) => {
+        writes = writes.then(async () => {
+          if (!controller.signal.aborted) await stream.writeSSE({ data: JSON.stringify(event) });
+        }).catch(abort);
+      }, presentation);
+      try {
+        await conversation.run(input, emit, controller.signal);
+      } catch (error) {
+        emit({ type: "run_error", code: error instanceof ConversationError ? error.code : "RUN_ERROR",
+          message: error instanceof ConversationError ? error.message : "Unable to start conversation" });
+      } finally {
+        await writes;
+        c.req.raw.signal.removeEventListener("abort", abort);
+      }
+    });
+  });
+  app.post("/api/conversation/stop", async (c) => {
+    const parsed = stopRequestSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: "Invalid stop request" }, 400);
+    const conversation = await hub.forThread(parsed.data.threadId);
+    return c.json({ stopped: await conversation.cancel("STOPPED", parsed.data.runId) });
   });
   return app;
 };

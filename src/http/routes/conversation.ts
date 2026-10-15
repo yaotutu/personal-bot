@@ -1,3 +1,4 @@
+import { ConversationError } from "../../features/conversation/errors.js";
 import { Hono } from "hono";
 import type { HttpDependencies } from "../../bootstrap/types.js";
 
@@ -11,9 +12,11 @@ export const createConversationRoutes = (
     const threadId = c.req.query("threadId") || "local-main";
     try {
       const conversation = await conversationHub.forThread(threadId);
-      return c.json({ messages: conversation.history() });
-    } catch {
-      return c.json({ error: "Invalid threadId" }, 400);
+      return c.json(conversation.snapshot());
+    } catch (error) {
+      if (error instanceof ConversationError && error.code === "UNSUPPORTED_THREAD")
+        return c.json({ error: "Invalid threadId" }, 400);
+      throw error;
     }
   });
   return app;

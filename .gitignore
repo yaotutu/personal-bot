@@ -3,3 +3,4 @@ dist/
 .env
 .personal-bot/
 *.log
+*.tsbuildinfo

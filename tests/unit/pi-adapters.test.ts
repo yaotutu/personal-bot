@@ -28,9 +28,9 @@ const setup = async (t: TestContext) => {
   const jobs = createJobService(createJobRepository(layout.jobsFile));
   const web: WebService = {
     search: async (query, count) =>
-      query ? `search:${query}:${count ?? 5}` : JSON.stringify({ error: "empty query" }),
+      query ? { results: [{ title: query, url: "https://example.test", snippet: String(count ?? 5) }], warnings: [], truncated: false } : { error: "empty query" },
     fetch: async (url, mode, maxChars) =>
-      JSON.stringify({ url, mode, maxChars, text: "web body" }),
+      ({ url, finalUrl: url, status: 200, extractor: mode ?? "markdown", truncated: false, length: maxChars ?? 8, untrusted: true, text: "web body" }),
   };
   const weather: WeatherService = {
     getWeather: async (city) => ({
@@ -162,7 +162,9 @@ test("system prompt conditionally describes untrusted web content", async (t) =>
 test("web tools expose controlled search and fetch projections", async (t) => {
   const { execute } = await setup(t);
   const search = await execute("search_web", { query: "personal bot", count: 2 });
-  assert.equal((search.content[0] as { text: string }).text, "search:personal bot:2");
+  assert.deepEqual(JSON.parse((search.content[0] as { text: string }).text), {
+    results: [{ title: "personal bot", url: "https://example.test", snippet: "2" }], warnings: [], truncated: false,
+  });
   const failed = await execute("search_web", { query: "" });
   assert.equal(failed.isError, true);
   const fetched = await execute("web_fetch", {
@@ -174,9 +176,8 @@ test("web tools expose controlled search and fetch projections", async (t) => {
   const value = JSON.parse((fetched.content[0] as { text: string }).text);
   assert.deepEqual(value, {
     url: "https://example.test",
-    mode: "text",
-    maxChars: 123,
-    text: "web body",
+    finalUrl: "https://example.test", status: 200, extractor: "text",
+    truncated: false, length: 123, untrusted: true, text: "web body",
   });
 });
 

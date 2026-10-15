@@ -1,22 +1,13 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import type { WebService } from "../../../features/web/types.js";
+import type { WebService, WebSearchResponse, WebFetchResponse, WebFailure } from "../../../features/web/types.js";
 
-/** 受控 JSON 错误也让工具结果标记 isError，便于模型和 UI 明确区分失败。 */
-const content = (text: string) => {
-  let isError = false;
-  try {
-    const value = JSON.parse(text) as { error?: unknown };
-    isError = typeof value.error === "string";
-  } catch {
-    // 搜索结果和成功抓取都是普通文本；只有 service 生成的 JSON 表示错误。
-  }
-  return {
-    content: [{ type: "text" as const, text }],
-    details: undefined,
-    isError,
-  };
-};
+/** 工具适配层负责唯一一次 JSON 编码，并用判别字段标识受控错误。 */
+const content = (result: WebSearchResponse | WebFetchResponse | WebFailure) => ({
+  content: [{ type: "text" as const, text: JSON.stringify(result) }],
+  details: undefined,
+  isError: "error" in result,
+});
 
 // 两个工具都是只读。错误与外部内容由 service 统一投影，不在工具层展开底层异常。
 export const createWebTools = (web: WebService) => [

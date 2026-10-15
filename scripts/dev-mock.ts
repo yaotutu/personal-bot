@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { once } from "node:events";
 import { createService } from "../src/bootstrap/create-service.js";
@@ -35,10 +36,6 @@ try {
     server: {
       host: "127.0.0.1",
       port: 8788,
-      allowedOrigins: [
-        "http://localhost:8081",
-        "http://127.0.0.1:8081",
-      ],
     },
     model: {
       baseUrl: model.baseUrl,
@@ -47,7 +44,8 @@ try {
       apiKey: "mock-only",
     },
     runtime: {
-      dataDir: ".personal-bot/mock",
+      // createConfig 的相对路径基于配置目录；此处显式绝对路径避免重复嵌套。
+      dataDir: resolve(".personal-bot/mock"),
       runTimeoutMs: 15000,
       schedulerIntervalMs: 2000,
     },

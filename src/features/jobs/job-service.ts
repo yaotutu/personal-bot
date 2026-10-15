@@ -55,7 +55,7 @@ const controlJob = (
   };
 });
 
-/** 领域只知道最小 repository/忙闲 port，不知道文件、OpenMuse DTO 或 pi SDK。 */
+/** 领域只知道最小 repository/忙闲 port，不知道文件、HTTP DTO 或 pi SDK。 */
 export const createJobService = (repository: JobRepository) => ({
   list: (): Promise<Job[]> => repository.read(),
   get: async (id: string): Promise<Job | undefined> =>

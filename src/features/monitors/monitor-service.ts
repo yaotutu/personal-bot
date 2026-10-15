@@ -17,7 +17,7 @@ export const createMonitorService = (repository: MonitorRepository) => {
     get: async (id: string): Promise<Monitor | undefined> =>
       (await repository.read()).find((monitor) => monitor.id === id),
     create: (
-      input: { title?: string; url: string; condition: MonitorCondition; value?: string; intervalMinutes?: number },
+      input: { title?: string; url: string; condition: MonitorCondition; value?: string; intervalMinutes?: number; originThreadId?: string },
     ): Promise<Monitor> =>
       repository.update((items) => {
         if (input.condition === "contains" && !input.value?.trim())
@@ -33,6 +33,7 @@ export const createMonitorService = (repository: MonitorRepository) => {
           intervalMinutes: Math.max(MIN_INTERVAL_MINUTES, input.intervalMinutes ?? 30),
           status: "active",
           createdAt: now(),
+          originThreadId: input.originThreadId,
           checks: 0,
         };
         items.push(monitor);
@@ -72,6 +73,13 @@ export const createMonitorService = (repository: MonitorRepository) => {
           return { items, result: { ok: true, monitor } };
         },
       ),
+    markNotified: (id: string, notificationId: string) => repository.update((items) => {
+      const monitor = items.find((item) => item.id === id);
+      if (!monitor || monitor.pendingNotification?.id !== notificationId) return { result: false };
+      monitor.lastNotifiedAt = now();
+      monitor.pendingNotification = undefined;
+      return { items, result: true };
+    }),
     remove: (id: string): Promise<boolean> =>
       repository.update((items) => {
         const before = items.length;
@@ -113,8 +121,8 @@ export const createMonitorService = (repository: MonitorRepository) => {
             monitor.lastFingerprint = fingerprint;
             if (previous === undefined || previous === fingerprint)
               return { items, result: { monitor, outcome: { kind: "silent" } } };
-            monitor.lastNotifiedAt = now();
             const summary = body.replace(/\s+/g, " ").trim().slice(0, 300);
+            monitor.pendingNotification = { id: randomUUID(), summary };
             return {
               items,
               result: { monitor, outcome: { kind: "notified", summary } },
@@ -125,9 +133,9 @@ export const createMonitorService = (repository: MonitorRepository) => {
           monitor.lastMatched = matched;
           if (!matched || wasMatched)
             return { items, result: { monitor, outcome: { kind: "silent" } } };
-          monitor.lastNotifiedAt = now();
           const at = body.indexOf(monitor.value!);
           const around = body.slice(Math.max(0, at - 80), at + 120).replace(/\s+/g, " ");
+          monitor.pendingNotification = { id: randomUUID(), summary: around };
           return {
             items,
             result: { monitor, outcome: { kind: "notified", summary: around } },

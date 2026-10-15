@@ -19,11 +19,30 @@ export type WebTransport = {
   fetch: (url: string) => Promise<FetchedWebPage>;
 };
 
+/** 受控失败与成功结果通过 error 字段区分，不向调用方泄漏 transport 异常。 */
+export type WebFailure = { error: string; url?: string };
+export type WebSearchResponse = {
+  results: WebSearchResult[];
+  warnings: string[];
+  truncated: boolean;
+};
+export type WebFetchResponse = {
+  url: string;
+  finalUrl: string;
+  status: number;
+  extractor: string;
+  truncated: boolean;
+  length: number;
+  untrusted: true;
+  text: string;
+};
+
+/** 业务调用方直接消费结构化结果；JSON 文本编码只由工具协议适配层负责。 */
 export type WebService = {
-  search: (query: string, count?: number) => Promise<string>;
+  search: (query: string, count?: number) => Promise<WebSearchResponse | WebFailure>;
   fetch: (
     url: string,
     extractMode?: "markdown" | "text",
     maxChars?: number,
-  ) => Promise<string>;
+  ) => Promise<WebFetchResponse | WebFailure>;
 };

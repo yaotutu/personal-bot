@@ -6,7 +6,7 @@ Personal Bot 只从一个配置文件读取启动配置：
 .personal-bot/config.json
 ```
 
-该文件必须存在；缺失、JSON 语法错误、未知字段、类型不合法或未知 `schemaVersion` 都会启动失败。项目不再支持旧的环境变量配置，也不支持 `${ENV_NAME}` 插值。模型 API key 直接写在 `model.apiKey`。
+该文件必须存在；缺失、JSON 语法错误、未知字段、类型不合法或未知 `schemaVersion` 都会启动失败。服务端不支持旧的环境变量配置，也不支持 `${ENV_NAME}` 插值。模型 API key 直接写在 `model.apiKey`。自有 `web/` 的 `API_TARGET` 只用于 Vite 的 `/api` 代理，不是服务端配置来源。
 
 ## 创建配置
 
@@ -25,7 +25,10 @@ chmod 600 .personal-bot/config.json
     "host": "127.0.0.1",
     "port": 8787,
     "accessKey": "",
-    "allowedOrigins": ["http://localhost:8081"]
+    "allowedOrigins": [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173"
+    ]
   },
   "model": {
     "baseUrl": "http://127.0.0.1:8000/v1",
@@ -39,6 +42,10 @@ chmod 600 .personal-bot/config.json
     "schedulerIntervalMs": 30000
   },
   "tools": {
+    "writable": {
+      "enabled": true,
+      "actionTimeoutMs": 300000
+    },
     "web": {
       "enabled": true
     },
@@ -68,8 +75,8 @@ chmod 600 .personal-bot/config.json
 | --- | --- | --- |
 | `server.host` | `127.0.0.1` | 非回环地址必须配置 `server.accessKey` |
 | `server.port` | `8787` | HTTP 监听端口 |
-| `server.accessKey` | 空 | OpenMuse 工作区访问密钥，不是模型 key |
-| `server.allowedOrigins` | localhost:8081 两个 origin | CORS origin 数组 |
+| `server.accessKey` | 空 | 服务访问密钥，不是模型 key |
+| `server.allowedOrigins` | localhost / 127.0.0.1 的 5173 两个 origin | CORS origin 数组；显式配置会替换默认列表，用于自有 Web |
 | `model.baseUrl` | 空 | OpenAI-compatible API 根地址，例如 `/v1`；必须与 `model.id` 同时配置 |
 | `model.id` | 空 | 模型 ID |
 | `model.apiKey` | 空 | 模型 API key，直接写在配置文件中 |
@@ -77,27 +84,41 @@ chmod 600 .personal-bot/config.json
 | `model.maxTokens` | `4096` | 模型输出上限 |
 | `runtime.runTimeoutMs` | `120000` | 客户端轮超时 |
 | `runtime.schedulerIntervalMs` | `30000` | 定时任务扫描间隔 |
-| `runtime.dataDir` | 配置文件所在目录 | 相对路径相对配置文件解析 |
+| `runtime.monitorScanIntervalMs` | `60000` | 网页监控扫描间隔 |
+| `runtime.dataDir` | 配置文件所在目录 | 相对路径按配置文件所在目录解析；推荐绝对路径，但不强制 |
+| `tools.writable.enabled` | `true` | 是否注册 `write` / `edit`；开启后仍需逐次人工审批 |
+| `tools.writable.actionTimeoutMs` | `300000` | 文件操作审批有效期（毫秒）；过期不能提交修改 |
 | `tools.web.enabled` | `true` | 是否向模型声明 `search_web` / `web_fetch` |
 | `tools.web.timeoutMs` | `30000` | 单次 Web 请求超时 |
 | `tools.web.maxResponseBytes` | `2000000` | 单次响应大小上限 |
 | `tools.web.maxContentChars` | `50000` | `web_fetch` 默认返回字符上限 |
 | `tools.web.searchResults` | `5` | 默认搜索结果数，工具参数最大 10 |
 | `tools.web.userAgent` | 浏览器 UA | Web 请求 User-Agent |
+| `tools.web.allowPrivateTargets` | `false` | 仅本机联调时显式放宽私网/回环目标限制；其余请求安全边界不变 |
 | `tools.weather.enabled` | `true` | 是否向模型声明 `get_weather` |
 | `tools.weather.defaultCity` | 空 | 用户未指定城市时使用的默认城市；为空时模型会追问城市 |
-| `tools.presentation.default` | `hidden` | 工具在 OpenMuse 聊天中的展示策略：`hidden` 不发送工具卡片，`summary` 只发送受控摘要 |
-| `tools.presentation.overrides` | `{}` | 按工具名覆盖默认展示策略；可配置 `currentTime`、`get_weather`、`search_web`、`memory`、`schedule`、`read`、`grep`、`find`、`ls`、`web_fetch` |
+| `tools.presentation.default` | `hidden` | 客户端实时流与历史投影的工具展示策略：`hidden` 隐藏工具调用，`summary` 只发送受控摘要 |
+| `tools.presentation.overrides` | `{}` | 按工具名覆盖默认策略；名称以 `src/adapters/pi/tools/index.ts` 的显式注册表为准，包括 `currentTime`、`memory`、`schedule`、`delegate_task`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`search_web`、`web_fetch`、`get_weather` |
 
 默认情况下，`.personal-bot/config.json` 所在的 `.personal-bot/` 同时也是实例数据目录。也就是说 sessions、memory、jobs、workspace 和配置文件保持在同一个实例目录内。
+`runtime.dataDir: "."` 也表示该配置文件目录，与启动进程的 cwd 无关；若在 `.personal-bot/config.json` 中填 `".personal-bot"`，则会指向其下嵌套的 `.personal-bot/`，不是项目根目录下的同名目录。
+会话按 `sessions/<threadId>/` 保存，每个 thread 有独立 pi 会话；单用户可有多个 thread，内部后台任务 `task-*` 不显示在用户会话列表中。
+
+## 文件写入审批
+
+- `write` / `edit` 只能操作 `DATA_DIR/workspace` 内的文件，拒绝绝对路径、`..` 逃逸和目标/父目录符号链接；`bash` 永不暴露。
+- 每次操作都需独立人工审批，审批载荷保留完整修改前后文本和文件版本；`edit` 的待替换文本必须唯一命中。
+- 提交前重新检查路径安全与文件版本。文件在等待期间变化时，旧审批不能授权覆盖，需重新发起操作和审批。
+- 拒绝、审批过期或运行取消均不会提交该次修改；服务重启会取消上一进程遗留的 pending 审批。审批有效期由登记时的 `expiresAt` 固定，提交前再次校验期限和取消状态。
+- 关闭 `tools.writable.enabled` 会移除这两个工具；工具展示策略不能跳过审批或开启被关闭的写入能力。
 
 ## 工具展示策略
 
-展示配置只影响 OpenMuse 聊天，不禁用工具、不改变模型收到的完整结果，也不改写 pi JSONL。修改配置后重启服务生效；已有历史会按当前策略重新投影，没有第二套历史或在线迁移。
+展示配置影响自有 Web消费的实时流与历史投影，不禁用工具、不改变模型收到的完整结果，也不改写 pi JSONL。修改配置后重启服务生效；已有历史会按当前策略重新投影，没有第二套历史或在线迁移。文件操作审批是独立的安全流程，不因隐藏工具卡片而省略。
 
 - `hidden`：实时流不发送该工具的整组 `TOOL_CALL_*`，历史不返回该调用及对应工具结果。只保留普通 user/assistant 文本。
 - `summary`：使用原工具名和稳定 ID 展示现有卡片，参数统一为 `{}`，结果采用受控摘要。例如保存记忆只显示“已保存记忆”，不显示记忆原文；读文件只确认执行结束，不展示正文。
-- 搜索摘要保留 SearchToolCard 要求的来源 URL/title，删除 snippet 和供应商诊断，去掉 URL query/fragment（依赖 query 的来源链接可能无法直达；需要原链接时由最终回答提供）。搜索失败使用合法 `{error}`，不会伪造成“找到 0 条来源”。
+- 搜索摘要保留来源 URL/title，删除 snippet 和供应商诊断，去掉 URL query/fragment（依赖 query 的来源链接可能无法直达；需要原链接时由最终回答提供）。搜索失败使用合法 `{error}`，不会伪造成“找到 0 条来源”。
 - 示例配置显式开启时间、天气、搜索、记忆、提醒摘要；**省略整个 presentation 时所有工具默认隐藏**。未知工具名/无效模式启动失败。可以为关闭的 Web/天气工具预先配置策略，但展示配置不能开启这些能力。
 - 这是展示选择，不是信息保密边界：模型仍可在最终回答中引用原始结果；调用前“我先查一下”等普通 assistant 文本仍然流式展示。`summary` 仍然有卡片，不是完全静默。
 
@@ -118,7 +139,7 @@ chmod 600 .personal-bot/config.json
 - `model.baseUrl` 只接受无凭据、无 query、无 fragment 的 HTTP(S) URL。
 - 非回环 `server.host` 必须配置 `server.accessKey`。
 - 服务不会自动创建或改写配置文件，避免启动路径意外覆盖用户手写配置。
-- Web 请求只允许公网 HTTP(S)，阻断回环、私网、链路本地和保留地址；每个重定向都会重新校验。
+- Web 请求默认只允许公网 HTTP(S)，阻断回环、私网、链路本地和保留地址；每个重定向都会重新校验。本机联调可显式设置 `tools.web.allowPrivateTargets: true`，不改变其余请求安全约束。
 
 ## 密钥与文件权限
 

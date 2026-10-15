@@ -502,7 +502,7 @@ test("HTTP and pi tools use the same composed stores; conversation exposes no st
   assert.equal(memoryWrites.mock.callCount(), 1);
   const run = (content: string, id: string) => main.run({
     threadId: "local-main", runId: id,
-    messages: [...main.history(), { role: "user", id, content }],
+    expectedRevision: main.snapshot().revision, message: { id, content },
   }, () => {});
   await run("记住我喜欢喝茶", "memory-turn");
   assert.equal(memoryWrites.mock.callCount(), 2, "pi tool must share the UI writer");

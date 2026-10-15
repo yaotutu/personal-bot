@@ -20,10 +20,12 @@ import { weatherTool } from "./weather.js";
 
 type ToolDependencies = {
   root: string;
+  threadId?: string;
+  runId?: string;
   memory: MemoryService;
   jobs: JobService;
   tasks?: TaskService;
-  worker?: Pick<TaskWorker, "kick">;
+  worker?: Pick<TaskWorker, "kick" | "control">;
   goals?: GoalService;
   actions?: ActionService;
   actionTimeoutMs?: number;
@@ -37,19 +39,23 @@ type ToolDependencies = {
  * 可选能力未启用时仍允许预先配置展示策略；不为查工具名创建服务/假依赖。
  * names 同时作为装配断言，防止工具内部改名后配置悄悄失效。
  */
+// 内部后台会话只执行已委派的工作，不允许继续扩张任务链或建立周期性副作用。
+// threadId 由服务端 worker 生成；在装配时裁剪后，模型声明与执行 allowlist 自动一致。
+const isBackgroundTask = (deps: ToolDependencies) => deps.threadId?.startsWith("task-") === true;
+
 const registrations = [
   { names: ["currentTime"], create: (_deps: ToolDependencies) => [currentTimeTool] },
   { names: ["memory"], create: (deps: ToolDependencies) => [memoryTool(deps.memory)] },
-  { names: ["schedule"], create: (deps: ToolDependencies) => [scheduleTool(deps.jobs)] },
-  { names: ["delegate_task"], create: (deps: ToolDependencies) => deps.tasks && deps.worker ? [delegateTaskTool(deps.tasks, deps.worker)] : [] },
+  { names: ["schedule"], create: (deps: ToolDependencies) => isBackgroundTask(deps) ? [] : [scheduleTool(deps.jobs)] },
+  { names: ["delegate_task"], create: (deps: ToolDependencies) => !isBackgroundTask(deps) && deps.tasks && deps.worker ? [delegateTaskTool(deps.tasks, deps.worker, deps.threadId)] : [] },
   { names: ["goal"], create: (deps: ToolDependencies) => deps.goals ? [goalTool(deps.goals)] : [] },
-  { names: ["monitor"], create: (deps: ToolDependencies) => deps.monitors ? [monitorTool(deps.monitors)] : [] },
+  { names: ["monitor"], create: (deps: ToolDependencies) => !isBackgroundTask(deps) && deps.monitors ? [monitorTool(deps.monitors, deps.threadId)] : [] },
   { names: ["read", "grep", "find", "ls"], create: (deps: ToolDependencies) => createFileTools(deps.root) },
   // 写文件默认开启，经人工审批闸门；config tools.writable=false 可整体关闭。
   {
     names: ["write", "edit"],
     create: (deps: ToolDependencies) =>
-      deps.actions ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000) : [],
+      deps.actions ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { threadId: deps.threadId, runId: deps.runId }) : [],
   },
   { names: ["search_web", "web_fetch"], create: (deps: ToolDependencies) => deps.web ? createWebTools(deps.web) : [] },
   { names: ["get_weather"], create: (deps: ToolDependencies) => deps.weather ? [weatherTool(deps.weather)] : [] },

@@ -11,6 +11,7 @@ import {
   type ConversationResult,
   type ConversationTurn,
 } from "../../features/conversation/types.js";
+import { notificationIdOf } from "./notification-message.js";
 
 /** 从 pi 的文本/内容块中提取可展示文本；非文本内容保持不可见。 */
 export const textOf = (content: unknown): string =>
@@ -116,6 +117,14 @@ export const projectConversationHistory = (
     }
     if (message.role === "assistant") {
       const content = textOf(message.content);
+      const notificationId = notificationIdOf(message);
+      if (notificationId) {
+        messages.push({ id: notificationId, role: "assistant", content });
+        // 通知独立于上一轮 assistant，不能合并进模型回复或沿用旧轮的 ID。
+        merged = undefined;
+        turn = undefined;
+        continue;
+      }
       const toolCalls = toolCallsOf(message);
       if (!content && !toolCalls.length) continue;
       if (merged) {

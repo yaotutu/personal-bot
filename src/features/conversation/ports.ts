@@ -1,5 +1,6 @@
 import type {
   ConversationHistory,
+  ConversationNotification,
   ConversationRecords,
   ConversationResult,
   ConversationTurn,
@@ -16,6 +17,7 @@ export type ConversationHistoryPort = {
   checkpoint: () => string | null;
   omitTurn: (runId: string) => void;
   appendTurn: (turn: ConversationTurn) => void;
+  appendNotification: (notification: ConversationNotification) => void;
   appendResult: (result: ConversationResult) => void;
   restoreIfNoUser: (runId: string, checkpoint: string | null) => void;
 };
@@ -31,5 +33,5 @@ export type ConversationExecution = {
 };
 export type ConversationDependencies = {
   history: ConversationHistoryPort;
-  openSession: () => Promise<ConversationExecution>;
+  openSession: (context: { runId: string }) => Promise<ConversationExecution>;
 };

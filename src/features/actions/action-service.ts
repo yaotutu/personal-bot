@@ -1,63 +1,78 @@
 import { randomUUID } from "node:crypto";
-import type {
-  ActionDecision,
-  ActionKind,
-  ActionRepository,
-  PendingAction,
-} from "./types.js";
+import type { ActionDecision, ActionKind, ActionRepository, ActionSubmitOptions, PendingAction } from "./types.js";
 
-/**
- * 审批业务入口：登记、决定、轮询与过期清理。
- * 只保留最近 100 条终态记录（审计用），pending 不受清理影响。
- */
+/** 审批只记录人的决定，不执行副作用；所有状态迁移共用 repository 的串行更新。 */
 export const createActionService = (repository: ActionRepository) => {
-  const now = () => new Date().toISOString();
+  /** 截止时间无效时失败关闭，不能变成永久授权。 */
+  const hasExpired = (action: PendingAction) =>
+    !Number.isFinite(Date.parse(action.expiresAt)) || Date.now() >= Date.parse(action.expiresAt);
+  const settle = (action: PendingAction, status: PendingAction["status"]) => {
+    action.status = status;
+    action.decidedAt = new Date().toISOString();
+  };
   return {
     list: (): Promise<PendingAction[]> => repository.read(),
-    submit: (kind: ActionKind, title: string, payload: Record<string, string>): Promise<PendingAction> =>
-      repository.update((items) => {
+    /** 截止时间在登记时固定；工具显式传入配置值，直接调用使用默认五分钟。 */
+    submit: (
+      kind: ActionKind,
+      title: string,
+      payload: Record<string, string>,
+      options: ActionSubmitOptions = {},
+    ): Promise<PendingAction> => {
+      const timeoutMs = options.timeoutMs ?? 300_000;
+      if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+        return Promise.reject(new Error("Approval timeout must be positive and finite"));
+      return repository.update((items) => {
+        const createdAt = Date.now();
         const action: PendingAction = {
-          id: randomUUID(),
-          kind,
-          title,
-          payload,
-          status: "pending",
-          createdAt: now(),
+          id: randomUUID(), kind, title, payload, status: "pending",
+          createdAt: new Date(createdAt).toISOString(),
+          expiresAt: new Date(createdAt + timeoutMs).toISOString(),
+          ...(options.threadId === undefined ? {} : { threadId: options.threadId }),
+          ...(options.runId === undefined ? {} : { runId: options.runId }),
         };
-        items.push(action);
-        // 只裁剪终态：pending 永不被挤掉。
-        const settled = items.filter((x) => x.status !== "pending");
-        const pending = items.filter((x) => x.status === "pending");
+        const all = [...items, action];
         return {
-          items: [...pending, ...settled.slice(-100)],
+          items: [...all.filter((x) => x.status === "pending"), ...all.filter((x) => x.status !== "pending").slice(-100)],
           result: action,
         };
-      }),
-    /** 仅 pending 可被决定；重复决定/未知 id 返回 undefined。 */
-    decide: async (
-      id: string,
-      decision: "approve" | "deny",
-    ): Promise<PendingAction | undefined> =>
+      });
+    },
+    /** 决定与过期检查在同一个更新中，避免无人轮询时仍能批准已经过期的请求。 */
+    decide: (id: string, decision: "approve" | "deny"): Promise<PendingAction | undefined> =>
       repository.update((items) => {
         const action = items.find((x) => x.id === id);
         if (!action || action.status !== "pending") return { result: undefined };
-        action.status = decision === "approve" ? "approved" : "denied";
-        action.decidedAt = now();
+        if (hasExpired(action)) {
+          settle(action, "expired");
+          return { items, result: undefined };
+        }
+        settle(action, decision === "approve" ? "approved" : "denied");
         return { items, result: action };
       }),
-    /** 工具侧轮询：pending 超 timeoutMs 标记 expired 并返回 expired。 */
-    poll: async (id: string, timeoutMs: number): Promise<ActionDecision> =>
-      repository.update(
-        (items): { items?: PendingAction[]; result: ActionDecision } => {
+    /** 取消仅撤销尚未决定的授权；重复取消不改变终态，也不伪造人的批准/拒绝。 */
+    cancel: (id: string): Promise<void> => repository.update((items) => {
+      const action = items.find((x) => x.id === id);
+      if (!action || action.status !== "pending") return { result: undefined };
+      settle(action, "cancelled");
+      return { items, result: undefined };
+    }),
+    /** 启动时等待本操作完成后再接收工具调用；仅撤销旧进程 pending，不改审计终态。 */
+    cancelPending: (): Promise<void> => repository.update((items) => {
+      const pending = items.filter((action) => action.status === "pending");
+      pending.forEach((action) => settle(action, "cancelled"));
+      return pending.length ? { items, result: undefined } : { result: undefined };
+    }),
+    /** 有效期只能由登记时持久化的 expiresAt 决定，轮询不能延长授权。 */
+    poll: (id: string): Promise<ActionDecision> =>
+      repository.update((items): { items?: PendingAction[]; result: ActionDecision } => {
         const action = items.find((x) => x.id === id);
         if (!action) return { result: { status: "denied" } };
-        if (action.status !== "pending") return { result: { status: action.status } };
-        if (Date.now() - Date.parse(action.createdAt) > timeoutMs) {
-          action.status = "expired";
-          action.decidedAt = now();
+        if (action.status === "pending" && hasExpired(action)) {
+          settle(action, "expired");
           return { items, result: { status: "expired" } };
         }
-        return { result: { status: "pending" } };
+        return { result: { status: action.status } };
       }),
   };
 };

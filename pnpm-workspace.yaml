@@ -5,5 +5,4 @@ allowBuilds:
   "@google/genai": false
   "@scarf/scarf": false
   protobufjs: false
-overrides:
-  rxjs: 7.8.1
+  vue-demi: false

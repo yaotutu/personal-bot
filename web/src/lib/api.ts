@@ -2,12 +2,17 @@
 import type {
   ActionDto,
   AgentSnapshotDto,
+  ChatMessageDto,
+  ConversationSnapshotDto,
   GoalDto,
   MemoryDto,
   MonitorDto,
   TaskDto,
   ThreadDto,
-} from "../../../src/http/contracts/rest.js";
+} from "../../../src/http/contracts/responses.js";
+import type { RunRequestDto } from "../../../src/http/contracts/rest.js";
+import { sseEventSchema, type SseEvent } from "../../../src/http/contracts/sse-events.js";
+export type { SseEvent };
 
 export type { TaskDto, MemoryDto, MonitorDto, GoalDto, ActionDto, ThreadDto };
 export type IdentityDto = NonNullable<AgentSnapshotDto["identity"]>;
@@ -17,26 +22,26 @@ export type MilestoneDto = GoalDto["milestones"][number];
  * token 持久化在 localStorage；401 时清除并要求重新登录。
  */
 
-export type ApiMessage = {
-  id: string;
-  role: "user" | "assistant" | "system" | "tool";
-  content?: string;
-  toolCalls?: {
-    id: string;
-    type: "function";
-    function: { name: string; arguments: string };
-  }[];
-  toolCallId?: string;
-};
-
+export type ApiMessage = ChatMessageDto;
 const BASE = "";
-
 const tokenKey = "personal-bot-token";
 export const getToken = () => localStorage.getItem(tokenKey);
-const setToken = (value: string | null) =>
-  value === null ? localStorage.removeItem(tokenKey) : localStorage.setItem(tokenKey, value);
+// 认证状态只有 token 这一份事实；React 订阅它，401 与跨标签退出都能立即回到登录。
+const authListeners = new Set<() => void>();
+const publishAuth = () => { for (const listener of authListeners) listener(); };
+export const subscribeAuth = (listener: () => void) => {
+  authListeners.add(listener);
+  const changed = (event: StorageEvent) => { if (event.key === tokenKey || event.key === null) listener(); };
+  window.addEventListener("storage", changed);
+  return () => { authListeners.delete(listener); window.removeEventListener("storage", changed); };
+};
+const setToken = (value: string | null) => {
+  if (value === null) localStorage.removeItem(tokenKey);
+  else localStorage.setItem(tokenKey, value);
+  publishAuth();
+};
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
@@ -45,13 +50,13 @@ class ApiError extends Error {
   }
 }
 
-const request = async (path: string, init?: RequestInit): Promise<Response> => {
+const request = async (path: string, init?: RequestInit, authenticated = true): Promise<Response> => {
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
   const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (authenticated && token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(BASE + path, { ...init, headers });
-  if (response.status === 401) {
+  if (authenticated && response.status === 401) {
     setToken(null);
     throw new ApiError(401, "登录已过期，请重新输入访问密钥");
   }
@@ -62,7 +67,7 @@ export const login = async (accessKey?: string): Promise<boolean> => {
   const response = await request("/api/session", {
     method: "POST",
     body: JSON.stringify({ accessKey: accessKey?.trim() || undefined }),
-  });
+  }, false);
   if (!response.ok) return false;
   const data = (await response.json()) as { token: string };
   setToken(data.token);
@@ -70,39 +75,23 @@ export const login = async (accessKey?: string): Promise<boolean> => {
 };
 export const isLoggedIn = () => Boolean(getToken());
 
-export const listThreads = async (): Promise<{ id: string; updatedAt: string }[]> => {
+export const listThreads = async (): Promise<ThreadDto[]> => {
   const response = await request("/api/threads");
   if (!response.ok) throw new ApiError(response.status, "无法加载会话列表");
-  return ((await response.json()) as { threads: { id: string; updatedAt: string }[] }).threads;
+  return ((await response.json()) as { threads: ThreadDto[] }).threads;
 };
 
-export const loadHistory = async (threadId: string): Promise<ApiMessage[]> => {
-  const response = await request(`/api/conversation?threadId=${encodeURIComponent(threadId)}`);
+export const loadHistory = async (
+  threadId: string,
+  signal?: AbortSignal,
+): Promise<ConversationSnapshotDto> => {
+  const response = await request(`/api/conversation?threadId=${encodeURIComponent(threadId)}`, { signal });
   if (!response.ok) throw new ApiError(response.status, "无法加载历史");
-  return ((await response.json()) as { messages: ApiMessage[] }).messages;
+  return response.json();
 };
 
-/** AG-UI run 请求体；消息只需携带用户序列，服务端校验 canonical 历史。 */
-export type RunRequest = {
-  threadId: string;
-  runId: string;
-  messages: ApiMessage[];
-};
-
-/** SSE 流事件（与服务端 contracts/events.ts 的子集对齐；passthrough 字段按需读）。 */
-export type SseEvent = {
-  type: string;
-  messageId?: string;
-  delta?: string;
-  toolCallId?: string;
-  toolCallName?: string;
-  parentMessageId?: string;
-  content?: string;
-  role?: string;
-  code?: string;
-  message?: string;
-  messages?: ApiMessage[];
-};
+/** 输入和事件均来自服务端契约，不再维护独立字段副本。 */
+export type RunRequest = RunRequestDto;
 
 /**
  * 发起一轮对话并流式消费 AG-UI 事件。
@@ -113,61 +102,65 @@ export const runConversation = async (
   onEvent: (event: SseEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> => {
-  const response = await request("/api/copilotkit/agent/default/run", {
+  const response = await request("/api/conversation/run", {
     method: "POST",
-    body: JSON.stringify({ ...input, state: {}, tools: [], context: [], forwardedProps: {} }),
+    body: JSON.stringify(input),
     signal,
   });
   if (!response.ok || !response.body) {
-    throw new ApiError(response.status, `请求失败 (${response.status})`);
+    const failure = await response.json().catch(() => undefined);
+    throw new ApiError(response.status, failure?.error ?? `请求失败 (${response.status})`);
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    // SSE 以空行分帧；逐帧解析 data: 行。
-    let boundary: number;
-    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
-      const frame = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      for (const line of frame.split("\n")) {
-        if (!line.startsWith("data: ")) continue;
-        const payload = line.slice(6).trim();
-        if (!payload) continue;
-        try {
-          onEvent(JSON.parse(payload) as SseEvent);
-        } catch {
-          // 非 JSON 帧忽略；协议错误由 RUN_ERROR 事件表达。
+  let terminal = false;
+  // 除了取消 fetch，也显式取消 reader：终止悬挂读取，并丢弃已缓冲但尚未派发的帧。
+  const cancelReader = () => { void reader.cancel().catch(() => undefined); };
+  signal?.addEventListener("abort", cancelReader, { once: true });
+  try {
+    for (;;) {
+      signal?.throwIfAborted();
+      const { done, value } = await reader.read();
+      signal?.throwIfAborted();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // SSE 以空行分帧；逐帧解析 data: 行。
+      let boundary: number;
+      while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        for (const line of frame.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          const payload = line.slice(6).trim();
+          if (!payload) continue;
+          let event: SseEvent;
+          try {
+            event = sseEventSchema.parse(JSON.parse(payload));
+          } catch {
+            throw new Error("服务端返回了不符合契约的聊天事件，请刷新后重试");
+          }
+          signal?.throwIfAborted();
+          if (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") terminal = true;
+          onEvent(event);
         }
       }
     }
+    if (!terminal) throw new Error("聊天连接提前结束，请刷新确认结果后重试");
+  } finally {
+    signal?.removeEventListener("abort", cancelReader);
+    // 无论正常结束、主动取消还是回调抛错，都释放前台流及其 reader 锁。
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
 };
-
-export const stopConversation = async (threadId: string): Promise<boolean> => {
-  const response = await request(
-    `/api/copilotkit/agent/default/stop/${encodeURIComponent(threadId)}`,
-    { method: "POST", body: "{}" },
-  );
-  if (!response.ok) return false;
-  return ((await response.json()) as { stopped: boolean }).stopped;
-};
-
 
 // ---------------------------------------------------------------------------
 // 任务（定时任务投影）、记忆、身份与 SOUL/USER 管理
 // ---------------------------------------------------------------------------
 
-
-export const getAgentSnapshot = async (): Promise<{
-  tasks: TaskDto[];
-  memories: MemoryDto[];
-  identity: IdentityDto;
-}> => {
-  const response = await request("/api/agent");
+export const getAgentSnapshot = async (signal?: AbortSignal): Promise<AgentSnapshotDto> => {
+  const response = await request("/api/agent", { signal });
   if (!response.ok) throw new ApiError(response.status, "无法加载工作区");
   return response.json();
 };
@@ -184,7 +177,7 @@ export const createTask = async (prompt: string, title?: string): Promise<TaskDt
 export const controlTask = async (
   id: string,
   action: "pause" | "resume" | "cancel" | "retry",
-  target?: "job" | "task",
+  target: "job" | "task",
 ): Promise<{ ok: boolean; error?: string }> => {
   const response = await request(`/api/agent/tasks/${id}/control`, {
     method: "POST",
@@ -255,7 +248,7 @@ export const saveProfile = async (patch: {
 // ---------------------------------------------------------------------------
 export const listGoals = async (): Promise<GoalDto[]> => {
   const snapshot = await getAgentSnapshot();
-  return (snapshot as unknown as { goals: GoalDto[] }).goals ?? [];
+  return snapshot.goals;
 };
 
 export const createGoal = async (input: {
@@ -310,12 +303,15 @@ export const removeGoal = async (id: string): Promise<void> => {
 export const decideAction = async (
   id: string,
   decision: "approve" | "deny",
+  signal?: AbortSignal,
 ): Promise<boolean> => {
   const response = await request(`/api/actions/${id}/decide`, {
     method: "POST",
     body: JSON.stringify({ decision }),
+    signal,
   });
-  return response.ok;
+  if (!response.ok) throw new ApiError(response.status, `审批失败 (${response.status})，请刷新确认操作状态`);
+  return true;
 };
 
 // ---------------------------------------------------------------------------
@@ -323,7 +319,7 @@ export const decideAction = async (
 // ---------------------------------------------------------------------------
 export const listMonitors = async (): Promise<MonitorDto[]> => {
   const snapshot = await getAgentSnapshot();
-  return (snapshot as unknown as { monitors: MonitorDto[] }).monitors ?? [];
+  return snapshot.monitors;
 };
 
 export const createMonitor = async (input: {
@@ -351,4 +347,17 @@ export const controlMonitor = async (
   });
   if (!response.ok) throw new ApiError(response.status, "操作失败");
   return response.json();
+};
+
+/** 审批高频查询仅访问审批域；完整正文只随当前 pending 返回。 */
+export const listPendingActions = async (signal?: AbortSignal): Promise<ActionDto[]> => {
+  const response = await request("/api/actions/pending", { signal });
+  if (!response.ok) throw new ApiError(response.status, "无法加载待审批操作");
+  return (await response.json()).actions;
+};
+
+/** 显式停止必须等待服务端完成取消，随后读取的 revision 才是稳定终态。 */
+export const stopConversation = async (threadId: string, runId: string, signal?: AbortSignal): Promise<void> => {
+  const response = await request("/api/conversation/stop", { method: "POST", signal, body: JSON.stringify({ threadId, runId }) });
+  if (!response.ok) throw new ApiError(response.status, "停止失败，请重试");
 };

@@ -56,3 +56,19 @@ export const SSE_EVENT_ORDER = [
   "TOOL_CALL_START / TOOL_CALL_ARGS* / TOOL_CALL_END / TOOL_CALL_RESULT（可多组）",
   "RUN_FINISHED 或 RUN_ERROR（二选一收尾）",
 ].join(" → ");
+
+/** 类型与运行时校验由同一套事件 schema 派生；事件名进入联合类型用于分支收窄。 */
+export const sseEventSchema = z.discriminatedUnion("type", [
+  sseEvents.RUN_STARTED.extend({ type: z.literal("RUN_STARTED") }),
+  sseEvents.TEXT_MESSAGE_START.extend({ type: z.literal("TEXT_MESSAGE_START") }),
+  sseEvents.TEXT_MESSAGE_CONTENT.extend({ type: z.literal("TEXT_MESSAGE_CONTENT") }),
+  sseEvents.TEXT_MESSAGE_END.extend({ type: z.literal("TEXT_MESSAGE_END") }),
+  sseEvents.TOOL_CALL_START.extend({ type: z.literal("TOOL_CALL_START") }),
+  sseEvents.TOOL_CALL_ARGS.extend({ type: z.literal("TOOL_CALL_ARGS") }),
+  sseEvents.TOOL_CALL_END.extend({ type: z.literal("TOOL_CALL_END") }),
+  sseEvents.TOOL_CALL_RESULT.extend({ type: z.literal("TOOL_CALL_RESULT") }),
+  sseEvents.RUN_FINISHED.extend({ type: z.literal("RUN_FINISHED") }),
+  sseEvents.RUN_ERROR.extend({ type: z.literal("RUN_ERROR") }),
+  sseEvents.MESSAGES_SNAPSHOT.extend({ type: z.literal("MESSAGES_SNAPSHOT") }),
+]);
+export type SseEvent = z.infer<typeof sseEventSchema>;

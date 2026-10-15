@@ -31,7 +31,6 @@ export const createJsonArrayRepository = <T>(
     }
     return validate(value);
   };
-  void writeJsonDocument;
   return {
     read,
     update: <R>(change: (items: T[]) => { items?: T[]; result: R }): Promise<R> =>

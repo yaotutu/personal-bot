@@ -1,4 +1,5 @@
-import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { mkdir, readdir, stat } from "node:fs/promises";
 import { createAuth } from "../adapters/auth/token-service.js";
 import type { Config } from "../config/load-config.js";
 import { createConversation } from "../features/conversation/conversation-service.js";
@@ -90,38 +91,40 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     allowModelNetwork: false,
     refreshOnCreate: false,
   });
-  if (config.configured)
+  if (config.configured) {
     modelRuntime.registerProvider("personal", {
       baseUrl: config.baseUrl,
-    api: "openai-completions",
-    models: [
-      {
-        id: config.modelId!,
-        name: config.modelId!,
-        reasoning: false,
-        input: ["text"],
-        contextWindow: config.contextWindow,
-        maxTokens: config.maxTokens,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        compat: {
-          supportsStore: false,
-          supportsDeveloperRole: false,
-          maxTokensField: "max_tokens",
+      api: "openai-completions",
+      models: [
+        {
+          id: config.modelId!,
+          name: config.modelId!,
+          reasoning: false,
+          input: ["text"],
+          contextWindow: config.contextWindow,
+          maxTokens: config.maxTokens,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          compat: {
+            supportsStore: false,
+            supportsDeveloperRole: false,
+            maxTokensField: "max_tokens",
+          },
         },
-      },
-    ],
-  });
-  if (config.configured)
+      ],
+    });
     await modelRuntime.setRuntimeApiKey("personal", config.apiKey || "local-no-key");
+  }
 
   const conversationHub = createConversationHub(
     async (threadId) => {
       const { manager, history } = await createSessionHistory(layout, threadId, presentation);
       return createConversation(config, {
         history,
-        openSession: async () => createPiExecution(
+        openSession: async ({ runId }) => createPiExecution(
           await openPi({
             config,
+            threadId,
+            runId,
             modelRuntime,
             layout,
             sessionManager: manager,
@@ -135,69 +138,77 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
             monitors,
             web,
             weather,
-          }), manager,
+          }),
+          manager,
         ),
       });
     },
     async () => {
-      const { readdir, stat } = await import("node:fs/promises");
       const entries = await readdir(layout.sessionsDir, { withFileTypes: true });
       const snapshots = await Promise.all(
-        entries
-          .filter((x) => x.isDirectory())
-          .map(async (x) => ({
-            id: x.name,
-            updatedAt: (await stat(threadSessionsDir(layout, x.name))).mtime.toISOString(),
-          })),
+        entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith("task-")).map(async (entry) => {
+          const directory = threadSessionsDir(layout, entry.name);
+          const files = (await readdir(directory)).filter((name) => name.endsWith(".jsonl"));
+          // JSONL 的追加不会更新目录 mtime，必须读取会话文件的实际活动时间。
+          const times = await Promise.all(files.map(async (name) => (await stat(join(directory, name))).mtimeMs));
+          return { id: entry.name, updatedAt: new Date(Math.max(0, ...times)).toISOString() };
+        }),
       );
       return snapshots.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     },
   );
-  // 定时任务结果固定进入主会话（与现有语义一致）；启动时确保 main thread 就绪。
-  const mainConversation = await conversationHub.forThread("local-main");
-  const scheduler = createScheduler(config, jobs, mainConversation);
-  const monitorScheduler = createMonitorScheduler(
-    { monitorScanIntervalMs: config.monitorScanIntervalMs, web: web ? { fetch: (url, mode, max) => web.fetch(url, mode, max) } : undefined },
-    monitors,
-    mainConversation,
-  );
-  // 异步任务 worker：串行执行 + 完成通知主会话；遗留 running 标记 failed 可重试。
-  const taskWorker = createTaskWorker(tasks, conversationHub, mainConversation);
-  workerRef.current = taskWorker;
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, tasks, taskWorker, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation };
-  let app: Awaited<ReturnType<typeof createHttpApp>>;
+  // 先完整读取/校验并恢复各域，再启动任何执行源。初始化失败不会遗留 interval。
   try {
-    app = await createHttpApp(dependencies);
+    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list()]);
+    await actions.cancelPending();
+    const leftovers = (await tasks.list()).filter((task) => task.status === "running");
+    for (const task of leftovers) await tasks.markFinished(task.id, "failed");
   } catch (error) {
     await conversationHub.closeAll();
     throw error;
   }
-  scheduler.start();
-  monitorScheduler.start();
-  {
-    // 启动恢复：把上次进程中断遗留的 running 任务标记为 failed，再跑排队任务。
-    const leftovers = (await tasks.list()).filter((task) => task.status === "running");
-    for (const task of leftovers) await tasks.markFinished(task.id, "failed");
-    taskWorker.kick();
-  }
-
+  const mainConversation = await conversationHub.forThread("local-main");
+  const scheduler = createScheduler(config, jobs, mainConversation);
+  const monitorScheduler = createMonitorScheduler(
+    { monitorScanIntervalMs: config.monitorScanIntervalMs, web }, monitors,
+    mainConversation, (threadId) => conversationHub.forThread(threadId),
+  );
+  const taskWorker = createTaskWorker(tasks, conversationHub, mainConversation, config.runTimeoutMs);
+  workerRef.current = taskWorker;
+  let closed = false;
   let closing: Promise<void> | undefined;
-  return {
-    ...dependencies,
-    app,
-    close: () => {
-      if (closing) return closing;
-      // close 立即停掉 interval，但不先等待正在执行的定时轮：先取消会话，
-      // 再等调度器把本轮失败/完成状态落盘。并发 close 共用同一个完成信号。
-      const stopped = Promise.all([scheduler.close(), monitorScheduler.close()]).then(() => undefined);
-      closing = (async () => {
-        try {
-          await Promise.all([conversationHub.closeAll(), taskWorker.close()]);
-        } finally {
-          await stopped;
-        }
-      })();
-      return closing;
+  const requests = new Set<Promise<void>>();
+  const lifecycle = {
+    isClosing: () => closed,
+    enter: () => {
+      let release!: () => void;
+      const pending = new Promise<void>((resolve) => { release = resolve; });
+      requests.add(pending);
+      return () => { requests.delete(pending); release(); };
     },
   };
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, tasks, taskWorker, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle };
+  const close = () => {
+    if (closing) return closing;
+    // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
+    closed = true;
+    const stopped = [scheduler.close(), monitorScheduler.close(), taskWorker.close(), conversationHub.closeAll()];
+    closing = (async () => {
+      const results = await Promise.allSettled(stopped);
+      await Promise.all([...requests]);
+      const failed = results.find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
+    })();
+    return closing;
+  };
+  try {
+    const app = await createHttpApp(dependencies);
+    scheduler.start();
+    monitorScheduler.start();
+    taskWorker.kick();
+    return { ...dependencies, app, close };
+  } catch (error) {
+    await close();
+    throw error;
+  }
 };

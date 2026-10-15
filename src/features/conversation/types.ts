@@ -1,6 +1,7 @@
-/** custom entry 的类型名保持不变，继续兼容现有 pi JSONL。 */
+/** 会话控制条目与模型消息共同存放在 pi 权威历史中。 */
 export const TURN_ENTRY_TYPE = "personal-bot.turn";
 export const RESULT_ENTRY_TYPE = "personal-bot.result";
+export type ConversationNotification = { id: string; text: string };
 
 export type ConversationTurn = {
   userId: string;
@@ -33,12 +34,14 @@ export type HistoryMessage =
   | { id: string; role: "tool"; content: string; toolCallId: string; isError?: boolean };
 export type ConversationHistory = HistoryMessage[];
 
-/** 输入只读取用户序列；客户端的 state/tools/context 从不导入 pi。 */
+/** 客户端只提交一条消息及读取时的历史版本，不能注入模型/工具历史。 */
 export type ConversationInput = {
   threadId: string;
   runId: string;
-  messages: { id: string; role: string; content?: unknown }[];
+  expectedRevision: string;
+  message: { id: string; content: string };
 };
+export type ConversationSnapshot = { messages: ConversationHistory; revision: string };
 export type CancelReason = "STOPPED" | "DISCONNECTED" | "TIMEOUT" | "SHUTDOWN";
 
 /** pi adapter 清洗并归一化的事件，不复制 SDK 的完整事件/消息接口。 */

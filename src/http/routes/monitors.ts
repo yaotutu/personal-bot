@@ -12,7 +12,8 @@ export const createMonitorsRoutes = (
     const parsed = createMonitorSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid monitor request" }, 400);
     try {
-      return c.json(await monitors.create(parsed.data));
+      const { pendingNotification: _pending, ...monitor } = await monitors.create(parsed.data);
+      return c.json(monitor);
     } catch (error) {
       return c.json({ error: (error as Error).message }, 400);
     }
@@ -23,7 +24,8 @@ export const createMonitorsRoutes = (
     const result = await monitors.control(c.req.param("id"), parsed.data.action);
     if (!result.ok)
       return c.json({ error: result.message }, result.code === "not_found" ? 404 : 409);
-    return c.json(result.monitor);
+    const { pendingNotification: _pending, ...monitor } = result.monitor;
+    return c.json(monitor);
   });
   return app;
 };

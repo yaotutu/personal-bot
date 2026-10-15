@@ -5,7 +5,7 @@ import type { ToolPresentation } from "./tool-presentation.js";
 /**
  * 每次客户端 run 独享一个协议投影器，状态不进入主会话锁。
  * hidden 抑制整组工具事件；summary 只在 END 时发送安全参数，不泄露参数增量。
- * 未注入策略时保留 AG-UI adapter 的原始投影，兼容独立 adapter 单测和旧调用方。
+ * 可省略展示策略以测试原始协议投影；生产由组合入口传入显式策略。
  */
 export const createEventProjector = (
   emit: (event: BaseEvent) => void,

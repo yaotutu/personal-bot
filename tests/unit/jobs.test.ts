@@ -119,25 +119,19 @@ test("nextRunAfter preserves invalid input fallback and Date errors", () => {
   assert.throws(() => nextRunAfter(true, "Infinity:00", after), RangeError);
 });
 
-test("repository rereads the old JSON shape and filters invalid entries", async (t) => {
+test("repository rejects bad job entries instead of filtering and preserves original bytes", async (t) => {
   const file = await tempFile(t);
   const repository = createJobRepository(file);
-  const minimal = { id: "minimal", prompt: "", extra: "preserved" };
-  await writeFile(
-    file,
-    JSON.stringify([
-      baseJob("legacy"), minimal, { id: "missing-prompt" },
-      { id: 1, prompt: "wrong id type" }, { id: "bad", prompt: 1 }, null, "bad",
-    ]),
-  );
-
-  assert.deepEqual(await repository.read(), [baseJob("legacy"), minimal]);
-  // 每次 read 都重读裸数组，不缓存；额外字段与缺失字段均保持原状。
-  await writeFile(file, JSON.stringify([minimal]));
-  assert.deepEqual(await repository.read(), [minimal]);
-  const service = createJobService(repository);
-  await service.add("new", false, "2030-01-01T00:00:00.000Z");
-  assert.deepEqual((await service.list())[0], minimal);
+  for (const invalid of [
+    { id: "minimal", prompt: "" }, { id: "missing-prompt" },
+    { ...baseJob("bad"), daily: "yes" }, { ...baseJob("bad"), nextRunAt: "invalid" }, null,
+  ]) {
+    const source = JSON.stringify([baseJob("valid"), invalid]);
+    await writeFile(file, source);
+    await assert.rejects(repository.read(), /Invalid jobs document/);
+    await assert.rejects(repository.update(() => ({ items: [], result: undefined })), /Invalid jobs document/);
+    assert.equal(await readFile(file, "utf8"), source);
+  }
 });
 
 test("add trims prompt and writes a 0600 JSON file", async (t) => {

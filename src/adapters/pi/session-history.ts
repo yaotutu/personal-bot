@@ -3,6 +3,7 @@ import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-age
 import { threadSessionsDir, type DataLayout } from "../storage/data-layout.js";
 import type { ConversationHistoryPort } from "../../features/conversation/ports.js";
 import { RESULT_ENTRY_TYPE, TURN_ENTRY_TYPE, type ConversationTurn } from "../../features/conversation/types.js";
+import { createNotificationMessage, notificationIdOf } from "./notification-message.js";
 import { collectConversationRecords, projectConversationHistory } from "./history-projection.js";
 import type { ToolPresentation } from "../ag-ui/tool-presentation.js";
 
@@ -36,12 +37,25 @@ export const createSessionHistory = async (
     records: () => collectConversationRecords(manager.getBranch()),
     checkpoint: () => manager.getLeafId(),
     appendTurn: (turn) => { manager.appendCustomEntry(TURN_ENTRY_TYPE, turn); },
+    appendNotification: (notification) => {
+      const checkpoint = manager.getLeafId();
+      try {
+        manager.appendMessage(createNotificationMessage(notification));
+      } catch (error) {
+        // pi 先更新内存树再写文件；写入失败不能让内存投影假装投递成功。
+        if (checkpoint) manager.branch(checkpoint);
+        else manager.resetLeaf();
+        throw error;
+      }
+    },
     appendResult: (result) => { manager.appendCustomEntry(RESULT_ENTRY_TYPE, result); },
     omitTurn: (runId) => {
       const branch = manager.getBranch();
       for (const entry of branch.slice(turnIndex(branch, runId) + 1)) {
+        // 独立任务/监控事实不属于被重试的模型轮，不能跟随旧回复一并隐藏。
         if (entry.type === "message" &&
-          (entry.message.role === "user" || entry.message.role === "assistant" || entry.message.role === "toolResult"))
+          (entry.message.role === "user" || entry.message.role === "assistant" || entry.message.role === "toolResult") &&
+          !(entry.message.role === "assistant" && notificationIdOf(entry.message)))
           manager.appendContextEdit(entry.id, null);
       }
     },

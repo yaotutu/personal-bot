@@ -201,7 +201,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
           "/api/profile",
           "/api/agent",
           "/api/conversation",
-          "/api/copilotkit/info",
+          "/api/actions/pending",
           "/api/files",
         ]) {
           await jsonError(await app.request(path), 401);
@@ -234,10 +234,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
           "tasks",
           "goals",
           "monitors",
-          "ideas",
           "memories",
-          "artifacts",
-          "notifications",
         ].forEach((name) => {
           assert.deepEqual(agent[name], []);
         });
@@ -245,7 +242,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
         assert.equal(agent.worker.running, false);
         const history = await authorized("/api/conversation");
         assert.equal(history.status, 200);
-        assert.deepEqual(await history.json(), { messages: [] });
+        assert.deepEqual(await history.json(), { messages: [], revision: "empty" });
       },
     );
 
@@ -342,7 +339,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
           JSON.stringify({ threadId: "local-main", messages: "invalid" }),
         ]) {
           await jsonError(
-            await authorized("/api/copilotkit/agent/default/run", {
+            await authorized("/api/conversation/run", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body,
@@ -368,7 +365,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
         });
         assert.equal(response.status, 501);
         assert.deepEqual(await (await authorized("/api/conversation")).json(), {
-          messages: [],
+          messages: [], revision: "empty",
         });
       },
     );

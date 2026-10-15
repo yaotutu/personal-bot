@@ -6,81 +6,77 @@ import { registeredToolNames } from "../adapters/pi/tools/index.js";
 /**
  * 配置文件是唯一的外部配置来源：常规设置和密钥都直接写在 JSON 中。
  * 借鉴 nanobot 的 config.json 模式，但不做环境变量覆盖或 ${ENV} 插值，
- * 让“改哪个文件会生效”保持一条直线，也避免测试和部署出现两套来源。
+ * 让"改哪个文件会生效"保持一条直线，也避免测试和部署出现两套来源。
+ *
+ * 数值/布尔默认值统一在各子 schema 的 .default() 声明；createConfig 用
+ * 父级 .prefault({}) 触发嵌套解析，默认值只写一处，范围错误由 refine 给出。
  */
 const toolPresentationMode = z.enum(["hidden", "summary"]);
+const positiveInt = (max: number, fallback: number) =>
+  z
+    .number()
+    .int()
+    .refine((v) => v >= 1 && v <= max, `must be a positive integer <= ${max}`)
+    .default(fallback);
+
+const serverSchema = z.object({
+  host: z.string().optional(),
+  port: positiveInt(65535, 8787),
+  accessKey: z.string().optional(),
+  allowedOrigins: z.array(z.string()).optional(),
+}).strict();
+const modelSchema = z.object({
+  baseUrl: z.string().optional(),
+  id: z.string().optional(),
+  apiKey: z.string().optional(),
+  contextWindow: positiveInt(10_000_000, 32768),
+  maxTokens: positiveInt(1_000_000, 4096),
+}).strict();
+const runtimeSchema = z.object({
+  dataDir: z.string().optional(),
+  runTimeoutMs: positiveInt(3_600_000, 120_000),
+  monitorScanIntervalMs: positiveInt(3_600_000, 60_000),
+  schedulerIntervalMs: positiveInt(3_600_000, 30_000),
+}).strict();
+const webSchema = z.object({
+  enabled: z.boolean().default(true),
+  timeoutMs: positiveInt(60_000, 30_000),
+  maxResponseBytes: positiveInt(10_000_000, 2_000_000),
+  maxContentChars: positiveInt(200_000, 50_000),
+  searchResults: positiveInt(10, 5),
+  userAgent: z.string().optional(),
+  // 默认拒绝回环/私网目标；本机联调（如本地页面监控验收）显式打开。
+  allowPrivateTargets: z.boolean().default(false),
+}).strict();
+const weatherSchema = z.object({
+  enabled: z.boolean().default(true),
+  defaultCity: z.string().optional(),
+}).strict();
+// 写文件默认开启（每次执行都需人工审批）；审批等待默认 5 分钟超时。
+const writableSchema = z.object({
+  enabled: z.boolean().default(true),
+  actionTimeoutMs: positiveInt(3_600_000, 300_000),
+}).strict();
+const presentationSchema = z.object({
+  default: toolPresentationMode.optional(),
+  overrides: z.record(z.string(), toolPresentationMode).optional(),
+}).strict();
 
 const configFileSchema = z.object({
   schemaVersion: z.literal(1).default(1),
-  server: z
-    .object({
-      host: z.string().optional(),
-      port: z.number().int().optional(),
-      accessKey: z.string().optional(),
-      allowedOrigins: z.array(z.string()).optional(),
-    })
-    .strict()
-    .default({}),
-  model: z
-    .object({
-      baseUrl: z.string().optional(),
-      id: z.string().optional(),
-      apiKey: z.string().optional(),
-      contextWindow: z.number().int().optional(),
-      maxTokens: z.number().int().optional(),
-    })
-    .strict()
-    .default({}),
-  runtime: z
-    .object({
-      dataDir: z.string().optional(),
-      runTimeoutMs: z.number().int().optional(),
-      monitorScanIntervalMs: z.number().int().optional(),
-          schedulerIntervalMs: z.number().int().optional(),
-    })
-    .strict()
-    .default({}),
-  tools: z
-    .object({
-      web: z
-        .object({
-          enabled: z.boolean().optional(),
-          timeoutMs: z.number().int().optional(),
-          maxResponseBytes: z.number().int().optional(),
-          maxContentChars: z.number().int().optional(),
-          searchResults: z.number().int().optional(),
-          userAgent: z.string().optional(),
-          allowPrivateTargets: z.boolean().optional(),
-        })
-        .strict()
-        .optional(),
-      weather: z
-        .object({
-          enabled: z.boolean().optional(),
-          defaultCity: z.string().optional(),
-        })
-        .strict()
-        .optional(),
-      writable: z
-        .object({
-          enabled: z.boolean().optional(),
-          actionTimeoutMs: z.number().int().optional(),
-        })
-        .strict()
-        .optional(),
-      presentation: z
-        .object({
-          default: toolPresentationMode.optional(),
-          overrides: z.record(z.string(), toolPresentationMode).optional(),
-        })
-        .strict()
-        .optional(),
-    })
-    .strict()
-    .default({ web: {} }),
+  server: serverSchema.prefault({}),
+  model: modelSchema.prefault({}),
+  runtime: runtimeSchema.prefault({}),
+  tools: z.object({
+    web: webSchema.prefault({}),
+    weather: weatherSchema.prefault({}),
+    writable: writableSchema.prefault({}),
+    presentation: presentationSchema.prefault({}),
+  }).strict().prefault({}),
 }).strict();
 
 export type ConfigFileInput = z.input<typeof configFileSchema>;
+
 const defaultConfigFile = ".personal-bot/config.json";
 const defaultUserAgent =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36";
@@ -98,18 +94,6 @@ const parseConfigFile = (value: unknown, path: string) => {
 };
 
 const text = (value: string | undefined) => value?.trim();
-
-const integer = (
-  value: number | undefined,
-  fallback: number,
-  name: string,
-  max = 1_000_000,
-) => {
-  const number = value ?? fallback;
-  if (!Number.isSafeInteger(number) || number < 1 || number > max)
-    throw new Error(`${name} must be a positive integer <= ${max}`);
-  return number;
-};
 
 /**
  * 从已解析的 JSON 对象创建运行时配置。mock 和测试使用这个入口构造隔离实例；
@@ -146,17 +130,7 @@ export const createConfig = (
       );
   }
 
-  const maxTokens = integer(
-    file.model.maxTokens,
-    4096,
-    "model.maxTokens",
-  );
-  const contextWindow = integer(
-    file.model.contextWindow,
-    32768,
-    "model.contextWindow",
-    10_000_000,
-  );
+  const { maxTokens, contextWindow } = file.model;
   if (maxTokens >= contextWindow)
     throw new Error("model.maxTokens must be smaller than model.contextWindow");
 
@@ -165,40 +139,16 @@ export const createConfig = (
     : dirname(configFile);
 
   const weather = {
-    enabled: file.tools.weather?.enabled ?? true,
-    defaultCity: text(file.tools.weather?.defaultCity) || undefined,
+    enabled: file.tools.weather.enabled,
+    defaultCity: text(file.tools.weather.defaultCity) || undefined,
   };
   const web = {
-    enabled: file.tools.web?.enabled ?? true,
-    timeoutMs: integer(file.tools.web?.timeoutMs, 30_000, "tools.web.timeoutMs", 60_000),
-    maxResponseBytes: integer(
-      file.tools.web?.maxResponseBytes,
-      2_000_000,
-      "tools.web.maxResponseBytes",
-      10_000_000,
-    ),
-    maxContentChars: integer(
-      file.tools.web?.maxContentChars,
-      50_000,
-      "tools.web.maxContentChars",
-      200_000,
-    ),
-    searchResults: integer(file.tools.web?.searchResults, 5, "tools.web.searchResults", 10),
-    userAgent: text(file.tools.web?.userAgent) || defaultUserAgent,
-    // 默认拒绝回环/私网目标；本机联调（如本地页面监控验收）显式打开。
-    allowPrivateTargets: file.tools.web?.allowPrivateTargets ?? false,
+    ...file.tools.web,
+    userAgent: text(file.tools.web.userAgent) || defaultUserAgent,
   };
 
   // 写文件默认开启（每次执行都需人工审批）；审批等待默认 5 分钟超时。
-  const writable = {
-    enabled: file.tools.writable?.enabled ?? true,
-    actionTimeoutMs: integer(
-      file.tools.writable?.actionTimeoutMs,
-      300_000,
-      "tools.writable.actionTimeoutMs",
-      3_600_000,
-    ),
-  };
+  const writable = file.tools.writable;
   const presentation = {
     default: file.tools.presentation?.default ?? "hidden",
     overrides: file.tools.presentation?.overrides ?? {},
@@ -216,30 +166,15 @@ export const createConfig = (
     modelId,
     maxTokens,
     contextWindow,
-    port: integer(file.server.port, 8787, "server.port", 65535),
+    port: file.server.port,
     apiKey: text(file.model.apiKey),
     dataDir,
-    runTimeoutMs: integer(
-      file.runtime.runTimeoutMs,
-      120_000,
-      "runtime.runTimeoutMs",
-      3_600_000,
-    ),
-    monitorScanIntervalMs: integer(
-      file.runtime?.monitorScanIntervalMs,
-      60_000,
-      "runtime.monitorScanIntervalMs",
-      3_600_000,
-    ),
-    schedulerIntervalMs: integer(
-      file.runtime.schedulerIntervalMs,
-      30_000,
-      "runtime.schedulerIntervalMs",
-      3_600_000,
-    ),
+    runTimeoutMs: file.runtime.runTimeoutMs,
+    monitorScanIntervalMs: file.runtime.monitorScanIntervalMs,
+    schedulerIntervalMs: file.runtime.schedulerIntervalMs,
     allowedOrigins: (file.server.allowedOrigins ?? [
-      "http://localhost:8081",
-      "http://127.0.0.1:8081",
+      "http://localhost:5173",
+      "http://127.0.0.1:5173"
     ])
       .map((origin) => origin.trim())
       .filter(Boolean),

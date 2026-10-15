@@ -6,6 +6,7 @@ import type { MonitorCondition } from "../../../features/monitors/types.js";
 /** 对话式监控工具：创建/列表/暂停/恢复/停止。检查由调度器周期执行。 */
 export const monitorTool = (
   monitors: Pick<MonitorService, "create" | "list" | "control">,
+  originThreadId?: string,
 ) =>
   defineTool({
     name: "monitor",
@@ -48,6 +49,7 @@ export const monitorTool = (
           };
         try {
           const monitor = await monitors.create({
+            originThreadId,
             title: params.title ?? params.url,
             url: params.url,
             condition: (params.condition ?? "change") as MonitorCondition,
@@ -58,7 +60,7 @@ export const monitorTool = (
             content: [
               {
                 type: "text",
-                text: `Monitor created (id ${monitor.id.slice(0, 8)}): watching ${monitor.url} every ${monitor.intervalMinutes}min (${monitor.condition}). First check sets the baseline.`,
+                text: `Monitor created (id ${monitor.id}): watching ${monitor.url} every ${monitor.intervalMinutes}min (${monitor.condition}). First check sets the baseline.`,
               },
             ],
             details: undefined,
@@ -75,7 +77,7 @@ export const monitorTool = (
         const list = await monitors.list();
         const lines = list.map(
           (m) =>
-            `- ${m.id.slice(0, 8)} [${m.status}] ${m.title} · ${m.condition}${m.value ? ` "${m.value}"` : ""} · every ${m.intervalMinutes}min · checks=${m.checks}${m.error ? ` · ${m.error}` : ""}`,
+            `- ${m.id} [${m.status}] ${m.title} · ${m.condition}${m.value ? ` "${m.value}"` : ""} · every ${m.intervalMinutes}min · checks=${m.checks}${m.error ? ` · ${m.error}` : ""}`,
         );
         return {
           content: [{ type: "text", text: lines.length ? lines.join("\n") : "No monitors." }],

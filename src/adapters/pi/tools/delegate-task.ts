@@ -1,6 +1,6 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import type { TaskService } from "../../../features/tasks/task-service.js";
+import { TaskQueueFullError, type TaskService } from "../../../features/tasks/task-service.js";
 import type { TaskWorker } from "../../../features/tasks/task-worker.js";
 
 /**
@@ -10,7 +10,8 @@ import type { TaskWorker } from "../../../features/tasks/task-worker.js";
  */
 export const delegateTaskTool = (
   tasks: Pick<TaskService, "create" | "list" | "control">,
-  worker: Pick<TaskWorker, "kick">,
+  worker: Pick<TaskWorker, "kick" | "control">,
+  originThreadId?: string,
 ) =>
   defineTool({
     name: "delegate_task",
@@ -39,13 +40,18 @@ export const delegateTaskTool = (
     ),
     execute: async (_id, params) => {
       if (params.action === "create") {
-        const task = await tasks.create(params.prompt, "chat");
+        let task;
+        try { task = await tasks.create(params.prompt, "chat", undefined, originThreadId); }
+        catch (error) {
+          if (!(error instanceof TaskQueueFullError)) throw error;
+          return { content: [{ type: "text", text: error.message }], details: { denied: true }, isError: true };
+        }
         worker.kick();
         return {
           content: [
             {
               type: "text",
-              text: `Task created (id ${task.id.slice(0, 8)}): "${task.title}". It runs in the background; the result will be posted here and on the tasks page.`,
+              text: `Task created (id ${task.id}): "${task.title}". It runs in the background; the result will be posted here and on the tasks page.`,
             },
           ],
           details: undefined,
@@ -58,7 +64,7 @@ export const delegateTaskTool = (
             details: undefined,
             isError: true,
           };
-        const result = await tasks.control(params.taskId, "cancel");
+        const result = await worker.control(params.taskId, "cancel");
         return {
           content: [
             {
@@ -72,7 +78,7 @@ export const delegateTaskTool = (
       }
       const list = await tasks.list();
       const lines = list.map(
-        (task) => `- ${task.id.slice(0, 8)} [${task.status}] ${task.title}`,
+        (task) => `- ${task.id} [${task.status}] ${task.title}`,
       );
       return {
         content: [

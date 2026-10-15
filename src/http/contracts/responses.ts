@@ -24,7 +24,7 @@ export const errorResponse = z.object({
 // 会话 -----------------------------------------------------------------
 export const threadSnapshot = z.object({
   id: z.string().describe("threadId"),
-  updatedAt: z.string().describe("该会话目录最近修改时间（ISO 8601）"),
+  updatedAt: z.string().describe("该会话 JSONL 最近修改时间（ISO 8601）"),
 });
 export const threadsResponse = z.object({
   threads: z.array(threadSnapshot).describe("按最近活跃倒序"),
@@ -48,6 +48,7 @@ export const chatMessage = z.object({
   toolCallId: z.string().optional().describe("role=tool 时对应的调用 ID"),
 });
 export const conversationResponse = z.object({
+  revision: z.string().describe("pi 当前叶子版本；空会话为 empty，发送时作为 expectedRevision"),
   messages: z.array(chatMessage).describe("服务端权威历史（含工具投影）；客户端不得回写"),
 });
 export const profileResponse = z.object({
@@ -60,17 +61,12 @@ export const taskView = z.object({
   id: z.string(),
   title: z.string(),
   prompt: z.string(),
-  kind: z.enum(["monitor", "agent"]).describe("monitor=定时任务，agent=异步后台任务"),
+  // 与真实业务域同名，网页监控独立使用 monitors，不再混用任务类型名称。
+  kind: z.enum(["job", "task"]).describe("job=定时任务，task=一次性后台任务"),
   status: z.enum(["queued", "running", "scheduled", "paused", "succeeded", "failed", "cancelled"]),
-  plan: z.array(z.unknown()),
-  evidence: z.array(z.unknown()),
-  input: z.record(z.string(), z.unknown()),
-  state: z.record(z.string(), z.unknown()),
   createdAt: z.string(),
   updatedAt: z.string(),
   nextRunAt: z.string().optional().describe("定时任务下次触发时间；一次性任务完成后无此字段"),
-  attempts: z.number(),
-  artifactIds: z.array(z.string()),
   result: z.string().optional().describe("最近一次执行的输出文本（截断存储）"),
   error: z.string().nullable(),
 });
@@ -82,8 +78,11 @@ export const runEvent = z.object({
   title: z.string(),
   detail: z.string(),
 });
-export const taskDetail = taskView.extend({
+// 详情路由返回包装对象而不是扁平 TaskView；两个任务来源共用这一契约。
+export const taskDetail = z.object({
+  task: taskView,
   events: z.array(runEvent).describe("最近一次运行与控制操作的时间线"),
+
 });
 export const goalView = z.object({
   id: z.string(),
@@ -111,6 +110,7 @@ export const monitorView = z.object({
   intervalMinutes: z.number(),
   status: z.enum(["active", "paused", "stopped"]),
   createdAt: z.string(),
+  originThreadId: z.string().optional().describe("接收监控通知的来源会话；未指定时投递主会话"),
   lastCheckedAt: z.string().optional(),
   lastFingerprint: z.string().optional().describe("change 条件的内容指纹（内部）"),
   lastMatched: z.boolean().optional().describe("contains 条件上次是否命中"),
@@ -129,10 +129,15 @@ export const pendingAction = z.object({
   id: z.string(),
   kind: z.enum(["file_write", "file_edit"]),
   title: z.string().describe("人类可读摘要，如：写入 notes.md"),
-  payload: z.record(z.string(), z.string()).describe("写入内容/编辑前后文本（截断预览）"),
-  status: z.enum(["pending", "approved", "denied", "expired"]),
+  // 审批必须展示完整待执行内容；此处不截断，避免用户批准的文本与实际执行不同。
+  payload: z.record(z.string(), z.string()).describe("完整审批文本：待写入路径/内容或编辑前后文本，不截断"),
+  status: z.enum(["pending", "approved", "denied", "expired", "cancelled"]),
   createdAt: z.string(),
   decidedAt: z.string().optional(),
+  // 有效期必须存在；会话关联仅在由工具发起时提供。
+  expiresAt: z.string().describe("审批失效时间"),
+  threadId: z.string().optional().describe("发起审批的会话"),
+  runId: z.string().optional().describe("发起审批的运行"),
 });
 export const identityView = z.object({
   name: z.string(),
@@ -145,17 +150,23 @@ export const agentSnapshot = z.object({
   goals: z.array(goalView),
   monitors: z.array(monitorView),
   memories: z.array(memoryItem),
-  notifications: z.array(pendingAction).describe("审批队列（含历史终态，最近 100 条）"),
-  ideas: z.array(z.unknown()).describe("占位，恒为空数组"),
-  artifacts: z.array(z.unknown()).describe("占位，恒为空数组"),
   identity: identityView,
   worker: z.object({ running: z.boolean() }),
 });
 
-// AG-UI 运行时信息（info 端点；字段由 CopilotKit runtime 决定，做宽松投影）
-export const runtimeInfoResponse = z.object({
-  version: z.string().describe("CopilotKit runtime 版本"),
-  agents: z.record(z.string(), z.object({ name: z.string(), description: z.string() }))
-    .describe("可用 agent：目前仅 default（PiAgent）"),
-  mode: z.literal("sse").describe("传输模式：SSE 流"),
-}).loose();
+/** 响应 schema 是服务端与自有 Web 共享 DTO 的唯一事实源。 */
+export type TaskDto = z.infer<typeof taskView>;
+export type TaskDetailDto = z.infer<typeof taskDetail>;
+export type RunEventDto = z.infer<typeof runEvent>;
+export type MemoryDto = z.infer<typeof memoryItem>;
+export type GoalDto = z.infer<typeof goalView>;
+export type MonitorDto = z.infer<typeof monitorView>;
+export type ActionDto = z.infer<typeof pendingAction>;
+export type AgentSnapshotDto = z.infer<typeof agentSnapshot>;
+export type ThreadDto = z.infer<typeof threadSnapshot>;
+
+export const pendingActionsResponse = z.object({ actions: z.array(pendingAction) });
+export const actionSummary = pendingAction.omit({ payload: true });
+export const actionsResponse = z.object({ actions: z.array(actionSummary) });
+export type ChatMessageDto = z.infer<typeof chatMessage>;
+export type ConversationSnapshotDto = z.infer<typeof conversationResponse>;

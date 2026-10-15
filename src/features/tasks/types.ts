@@ -17,6 +17,9 @@ export type Task = {
   prompt: string;
   status: TaskStatus;
   source: "chat" | "web";
+  originThreadId?: string;
+  /** 每次认领生成独立执行令牌，旧执行不能完成重试后的新尝试。 */
+  attemptId?: string;
   createdAt: string;
   startedAt?: string;
   finishedAt?: string;

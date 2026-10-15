@@ -28,7 +28,7 @@ export type EndpointSpec = {
 };
 
 const conversationQuery = z.object({
-  threadId: z.string().describe("会话标识；缺省 local-main（兼容旧行为）"),
+  threadId: z.string().describe("会话标识；缺省 local-main"),
 });
 
 export const endpoints: EndpointSpec[] = [
@@ -53,24 +53,16 @@ export const endpoints: EndpointSpec[] = [
     hint: "刷新/恢复时同步历史用；历史只读，客户端不要回写。消息含工具投影（toolCalls 与 role=tool 消息按 toolCallId 关联）。",
     auth: true, query: conversationQuery, response: resp.conversationResponse,
   },
-  // ---- AG-UI 运行时（SSE）----
+  // ---- 增量聊天（AG-UI SSE 输出）----
   {
-    method: "post", path: "/api/copilotkit/agent/default/run", tag: "会话", summary: "发起一轮对话（SSE 流）",
-    hint:
-      "核心聊天端点：POST 后以 text/event-stream 返回 AG-UI 事件（data: <JSON> 帧）。" +
-      `事件顺序：${SSE_EVENT_ORDER}。messages 只需带 canonical 用户历史 + 一条新 user 消息；` +
-      "工具结果 content 已脱敏可直接展示。终止只看 RUN_FINISHED / RUN_ERROR。",
+    method: "post", path: "/api/conversation/run", tag: "会话", summary: "提交一条用户消息（SSE 流）",
+    hint: `提交 message 和 expectedRevision；版本冲突 409 后重新读取历史。事件顺序：${SSE_EVENT_ORDER}。`,
     auth: true, request: req.runRequestSchema, response: z.object({}).describe("SSE 流"), sse: true,
   },
   {
-    method: "get", path: "/api/copilotkit/info", tag: "会话", summary: "AG-UI 运行时信息",
-    hint: "CopilotKit runtime 能力探测；自研客户端一般不需要，AG-UI SDK 初始化时使用。",
-    auth: true, response: resp.runtimeInfoResponse,
-  },
-  {
-    method: "post", path: "/api/copilotkit/agent/default/stop/:threadId", tag: "会话", summary: "停止指定会话的当前回复",
-    hint: "路径段为 threadId；返回 {stopped:boolean}，空闲时 false。",
-    auth: true, response: z.object({ stopped: z.boolean() }),
+    method: "post", path: "/api/conversation/stop", tag: "会话", summary: "停止指定运行",
+    hint: "threadId/runId 必须同时匹配当前轮；迟到 Stop 返回 false，不影响下一轮。",
+    auth: true, request: req.stopRequestSchema, response: z.object({ stopped: z.boolean() }),
   },
   // ---- 人设 ----
   {
@@ -86,8 +78,8 @@ export const endpoints: EndpointSpec[] = [
   {
     method: "get", path: "/api/agent", tag: "快照", summary: "全量工作区快照",
     hint:
-      "一次拿全七个域（任务/目标/监控/记忆/审批通知/身份）；客户端刷新的首选端点。" +
-      "审批横幅轮询读 notifications 里 status=pending 的条目。",
+      "工作台首屏读取任务/目标/监控/记忆/身份；不包含审批正文。" +
+      "审批横幅独立读取 GET /api/actions/pending。",
     auth: true, response: resp.agentSnapshot,
   },
   // ---- 后台/定时任务 ----
@@ -103,7 +95,7 @@ export const endpoints: EndpointSpec[] = [
   {
     method: "post", path: "/api/agent/tasks/:id/control", tag: "任务", summary: "控制任务（pause/resume/cancel/retry）",
     hint:
-      "同一端点管两类：target=job（定时，默认）或 task（后台）。后台任务的 cancel/retry 必须 target:\"task\"。" +
+      "同一端点管两类：必须指定 target=job（定时）或 task（后台）。" +
       "job 的 pause 只影响后续调度，不中止正在执行的一轮。",
     auth: true, request: req.taskControlSchema, response: resp.taskView,
   },
@@ -159,6 +151,18 @@ export const endpoints: EndpointSpec[] = [
     auth: true, request: req.monitorControlSchema, response: resp.monitorView,
   },
   // ---- 审批 ----
+  {
+    method: "get", path: "/api/actions/pending", tag: "审批", summary: "读取当前待审批操作（完整预览）",
+    auth: true, response: resp.pendingActionsResponse,
+  },
+  {
+    method: "get", path: "/api/actions", tag: "审批", summary: "读取审批历史摘要（不含文件正文）",
+    auth: true, response: resp.actionsResponse,
+  },
+  {
+    method: "get", path: "/api/actions/:id", tag: "审批", summary: "读取单个审批详情",
+    auth: true, response: resp.pendingAction,
+  },
   {
     method: "post", path: "/api/actions/:id/decide", tag: "审批", summary: "审批写操作（approve/deny）",
     hint:

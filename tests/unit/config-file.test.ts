@@ -66,8 +66,8 @@ test("config defaults allow an unconfigured loopback instance", async (t) => {
       monitorScanIntervalMs: 60000,
       schedulerIntervalMs: 30000,
       allowedOrigins: [
-        "http://localhost:8081",
-        "http://127.0.0.1:8081",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
       ],
       configured: false,
       web: {
