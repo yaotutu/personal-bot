@@ -103,3 +103,71 @@ export const runRequestSchema = z.looseObject({
     "历史消息数组：服务端只信任 canonical 用户序列 + 最后一条新 user 消息（content 必须是 string）",
   ),
 }).describe("AG-UI run 请求体：POST 后以 SSE 流返回事件（见该端点文档的 SSE 事件说明）");
+
+// ---------------------------------------------------------------------------
+// Web 端共享 DTO：与各域投影的 JSON 形状一致（Web 只做 import type）。
+// ---------------------------------------------------------------------------
+export type TaskDto = {
+  id: string;
+  title: string;
+  prompt: string;
+  kind: "agent" | "document" | "monitor" | "finance" | "plan";
+  status: string;
+  nextRunAt?: string;
+  updatedAt: string;
+  result?: string;
+  error?: string | null;
+};
+
+export type MemoryDto = {
+  id: string;
+  text: string;
+  source: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GoalDto = {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  status: "active" | "paused" | "completed" | "archived";
+  milestones: { id: string; title: string; done: boolean }[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MonitorDto = {
+  id: string;
+  title: string;
+  url: string;
+  condition: "change" | "contains";
+  value?: string;
+  intervalMinutes: number;
+  status: "active" | "paused" | "stopped";
+  checks: number;
+  error?: string;
+  lastCheckedAt?: string;
+};
+
+export type ActionDto = {
+  id: string;
+  kind: "file_write" | "file_edit";
+  title: string;
+  payload: Record<string, string>;
+  status: "pending" | "approved" | "denied" | "expired";
+  createdAt: string;
+};
+
+export type AgentSnapshotDto = {
+  tasks: TaskDto[];
+  goals: GoalDto[];
+  monitors: MonitorDto[];
+  memories: MemoryDto[];
+  notifications: ActionDto[];
+  identity: { name: string; tone: string; avatar?: string; showChatUpdates?: boolean };
+  worker: { running: boolean };
+};
+
+export type ThreadDto = { id: string; updatedAt: string };

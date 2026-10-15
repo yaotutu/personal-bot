@@ -5,10 +5,10 @@ import {
   removeGoal,
   setGoalStatus,
   toggleGoalMilestone,
-  type GoalView,
+  type GoalDto,
 } from "../lib/api";
 
-const statusBadge: Record<GoalView["status"], { text: string; className: string }> = {
+const statusBadge: Record<GoalDto["status"], { text: string; className: string }> = {
   active: { text: "进行中", className: "bg-blue-50 text-blue-700" },
   paused: { text: "已暂停", className: "bg-stone-100 text-stone-600" },
   completed: { text: "已完成", className: "bg-green-50 text-green-700" },
@@ -17,7 +17,7 @@ const statusBadge: Record<GoalView["status"], { text: string; className: string 
 
 /** 目标页：长期目标 + 里程碑进度；改动下一轮对话注入生效。 */
 export const GoalsView = () => {
-  const [goals, setGoals] = useState<GoalView[]>([]);
+  const [goals, setGoals] = useState<GoalDto[]>([]);
   const [error, setError] = useState("");
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");

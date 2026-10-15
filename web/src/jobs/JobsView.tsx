@@ -6,11 +6,11 @@ import {
   createTask,
   getAgentSnapshot,
   listMonitors,
-  type MonitorView,
-  type TaskView,
+  type MonitorDto,
+  type TaskDto,
 } from "../lib/api";
 
-const kindLabel = (task: TaskView) =>
+const kindLabel = (task: TaskDto) =>
   (task as { kind?: string }).kind === "agent" ? "后台任务" : "定时";
 
 const statusLabel: Record<string, { text: string; className: string }> = {
@@ -33,11 +33,11 @@ const formatTime = (iso?: string) => {
 
 /** 任务页：定时任务列表 + 状态与控制；新建任务直接在聊天里说“X 点提醒我 Y”。 */
 export const JobsView = () => {
-  const [tasks, setTasks] = useState<TaskView[]>([]);
+  const [tasks, setTasks] = useState<TaskDto[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [draft, setDraft] = useState("");
-  const [monitors, setMonitors] = useState<MonitorView[]>([]);
+  const [monitors, setMonitors] = useState<MonitorDto[]>([]);
   const [watchUrl, setWatchUrl] = useState("");
   const [watchCond, setWatchCond] = useState<"change" | "contains">("change");
   const [watchValue, setWatchValue] = useState("");

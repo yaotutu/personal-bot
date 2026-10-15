@@ -9,7 +9,7 @@ import {
   isLoggedIn,
   listThreads,
   login,
-  type PendingActionView,
+  type ActionDto,
 } from "../lib/api";
 
 /**
@@ -27,7 +27,7 @@ export const App = () => {
   const [view, setView] = useState<View>("chat");
   // 小屏（<768px）侧栏变为抽屉；默认开抽屉选会话，选完自动收起。
   const [drawer, setDrawer] = useState(false);
-  const [pendingActions, setPendingActions] = useState<PendingActionView[]>([]);
+  const [pendingActions, setPendingActions] = useState<ActionDto[]>([]);
 
   // 审批轮询：写操作挂起时任何页面都能看到横幅并决定（5s 间隔，轻量快照）。
   useEffect(() => {
@@ -36,7 +36,7 @@ export const App = () => {
       void getAgentSnapshot()
         .then((snapshot) =>
           setPendingActions(
-            (snapshot as unknown as { notifications: PendingActionView[] }).notifications.filter(
+            (snapshot as unknown as { notifications: ActionDto[] }).notifications.filter(
               (x) => x.status === "pending",
             ) ?? [],
           ),

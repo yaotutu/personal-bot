@@ -1,3 +1,17 @@
+// 服务端契约类型（仅 import type，不进入打包产物）：字段变化即编译报错。
+import type {
+  ActionDto,
+  AgentSnapshotDto,
+  GoalDto,
+  MemoryDto,
+  MonitorDto,
+  TaskDto,
+  ThreadDto,
+} from "../../../src/http/contracts/rest.js";
+
+export type { TaskDto, MemoryDto, MonitorDto, GoalDto, ActionDto, ThreadDto };
+export type IdentityDto = NonNullable<AgentSnapshotDto["identity"]>;
+export type MilestoneDto = GoalDto["milestones"][number];
 /**
  * 服务端 API 客户端：类型来自服务端契约模块（编译期对齐）。
  * token 持久化在 localStorage；401 时清除并要求重新登录。
@@ -146,43 +160,19 @@ export const stopConversation = async (threadId: string): Promise<boolean> => {
 // ---------------------------------------------------------------------------
 // 任务（定时任务投影）、记忆、身份与 SOUL/USER 管理
 // ---------------------------------------------------------------------------
-export type TaskView = {
-  id: string;
-  title: string;
-  prompt: string;
-  status: string;
-  nextRunAt?: string;
-  result?: string;
-  error?: string | null;
-  updatedAt: string;
-};
 
-export type MemoryRecord = {
-  id: string;
-  text: string;
-  source: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type IdentityRecord = {
-  name: string;
-  tone: string;
-  avatar?: string;
-  showChatUpdates?: boolean;
-};
 
 export const getAgentSnapshot = async (): Promise<{
-  tasks: TaskView[];
-  memories: MemoryRecord[];
-  identity: IdentityRecord;
+  tasks: TaskDto[];
+  memories: MemoryDto[];
+  identity: IdentityDto;
 }> => {
   const response = await request("/api/agent");
   if (!response.ok) throw new ApiError(response.status, "无法加载工作区");
   return response.json();
 };
 
-export const createTask = async (prompt: string, title?: string): Promise<TaskView> => {
+export const createTask = async (prompt: string, title?: string): Promise<TaskDto> => {
   const response = await request("/api/agent/tasks", {
     method: "POST",
     body: JSON.stringify({ prompt, title }),
@@ -207,7 +197,7 @@ export const controlTask = async (
   return { ok: true };
 };
 
-export const addMemory = async (text: string): Promise<MemoryRecord> => {
+export const addMemory = async (text: string): Promise<MemoryDto> => {
   const response = await request("/api/agent/memories", {
     method: "POST",
     body: JSON.stringify({ text, source: "Web UI" }),
@@ -216,7 +206,7 @@ export const addMemory = async (text: string): Promise<MemoryRecord> => {
   return response.json();
 };
 
-export const editMemory = async (id: string, text: string): Promise<MemoryRecord> => {
+export const editMemory = async (id: string, text: string): Promise<MemoryDto> => {
   const response = await request(`/api/agent/memories/${id}`, {
     method: "POST",
     body: JSON.stringify({ text }),
@@ -233,7 +223,7 @@ export const forgetMemory = async (id: string): Promise<void> => {
   if (!response.ok) throw new ApiError(response.status, "删除失败");
 };
 
-export const saveIdentity = async (patch: IdentityRecord): Promise<IdentityRecord> => {
+export const saveIdentity = async (patch: IdentityDto): Promise<IdentityDto> => {
   const response = await request("/api/agent/identity", {
     method: "POST",
     body: JSON.stringify(patch),
@@ -263,21 +253,9 @@ export const saveProfile = async (patch: {
 // ---------------------------------------------------------------------------
 // 目标与里程碑
 // ---------------------------------------------------------------------------
-export type MilestoneView = { id: string; title: string; done: boolean };
-export type GoalView = {
-  id: string;
-  title: string;
-  description: string;
-  category: string;
-  status: "active" | "paused" | "completed" | "archived";
-  milestones: MilestoneView[];
-  createdAt: string;
-  updatedAt: string;
-};
-
-export const listGoals = async (): Promise<GoalView[]> => {
+export const listGoals = async (): Promise<GoalDto[]> => {
   const snapshot = await getAgentSnapshot();
-  return (snapshot as unknown as { goals: GoalView[] }).goals ?? [];
+  return (snapshot as unknown as { goals: GoalDto[] }).goals ?? [];
 };
 
 export const createGoal = async (input: {
@@ -285,7 +263,7 @@ export const createGoal = async (input: {
   description?: string;
   category?: string;
   milestones?: string[];
-}): Promise<GoalView> => {
+}): Promise<GoalDto> => {
   const response = await request("/api/agent/goals", {
     method: "POST",
     body: JSON.stringify(input),
@@ -296,8 +274,8 @@ export const createGoal = async (input: {
 
 export const setGoalStatus = async (
   id: string,
-  status: GoalView["status"],
-): Promise<GoalView> => {
+  status: GoalDto["status"],
+): Promise<GoalDto> => {
   const response = await request(`/api/agent/goals/${id}/status`, {
     method: "POST",
     body: JSON.stringify({ status }),
@@ -309,7 +287,7 @@ export const setGoalStatus = async (
 export const toggleGoalMilestone = async (
   goalId: string,
   milestoneId: string,
-): Promise<GoalView> => {
+): Promise<GoalDto> => {
   const response = await request(
     `/api/agent/goals/${goalId}/milestones/${milestoneId}/toggle`,
     { method: "POST", body: "{}" },
@@ -329,15 +307,6 @@ export const removeGoal = async (id: string): Promise<void> => {
 // ---------------------------------------------------------------------------
 // 审批闸门（写操作的人工批准）
 // ---------------------------------------------------------------------------
-export type PendingActionView = {
-  id: string;
-  kind: "file_write" | "file_edit";
-  title: string;
-  payload: Record<string, string>;
-  status: "pending" | "approved" | "denied" | "expired";
-  createdAt: string;
-};
-
 export const decideAction = async (
   id: string,
   decision: "approve" | "deny",
@@ -352,22 +321,9 @@ export const decideAction = async (
 // ---------------------------------------------------------------------------
 // 网页监控
 // ---------------------------------------------------------------------------
-export type MonitorView = {
-  id: string;
-  title: string;
-  url: string;
-  condition: "change" | "contains";
-  value?: string;
-  intervalMinutes: number;
-  status: "active" | "paused" | "stopped";
-  checks: number;
-  error?: string;
-  lastCheckedAt?: string;
-};
-
-export const listMonitors = async (): Promise<MonitorView[]> => {
+export const listMonitors = async (): Promise<MonitorDto[]> => {
   const snapshot = await getAgentSnapshot();
-  return (snapshot as unknown as { monitors: MonitorView[] }).monitors ?? [];
+  return (snapshot as unknown as { monitors: MonitorDto[] }).monitors ?? [];
 };
 
 export const createMonitor = async (input: {
@@ -376,7 +332,7 @@ export const createMonitor = async (input: {
   value?: string;
   title?: string;
   intervalMinutes?: number;
-}): Promise<MonitorView> => {
+}): Promise<MonitorDto> => {
   const response = await request("/api/agent/monitors", {
     method: "POST",
     body: JSON.stringify(input),
@@ -388,7 +344,7 @@ export const createMonitor = async (input: {
 export const controlMonitor = async (
   id: string,
   action: "pause" | "resume" | "stop",
-): Promise<MonitorView> => {
+): Promise<MonitorDto> => {
   const response = await request(`/api/agent/monitors/${id}/control`, {
     method: "POST",
     body: JSON.stringify({ action }),

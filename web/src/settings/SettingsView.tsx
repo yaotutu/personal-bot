@@ -7,8 +7,8 @@ import {
   getProfile,
   saveIdentity,
   saveProfile,
-  type IdentityRecord,
-  type MemoryRecord,
+  type IdentityDto,
+  type MemoryDto,
 } from "../lib/api";
 
 const TONES: { value: string; label: string }[] = [
@@ -19,8 +19,8 @@ const TONES: { value: string; label: string }[] = [
 
 /** 设置页：身份（名字/语气）、记忆 CRUD、SOUL/USER 自由文本；改动下一轮对话生效。 */
 export const SettingsView = () => {
-  const [identity, setIdentity] = useState<IdentityRecord | null>(null);
-  const [memories, setMemories] = useState<MemoryRecord[]>([]);
+  const [identity, setIdentity] = useState<IdentityDto | null>(null);
+  const [memories, setMemories] = useState<MemoryDto[]>([]);
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const [profile, setProfile] = useState<{ soul: string; user: string } | null>(null);
