@@ -3,7 +3,14 @@ import { ChatView } from "../chat/ChatView";
 import { JobsView } from "../jobs/JobsView";
 import { GoalsView } from "../goals/GoalsView";
 import { SettingsView } from "../settings/SettingsView";
-import { isLoggedIn, listThreads, login } from "../lib/api";
+import {
+  decideAction,
+  getAgentSnapshot,
+  isLoggedIn,
+  listThreads,
+  login,
+  type PendingActionView,
+} from "../lib/api";
 
 /**
  * 应用骨架：左侧会话列表（threads），右侧聊天区。
@@ -20,6 +27,25 @@ export const App = () => {
   const [view, setView] = useState<View>("chat");
   // 小屏（<768px）侧栏变为抽屉；默认开抽屉选会话，选完自动收起。
   const [drawer, setDrawer] = useState(false);
+  const [pendingActions, setPendingActions] = useState<PendingActionView[]>([]);
+
+  // 审批轮询：写操作挂起时任何页面都能看到横幅并决定（5s 间隔，轻量快照）。
+  useEffect(() => {
+    if (!authed) return;
+    const poll = () =>
+      void getAgentSnapshot()
+        .then((snapshot) =>
+          setPendingActions(
+            (snapshot as unknown as { notifications: PendingActionView[] }).notifications.filter(
+              (x) => x.status === "pending",
+            ) ?? [],
+          ),
+        )
+        .catch(() => undefined);
+    poll();
+    const timer = setInterval(poll, 5000);
+    return () => clearInterval(timer);
+  }, [authed]);
 
   useEffect(() => {
     if (!authed) return;
@@ -155,6 +181,39 @@ export const App = () => {
         </div>
       </aside>
       <main className="flex min-w-0 flex-1 flex-col">
+        {pendingActions.length > 0 && (
+          <div className="flex items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2">
+            <span aria-hidden>🔔</span>
+            <div className="min-w-0 flex-1">
+              {pendingActions.map((action) => (
+                <div key={action.id} className="flex items-center gap-2 text-sm">
+                  <span className="truncate font-medium text-amber-900">{action.title}</span>
+                  <span className="shrink-0 text-xs text-amber-700">等待批准</span>
+                  <button
+                    onClick={() =>
+                      void decideAction(action.id, "approve").then(() =>
+                        setPendingActions((list) => list.filter((x) => x.id !== action.id)),
+                      )
+                    }
+                    className="shrink-0 rounded-md bg-amber-700 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-amber-800"
+                  >
+                    批准
+                  </button>
+                  <button
+                    onClick={() =>
+                      void decideAction(action.id, "deny").then(() =>
+                        setPendingActions((list) => list.filter((x) => x.id !== action.id)),
+                      )
+                    }
+                    className="shrink-0 rounded-md border border-amber-300 px-2.5 py-0.5 text-xs text-amber-800 hover:bg-amber-100"
+                  >
+                    拒绝
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <header className="flex items-center gap-3 border-b border-stone-200 bg-white px-4 py-2.5 md:hidden">
           <button
             onClick={() => setDrawer(true)}

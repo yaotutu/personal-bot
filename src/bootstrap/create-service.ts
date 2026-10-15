@@ -6,6 +6,7 @@ import { createConversationHub } from "../features/conversation/conversation-hub
 import { createJobService } from "../features/jobs/job-service.js";
 import { createTaskService } from "../features/tasks/task-service.js";
 import { createGoalService } from "../features/goals/goal-service.js";
+import { createActionService } from "../features/actions/action-service.js";
 import { createTaskWorker, type TaskWorker } from "../features/tasks/task-worker.js";
 import { createMemoryService } from "../features/memory/memory-service.js";
 import { createIdentityService } from "../features/identity/identity-service.js";
@@ -13,6 +14,7 @@ import { readProfileFile, writeProfileFile } from "../adapters/storage/profile-f
 import { createJobRepository } from "../adapters/storage/job-repository.js";
 import { createTaskRepository } from "../adapters/storage/task-repository.js";
 import { createGoalRepository } from "../adapters/storage/goal-repository.js";
+import { createActionRepository } from "../adapters/storage/action-repository.js";
 import { createMemoryRepository } from "../adapters/storage/memory-repository.js";
 import { createHttpApp } from "../http/app.js";
 import { createDataLayout, ensureThreadLayout, threadSessionsDir } from "../adapters/storage/data-layout.js";
@@ -71,6 +73,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   // 用可变引用解开循环（worker 在 hub 就绪后立即补上，首个请求前必然完成）。
   const tasks = createTaskService(createTaskRepository(layout.tasksFile));
   const goals = createGoalService(createGoalRepository(layout.goalsFile));
+  const actions = createActionService(createActionRepository(layout.actionsFile));
   const workerRef: { current?: TaskWorker } = {};
 
   // 多会话：每个 thread 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
@@ -80,7 +83,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       return createConversation(config, {
         history,
         openSession: async () => createPiExecution(
-          await openPi(config, manager, memory, jobs, layout, web, weather, tasks, workerRef.current, goals), manager,
+          await openPi(config, manager, memory, jobs, layout, web, weather, tasks, workerRef.current, goals, config.writable.enabled ? actions : undefined, config.writable.actionTimeoutMs), manager,
         ),
       });
     },
@@ -104,7 +107,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   // 异步任务 worker：串行执行 + 完成通知主会话；遗留 running 标记 failed 可重试。
   const taskWorker = createTaskWorker(tasks, conversationHub, mainConversation);
   workerRef.current = taskWorker;
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, tasks, taskWorker, conversationHub, scheduler, presentation };
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, tasks, taskWorker, actions, conversationHub, scheduler, presentation };
   let app: Awaited<ReturnType<typeof createHttpApp>>;
   try {
     app = await createHttpApp(dependencies);

@@ -66,7 +66,7 @@ R0-R6 与 R7A 已完成；R7B（物理数据目录迁移）条件性延期，当
 ## 硬边界（违规即返工）
 
 - 模型 key 只驻留受保护的 `.personal-bot/config.json` 与服务端内存；不写日志、不返回客户端、不进会话文件。
-- 文件工具只读且只允许 `DATA_DIR/workspace`（guardTool 强制，绝对路径/`../` 逃逸拒绝）。
+- 文件工具只允许 `DATA_DIR/workspace`（guardTool 强制，绝对路径/`../` 逃逸拒绝）；读始终开放，写需逐次人工审批。
 - Web 工具只允许公网 HTTP(S)；DNS 解析结果为私网/回环/链路本地/保留地址时拒绝，并固定已校验 IP 防 rebinding；重定向逐跳重新校验，响应限制大小与超时。搜索摘要和页面内容必须标记为不可信数据。
 - 工具/模型的错误信息默认脱敏（"Tool execution failed"/"Model request failed"）；仅 guard 声明的受控拒绝文案（`details.denied`）可透传。
 - 不在 `createAgentSession` 之外手写 agent loop；工具执行与持久化交给 pi。

@@ -78,6 +78,7 @@ test("config defaults allow an unconfigured loopback instance", async (t) => {
         userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36",
       },
       weather: { enabled: true, defaultCity: undefined },
+      writable: { enabled: true, actionTimeoutMs: 300000 },
       presentation: { default: "hidden", overrides: {} },
     },
   );

@@ -72,6 +72,7 @@ const declaredTools = (request: ModelRequest) =>
 const expectedTools = [
   "currentTime",
   "delegate_task",
+  "edit",
   "find",
   "get_weather",
   "goal",
@@ -82,6 +83,7 @@ const expectedTools = [
   "schedule",
   "search_web",
   "web_fetch",
+  "write",
 ];
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(predicate: () => boolean) {
@@ -1326,4 +1328,64 @@ test("goal domain: chat tool create, REST CRUD, milestone toggle and prompt inje
   await h.restart();
   agent = await h.request("/api/agent").then((x) => x.json());
   assert.equal(agent.goals.length, 0);
+});
+
+test("write approval gate: approve writes the file, deny and boundary paths behave honestly", {
+  timeout: 30000,
+}, async (t) => {
+  const h = await harness();
+  t.after(h.close);
+  const pendingNotifications = async () => {
+    const agent = await h.request("/api/agent").then((x) => x.json());
+    return (agent.notifications as { id: string; kind: string; title: string; status: string }[])
+      .filter((x) => x.status === "pending");
+  };
+  // 1) approve：run 挂起等待审批 → 批准 → 文件落盘 → 模型继续。
+  const run1 = h.events(input([user("帮我写入草稿")], "write-ok"));
+  let action: { id: string } | undefined;
+  for (let i = 0; i < 15 && !action; i++) {
+    await sleep(400);
+    action = (await pendingNotifications())[0];
+  }
+  assert.ok(action, "write tool should create a pending action");
+  assert.equal(
+    (await h.request(`/api/actions/${action.id}/decide`, { decision: "approve" })).status,
+    200,
+  );
+  const ev1 = await run1;
+  assert.equal(ev1.at(-1)?.type, "RUN_FINISHED");
+  const written = await readFile(join(h.dataDir, "workspace", "draft.md"), "utf8");
+  assert.match(written, /DRAFT-CONTENT/);
+  assert.ok(
+    ev1.filter((x) => x.type === "TEXT_MESSAGE_CONTENT").map((x) => (x as { delta?: string }).delta ?? "").join("").startsWith("write reply:"),
+  );
+  assert.equal(await h.request(`/api/actions/${action.id}/decide`, { decision: "deny" }).then((x) => x.status), 409);
+  // 2) deny：拒绝后文件不变，模型收到受控拒绝文案并正常收尾。
+  const before = await readFile(join(h.dataDir, "workspace", "draft.md"), "utf8");
+  const run2 = h.events(input([...(await h.getHistory()), user("再写入一次")], "write-deny"));
+  let action2: { id: string } | undefined;
+  for (let i = 0; i < 15 && !action2; i++) {
+    await sleep(400);
+    const list = await pendingNotifications();
+    action2 = list.find((x) => x.id !== action!.id);
+  }
+  assert.ok(action2);
+  await h.request(`/api/actions/${action2.id}/decide`, { decision: "deny" });
+  const ev2 = await run2;
+  assert.equal(ev2.at(-1)?.type, "RUN_FINISHED");
+  assert.equal(await readFile(join(h.dataDir, "workspace", "draft.md"), "utf8"), before);
+  // 3) edit：批准后替换生效（oldText 唯一）。
+  const run3 = h.events(input([...(await h.getHistory()), user("改一下草稿")], "edit-ok"));
+  let action3: { id: string } | undefined;
+  for (let i = 0; i < 15 && !action3; i++) {
+    await sleep(400);
+    const list = await pendingNotifications();
+    action3 = list.find((x) => x.id !== action2!.id);
+  }
+  await h.request(`/api/actions/${action3!.id}/decide`, { decision: "approve" });
+  assert.equal((await run3).at(-1)?.type, "RUN_FINISHED");
+  assert.match(
+    await readFile(join(h.dataDir, "workspace", "draft.md"), "utf8"),
+    /marker-edited/,
+  );
 });

@@ -61,3 +61,10 @@ export const editGoalSchema = z.object({
 export const goalStatusSchema = z.object({
   status: z.enum(["active", "paused", "completed", "archived"]),
 });
+
+// ---------------------------------------------------------------------------
+// 审批：写操作的人工闸门（决定只能由人发出）
+// ---------------------------------------------------------------------------
+export const actionDecisionSchema = z.object({
+  decision: z.enum(["approve", "deny"]),
+});

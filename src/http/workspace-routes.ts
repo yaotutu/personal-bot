@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { HttpDependencies } from "../bootstrap/types.js";
 import {
+  actionDecisionSchema,
   createGoalSchema,
   createMemorySchema,
   createTaskSchema,
@@ -27,22 +28,24 @@ export const createWorkspaceRoutes = (
     | "goals"
     | "tasks"
     | "taskWorker"
+    | "actions"
     | "conversationHub"
     | "scheduler"
   >,
 ) => {
-  const { config, memory, identity: identityService, jobs, goals, tasks, taskWorker, conversationHub, scheduler } =
+  const { config, memory, identity: identityService, jobs, goals, tasks, taskWorker, actions, conversationHub, scheduler } =
     dependencies;
   const app = new Hono();
   app.get("/api/agent", async (c) => {
     // tasks 数组混合定时任务（kind=monitor）与异步任务（kind=agent），
     // 按更新时间倒序；两者状态机不同但 DTO 同形。
-    const [memories, identity, scheduledJobs, asyncTasks, goalList] = await Promise.all([
+    const [memories, identity, scheduledJobs, asyncTasks, goalList, actionList] = await Promise.all([
       memory.list(),
       identityService.get(),
       jobs.list(),
       tasks.list(),
       goals.list(),
+      actions.list(),
     ]);
     const merged = [
       ...scheduledJobs.map(presentJob),
@@ -57,7 +60,7 @@ export const createWorkspaceRoutes = (
       monitors: [],
       ideas: [],
       artifacts: [],
-      notifications: [],
+      notifications: actionList,
       worker: { running: false },
     });
   });
@@ -90,6 +93,13 @@ export const createWorkspaceRoutes = (
     if (!result.ok)
       return c.json({ error: result.message }, result.code === "not_found" ? 404 : 409);
     return c.json(presentJob(result.job));
+  });
+  // 审批决定：仅 pending 可决定；approve 放行等待中的写操作，deny 受控拒绝。
+  app.post("/api/actions/:id/decide", async (c) => {
+    const parsed = actionDecisionSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: "Invalid decision request" }, 400);
+    const action = await actions.decide(c.req.param("id"), parsed.data.decision);
+    return action ? c.json(action) : c.json({ error: "Action not pending" }, 409);
   });
   app.post("/api/agent/goals", async (c) => {
     const parsed = createGoalSchema.safeParse(await c.req.json().catch(() => undefined));

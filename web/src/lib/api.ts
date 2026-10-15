@@ -325,3 +325,26 @@ export const removeGoal = async (id: string): Promise<void> => {
   });
   if (!response.ok) throw new ApiError(response.status, "删除失败");
 };
+
+// ---------------------------------------------------------------------------
+// 审批闸门（写操作的人工批准）
+// ---------------------------------------------------------------------------
+export type PendingActionView = {
+  id: string;
+  kind: "file_write" | "file_edit";
+  title: string;
+  payload: Record<string, string>;
+  status: "pending" | "approved" | "denied" | "expired";
+  createdAt: string;
+};
+
+export const decideAction = async (
+  id: string,
+  decision: "approve" | "deny",
+): Promise<boolean> => {
+  const response = await request(`/api/actions/${id}/decide`, {
+    method: "POST",
+    body: JSON.stringify({ decision }),
+  });
+  return response.ok;
+};

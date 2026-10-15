@@ -4,7 +4,7 @@ import type { Job } from "../../features/jobs/types.js";
 
 /** 固定安全文案，不在错误里附带原文、文件路径或用户资料。 */
 export class InvalidDocumentError extends Error {
-  constructor(kind: "memory" | "jobs" | "tasks" | "goals") {
+  constructor(kind: "memory" | "jobs" | "tasks" | "goals" | "actions") {
     super(`Invalid ${kind} document; restore a valid backup before writing`);
     this.name = "InvalidDocumentError";
   }
@@ -87,4 +87,26 @@ export const readGoalsDocument = (
   );
   if (goals.length !== value.length) throw new InvalidDocumentError("goals");
   return goals;
+};
+
+/** actions 裸数组；状态机形状校验，payload 保留字符串键值（diff 预览用）。 */
+export const readActionsDocument = (
+  value: unknown,
+): import("../../features/actions/types.js").PendingAction[] => {
+  if (!Array.isArray(value)) throw new InvalidDocumentError("actions");
+  const statuses = ["pending", "approved", "denied", "expired"];
+  const kinds = ["file_write", "file_edit"];
+  const list = value.filter(
+    (item): item is import("../../features/actions/types.js").PendingAction =>
+      isObject(item) &&
+      typeof item.id === "string" &&
+      typeof item.title === "string" &&
+      typeof item.kind === "string" &&
+      kinds.includes(item.kind) &&
+      typeof item.status === "string" &&
+      statuses.includes(item.status) &&
+      isObject(item.payload),
+  );
+  if (list.length !== value.length) throw new InvalidDocumentError("actions");
+  return list;
 };

@@ -27,6 +27,10 @@ const toolLabel = (call: ToolCallView): string => {
       return `查找 ${call.args}`;
     case "ls":
       return "列出目录";
+    case "write":
+      return `写入 ${call.args}`;
+    case "edit":
+      return `编辑 ${call.args}`;
     case "search_web":
       return "网页搜索";
     case "web_fetch":

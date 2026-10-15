@@ -3,6 +3,7 @@ import type { JobService } from "../../../features/jobs/job-service.js";
 import type { TaskService } from "../../../features/tasks/task-service.js";
 import type { TaskWorker } from "../../../features/tasks/task-worker.js";
 import type { GoalService } from "../../../features/goals/goal-service.js";
+import type { ActionService } from "../../../features/actions/action-service.js";
 import type { WebService } from "../../../features/web/types.js";
 import type { WeatherService } from "../../../features/weather/types.js";
 import { currentTimeTool } from "./current-time.js";
@@ -11,6 +12,7 @@ import { scheduleTool } from "./schedule.js";
 import { delegateTaskTool } from "./delegate-task.js";
 import { goalTool } from "./goal.js";
 import { createFileTools } from "./files.js";
+import { createWritableFileTools } from "./files-writable.js";
 import { createWebTools } from "./web.js";
 import { weatherTool } from "./weather.js";
 
@@ -21,6 +23,8 @@ type ToolDependencies = {
   tasks?: TaskService;
   worker?: TaskWorker;
   goals?: GoalService;
+  actions?: ActionService;
+  actionTimeoutMs?: number;
   web?: WebService;
   weather?: WeatherService;
 };
@@ -37,6 +41,12 @@ const registrations = [
   { names: ["delegate_task"], create: (deps: ToolDependencies) => deps.tasks && deps.worker ? [delegateTaskTool(deps.tasks, deps.worker)] : [] },
   { names: ["goal"], create: (deps: ToolDependencies) => deps.goals ? [goalTool(deps.goals)] : [] },
   { names: ["read", "grep", "find", "ls"], create: (deps: ToolDependencies) => createFileTools(deps.root) },
+  // 写文件默认开启，经人工审批闸门；config tools.writable=false 可整体关闭。
+  {
+    names: ["write", "edit"],
+    create: (deps: ToolDependencies) =>
+      deps.actions ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000) : [],
+  },
   { names: ["search_web", "web_fetch"], create: (deps: ToolDependencies) => deps.web ? createWebTools(deps.web) : [] },
   { names: ["get_weather"], create: (deps: ToolDependencies) => deps.weather ? [weatherTool(deps.weather)] : [] },
 ];

@@ -16,6 +16,7 @@ export type DataLayout = {
   jobsFile: string;
   tasksFile: string;
   goalsFile: string;
+  actionsFile: string;
   soulFile: string;
   userFile: string;
   authKeyFile: string;
@@ -33,6 +34,7 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     jobsFile: join(root, "jobs.json"),
     tasksFile: join(root, "tasks.json"),
     goalsFile: join(root, "goals.json"),
+    actionsFile: join(root, "actions.json"),
     soulFile: join(root, "SOUL.md"),
     userFile: join(root, "USER.md"),
     authKeyFile: join(root, "auth.key"),

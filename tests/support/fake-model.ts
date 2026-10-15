@@ -177,6 +177,32 @@ export async function createFakeModel() {
       res.end("data: [DONE]\n\n");
       return;
     }
+    // 写文件路径：触发词"写入" → write 工具（内容含标记串，测试在审批后断言落盘）。
+    if (declaresTool("write") && /写入/.test(last) && !pendingToolResult) {
+      event({ role: "assistant" });
+      event(
+        toolCall("write", {
+          path: "draft.md",
+          content: "DRAFT-CONTENT marker for write approval test\n",
+        }),
+      );
+      event({}, "tool_calls");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
+    if (declaresTool("edit") && /改一下草稿/.test(last) && !pendingToolResult) {
+      event({ role: "assistant" });
+      event(
+        toolCall("edit", {
+          path: "draft.md",
+          oldText: "marker",
+          newText: "marker-edited",
+        }),
+      );
+      event({}, "tool_calls");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
     // 目标路径：触发词"目标" + 声明了 goal 工具（创建含两个里程碑的目标）。
     if (declaresTool("goal") && /建个目标/.test(last) && !pendingToolResult) {
       event({ role: "assistant" });
@@ -278,6 +304,8 @@ export async function createFakeModel() {
       const prefix =
         toolName === "read"
           ? "file reply: "
+          : toolName === "write" || toolName === "edit"
+            ? "write reply: "
           : toolName === "memory"
             ? "memory reply: "
             : toolName === "schedule"

@@ -6,6 +6,7 @@ import type { JobService } from "../../features/jobs/job-service.js";
 import type { TaskService } from "../../features/tasks/task-service.js";
 import type { TaskWorker } from "../../features/tasks/task-worker.js";
 import type { GoalService } from "../../features/goals/goal-service.js";
+import type { ActionService } from "../../features/actions/action-service.js";
 import type { WebService } from "../../features/web/types.js";
 import type { WeatherService } from "../../features/weather/types.js";
 import { buildSystemPrompt } from "./system-prompt.js";
@@ -24,6 +25,8 @@ export async function openPi(
   tasks?: TaskService,
   worker?: TaskWorker,
   goals?: GoalService,
+  actions?: ActionService,
+  actionTimeoutMs?: number,
 ) {
   if (!config.configured) throw new Error("MODEL_NOT_CONFIGURED");
   const cwd = layout.workspaceDir;
@@ -37,6 +40,8 @@ export async function openPi(
     tasks,
     worker,
     goals,
+    actions,
+    actionTimeoutMs,
     web,
     weather,
   });

@@ -59,6 +59,13 @@ const configFileSchema = z.object({
         })
         .strict()
         .optional(),
+      writable: z
+        .object({
+          enabled: z.boolean().optional(),
+          actionTimeoutMs: z.number().int().optional(),
+        })
+        .strict()
+        .optional(),
       presentation: z
         .object({
           default: toolPresentationMode.optional(),
@@ -178,6 +185,16 @@ export const createConfig = (
     userAgent: text(file.tools.web?.userAgent) || defaultUserAgent,
   };
 
+  // 写文件默认开启（每次执行都需人工审批）；审批等待默认 5 分钟超时。
+  const writable = {
+    enabled: file.tools.writable?.enabled ?? true,
+    actionTimeoutMs: integer(
+      file.tools.writable?.actionTimeoutMs,
+      300_000,
+      "tools.writable.actionTimeoutMs",
+      3_600_000,
+    ),
+  };
   const presentation = {
     default: file.tools.presentation?.default ?? "hidden",
     overrides: file.tools.presentation?.overrides ?? {},
@@ -219,6 +236,7 @@ export const createConfig = (
     configured: Boolean(baseUrl && modelId),
     web,
     weather,
+    writable,
     presentation,
   };
 };
