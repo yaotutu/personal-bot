@@ -74,6 +74,7 @@ const expectedTools = [
   "delegate_task",
   "find",
   "get_weather",
+  "goal",
   "grep",
   "ls",
   "memory",
@@ -1269,4 +1270,60 @@ test("task domain: chat-delegated background task runs in its own thread and not
     if (agent.tasks.find((x) => x.kind === "agent")!.status === "succeeded") break;
   }
   assert.equal(agent.tasks.find((x) => x.kind === "agent")!.status, "succeeded");
+});
+
+test("goal domain: chat tool create, REST CRUD, milestone toggle and prompt injection", {
+  timeout: 30000,
+}, async (t) => {
+  const h = await harness();
+  t.after(h.close);
+  // 对话式创建：说"建个目标" → goal 工具写入含里程碑的目标。
+  const ev = await h.events(input([user("帮我建个目标")], "goal-run"));
+  assert.equal(ev.at(-1)?.type, "RUN_FINISHED");
+  const goalStart = ev.filter((x) => x.type === "TOOL_CALL_START").at(0)! as unknown as {
+    toolCallName: string;
+  };
+  assert.equal(goalStart.toolCallName, "goal");
+  let agent = await h.request("/api/agent").then((x) => x.json());
+  assert.equal(agent.goals.length, 1);
+  const goal = agent.goals[0] as {
+    id: string;
+    status: string;
+    milestones: { id: string; title: string; done: boolean }[];
+  };
+  assert.equal(goal.status, "active");
+  assert.equal(goal.milestones.length, 2);
+  // 注入：创建后下一轮 system prompt 含 active goals 段与下一个里程碑。
+  await h.events(input([...(await h.getHistory()), user("hello")], "goal-inject"));
+  const system = String(h.model.requests.at(-1)!.messages[0]?.content);
+  assert.ok(system.includes("active goals"));
+  assert.ok(system.includes("半马"));
+  assert.ok(system.includes("跑量到 30km/周"));
+  // REST：勾选里程碑 → 进度变化；completed 勾掉全部且不再注入。
+  await h.request(`/api/agent/goals/${goal.id}/milestones/${goal.milestones[0]!.id}/toggle`, {});
+  agent = await h.request("/api/agent").then((x) => x.json());
+  assert.equal(agent.goals[0].milestones[0].done, true);
+  await h.request(`/api/agent/goals/${goal.id}/status`, { status: "completed" });
+  agent = await h.request("/api/agent").then((x) => x.json());
+  assert.equal(agent.goals[0].status, "completed");
+  assert.ok(agent.goals[0].milestones.every((m: { done: boolean }) => m.done));
+  await h.events(input([...(await h.getHistory()), user("again")], "goal-after"));
+  assert.ok(!String(h.model.requests.at(-1)!.messages[0]?.content).includes("active goals"));
+  // 编辑 + 删除。
+  const edited = await h.request(`/api/agent/goals/${goal.id}`, { title: "GOAL-TEST 改为全马" });
+  assert.equal(edited.status, 200);
+  assert.equal(
+    (await h.request("/api/agent/goals/missing/remove", {})).status,
+    404,
+  );
+  assert.equal(
+    (await h.request(`/api/agent/goals/${goal.id}/remove`, {})).status,
+    200,
+  );
+  agent = await h.request("/api/agent").then((x) => x.json());
+  assert.equal(agent.goals.length, 0);
+  // 重启后 goals 持久。
+  await h.restart();
+  agent = await h.request("/api/agent").then((x) => x.json());
+  assert.equal(agent.goals.length, 0);
 });

@@ -259,3 +259,69 @@ export const saveProfile = async (patch: {
   if (!response.ok) throw new ApiError(response.status, "保存失败");
   return response.json();
 };
+
+// ---------------------------------------------------------------------------
+// 目标与里程碑
+// ---------------------------------------------------------------------------
+export type MilestoneView = { id: string; title: string; done: boolean };
+export type GoalView = {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  status: "active" | "paused" | "completed" | "archived";
+  milestones: MilestoneView[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const listGoals = async (): Promise<GoalView[]> => {
+  const snapshot = await getAgentSnapshot();
+  return (snapshot as unknown as { goals: GoalView[] }).goals ?? [];
+};
+
+export const createGoal = async (input: {
+  title: string;
+  description?: string;
+  category?: string;
+  milestones?: string[];
+}): Promise<GoalView> => {
+  const response = await request("/api/agent/goals", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw new ApiError(response.status, "创建失败");
+  return response.json();
+};
+
+export const setGoalStatus = async (
+  id: string,
+  status: GoalView["status"],
+): Promise<GoalView> => {
+  const response = await request(`/api/agent/goals/${id}/status`, {
+    method: "POST",
+    body: JSON.stringify({ status }),
+  });
+  if (!response.ok) throw new ApiError(response.status, "操作失败");
+  return response.json();
+};
+
+export const toggleGoalMilestone = async (
+  goalId: string,
+  milestoneId: string,
+): Promise<GoalView> => {
+  const response = await request(
+    `/api/agent/goals/${goalId}/milestones/${milestoneId}/toggle`,
+    { method: "POST", body: "{}" },
+  );
+  if (!response.ok) throw new ApiError(response.status, "操作失败");
+  return response.json();
+};
+
+export const removeGoal = async (id: string): Promise<void> => {
+  const response = await request(`/api/agent/goals/${id}/remove`, {
+    method: "POST",
+    body: "{}",
+  });
+  if (!response.ok) throw new ApiError(response.status, "删除失败");
+};

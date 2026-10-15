@@ -177,6 +177,20 @@ export async function createFakeModel() {
       res.end("data: [DONE]\n\n");
       return;
     }
+    // 目标路径：触发词"目标" + 声明了 goal 工具（创建含两个里程碑的目标）。
+    if (declaresTool("goal") && /建个目标/.test(last) && !pendingToolResult) {
+      event({ role: "assistant" });
+      event(
+        toolCall("goal", {
+          action: "create",
+          title: "GOAL-TEST 年底前完成半马",
+          milestones: ["跑量到 30km/周", "完成一次 15km 长距离"],
+        }),
+      );
+      event({}, "tool_calls");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
     // 异步任务路径：触发词"后台" + 声明了 delegate_task。
     if (declaresTool("delegate_task") && /后台/.test(last) && !pendingToolResult) {
       event({ role: "assistant" });

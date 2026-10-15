@@ -7,6 +7,7 @@ import type { DataLayout } from "../adapters/storage/data-layout.js";
 import type { Scheduler } from "../features/jobs/scheduler.js";
 import type { TaskService } from "../features/tasks/task-service.js";
 import type { TaskWorker } from "../features/tasks/task-worker.js";
+import type { GoalService } from "../features/goals/goal-service.js";
 import type { createAuth } from "../adapters/auth/token-service.js";
 import type { ToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
 
@@ -23,10 +24,11 @@ export type ServiceContainer = {
   scheduler: Scheduler;
   tasks: TaskService;
   taskWorker: TaskWorker;
+  goals: GoalService;
   presentation: ToolPresentation;
 };
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "config" | "auth" | "memory" | "identity" | "jobs" | "tasks" | "taskWorker" | "conversationHub" | "presentation" | "scheduler"
+  "config" | "auth" | "memory" | "identity" | "jobs" | "goals" | "tasks" | "taskWorker" | "conversationHub" | "presentation" | "scheduler"
 >;

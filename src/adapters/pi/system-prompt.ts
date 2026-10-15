@@ -1,3 +1,4 @@
+import type { GoalService } from "../../features/goals/goal-service.js";
 import type { DataLayout } from "../storage/data-layout.js";
 import { readProfileFile } from "../storage/profile-files.js";
 import type { MemoryService } from "../../features/memory/memory-service.js";
@@ -48,10 +49,33 @@ export const buildSystemPrompt = async (
   memory: Pick<MemoryService, "renderForPrompt">,
   webEnabled = false,
   weatherEnabled = false,
+  goals?: Pick<GoalService, "list">,
 ): Promise<string> =>
   basePrompt +
   (weatherEnabled ? weatherPrompt : "") +
   (webEnabled ? webPrompt : "") +
+  // active 目标注入为简短进度行（每轮重读，改动下一轮生效）；归档/完成不注入。
+  (await renderGoals(goals)) +
   section("Your identity (SOUL)", await readProfileFile(layout.soulFile)) +
   section("The user (USER)", await readProfileFile(layout.userFile)) +
   (await memory.renderForPrompt());
+
+const renderGoals = async (
+  goals: Pick<GoalService, "list"> | undefined,
+): Promise<string> => {
+  if (!goals) return "";
+  try {
+    const active = (await goals.list()).filter((goal) => goal.status === "active");
+    if (!active.length) return "";
+    const lines = active.map((goal) => {
+      const open = goal.milestones.filter((x) => !x.done);
+      const progress = goal.milestones.length
+        ? ` (${goal.milestones.length - open.length}/${goal.milestones.length} milestones)`
+        : "";
+      return `- ${goal.title}${progress}${open.length ? `; next: ${open[0]!.title}` : ""}`;
+    });
+    return `\n\n## The user's active goals\n${lines.join("\n")}\n`;
+  } catch {
+    return "";
+  }
+};

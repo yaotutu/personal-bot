@@ -47,6 +47,7 @@ test("DataLayout describes every legacy path without migrating data", () => {
     memoryFile: join(root, "memory.json"),
     jobsFile: join(root, "jobs.json"),
     tasksFile: join(root, "tasks.json"),
+    goalsFile: join(root, "goals.json"),
     soulFile: join(root, "SOUL.md"),
     userFile: join(root, "USER.md"),
     authKeyFile: join(root, "auth.key"),

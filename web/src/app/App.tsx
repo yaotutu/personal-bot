@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChatView } from "../chat/ChatView";
 import { JobsView } from "../jobs/JobsView";
+import { GoalsView } from "../goals/GoalsView";
 import { SettingsView } from "../settings/SettingsView";
 import { isLoggedIn, listThreads, login } from "../lib/api";
 
@@ -15,7 +16,7 @@ export const App = () => {
   const [newThread, setNewThread] = useState("");
   const [accessKey, setAccessKey] = useState("");
   const [error, setError] = useState("");
-  type View = "chat" | "jobs" | "settings";
+  type View = "chat" | "jobs" | "goals" | "settings";
   const [view, setView] = useState<View>("chat");
   // 小屏（<768px）侧栏变为抽屉；默认开抽屉选会话，选完自动收起。
   const [drawer, setDrawer] = useState(false);
@@ -72,6 +73,7 @@ export const App = () => {
   const navItems: { key: View; label: string }[] = [
     { key: "chat", label: "聊天" },
     { key: "jobs", label: "任务" },
+    { key: "goals", label: "目标" },
     { key: "settings", label: "设置" },
   ];
 
@@ -167,6 +169,7 @@ export const App = () => {
         <div className="min-h-0 flex-1">
         {view === "chat" && <ChatView threadId={active} />}
         {view === "jobs" && <JobsView />}
+        {view === "goals" && <GoalsView />}
         {view === "settings" && <SettingsView />}
         </div>
       </main>

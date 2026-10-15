@@ -43,3 +43,21 @@ export const createTaskSchema = z.object({
   prompt: z.string().trim().min(1).max(12000),
   title: z.string().trim().min(1).max(160).optional(),
 });
+
+// ---------------------------------------------------------------------------
+// 目标：CRUD、状态迁移与里程碑勾选（全部 POST，与现有端点风格一致）
+// ---------------------------------------------------------------------------
+export const createGoalSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  description: z.string().max(2000).optional(),
+  category: z.string().max(40).optional(),
+  milestones: z.array(z.string().trim().min(1).max(160)).max(30).optional(),
+});
+export const editGoalSchema = z.object({
+  title: z.string().trim().min(1).max(160).optional(),
+  description: z.string().max(2000).optional(),
+  category: z.string().max(40).optional(),
+});
+export const goalStatusSchema = z.object({
+  status: z.enum(["active", "paused", "completed", "archived"]),
+});

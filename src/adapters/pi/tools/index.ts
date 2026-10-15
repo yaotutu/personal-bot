@@ -2,12 +2,14 @@ import type { MemoryService } from "../../../features/memory/memory-service.js";
 import type { JobService } from "../../../features/jobs/job-service.js";
 import type { TaskService } from "../../../features/tasks/task-service.js";
 import type { TaskWorker } from "../../../features/tasks/task-worker.js";
+import type { GoalService } from "../../../features/goals/goal-service.js";
 import type { WebService } from "../../../features/web/types.js";
 import type { WeatherService } from "../../../features/weather/types.js";
 import { currentTimeTool } from "./current-time.js";
 import { memoryTool } from "./memory.js";
 import { scheduleTool } from "./schedule.js";
 import { delegateTaskTool } from "./delegate-task.js";
+import { goalTool } from "./goal.js";
 import { createFileTools } from "./files.js";
 import { createWebTools } from "./web.js";
 import { weatherTool } from "./weather.js";
@@ -18,6 +20,7 @@ type ToolDependencies = {
   jobs: JobService;
   tasks?: TaskService;
   worker?: TaskWorker;
+  goals?: GoalService;
   web?: WebService;
   weather?: WeatherService;
 };
@@ -32,6 +35,7 @@ const registrations = [
   { names: ["memory"], create: (deps: ToolDependencies) => [memoryTool(deps.memory)] },
   { names: ["schedule"], create: (deps: ToolDependencies) => [scheduleTool(deps.jobs)] },
   { names: ["delegate_task"], create: (deps: ToolDependencies) => deps.tasks && deps.worker ? [delegateTaskTool(deps.tasks, deps.worker)] : [] },
+  { names: ["goal"], create: (deps: ToolDependencies) => deps.goals ? [goalTool(deps.goals)] : [] },
   { names: ["read", "grep", "find", "ls"], create: (deps: ToolDependencies) => createFileTools(deps.root) },
   { names: ["search_web", "web_fetch"], create: (deps: ToolDependencies) => deps.web ? createWebTools(deps.web) : [] },
   { names: ["get_weather"], create: (deps: ToolDependencies) => deps.weather ? [weatherTool(deps.weather)] : [] },

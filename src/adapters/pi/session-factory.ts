@@ -5,6 +5,7 @@ import type { MemoryService } from "../../features/memory/memory-service.js";
 import type { JobService } from "../../features/jobs/job-service.js";
 import type { TaskService } from "../../features/tasks/task-service.js";
 import type { TaskWorker } from "../../features/tasks/task-worker.js";
+import type { GoalService } from "../../features/goals/goal-service.js";
 import type { WebService } from "../../features/web/types.js";
 import type { WeatherService } from "../../features/weather/types.js";
 import { buildSystemPrompt } from "./system-prompt.js";
@@ -22,11 +23,12 @@ export async function openPi(
   weather?: WeatherService,
   tasks?: TaskService,
   worker?: TaskWorker,
+  goals?: GoalService,
 ) {
   if (!config.configured) throw new Error("MODEL_NOT_CONFIGURED");
   const cwd = layout.workspaceDir;
   const agentDir = layout.agentDir;
-  const systemPrompt = await buildSystemPrompt(layout, memory, web !== undefined, weather !== undefined);
+  const systemPrompt = await buildSystemPrompt(layout, memory, web !== undefined, weather !== undefined, goals);
   const resourceLoader = createResourceLoader(systemPrompt);
   const customTools = createTools({
     root: cwd,
@@ -34,6 +36,7 @@ export async function openPi(
     jobs,
     tasks,
     worker,
+    goals,
     web,
     weather,
   });

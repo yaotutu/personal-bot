@@ -1,9 +1,12 @@
 import { Hono } from "hono";
 import type { HttpDependencies } from "../bootstrap/types.js";
 import {
+  createGoalSchema,
   createMemorySchema,
   createTaskSchema,
+  editGoalSchema,
   editMemorySchema,
+  goalStatusSchema,
   identitySchema,
   taskControlSchema,
 } from "./contracts/rest.js";
@@ -17,20 +20,29 @@ import { presentAsyncTask, presentJob, presentJobDetail } from "./job-presenters
 export const createWorkspaceRoutes = (
   dependencies: Pick<
     HttpDependencies,
-    "config" | "memory" | "identity" | "jobs" | "tasks" | "taskWorker" | "conversationHub" | "scheduler"
+    | "config"
+    | "memory"
+    | "identity"
+    | "jobs"
+    | "goals"
+    | "tasks"
+    | "taskWorker"
+    | "conversationHub"
+    | "scheduler"
   >,
 ) => {
-  const { config, memory, identity: identityService, jobs, tasks, taskWorker, conversationHub, scheduler } =
+  const { config, memory, identity: identityService, jobs, goals, tasks, taskWorker, conversationHub, scheduler } =
     dependencies;
   const app = new Hono();
   app.get("/api/agent", async (c) => {
     // tasks 数组混合定时任务（kind=monitor）与异步任务（kind=agent），
     // 按更新时间倒序；两者状态机不同但 DTO 同形。
-    const [memories, identity, scheduledJobs, asyncTasks] = await Promise.all([
+    const [memories, identity, scheduledJobs, asyncTasks, goalList] = await Promise.all([
       memory.list(),
       identityService.get(),
       jobs.list(),
       tasks.list(),
+      goals.list(),
     ]);
     const merged = [
       ...scheduledJobs.map(presentJob),
@@ -41,7 +53,7 @@ export const createWorkspaceRoutes = (
       memories,
       identity,
       // goals/monitors/ideas 等域尚未实现，诚实返回空集合而不是省略字段。
-      goals: [],
+      goals: goalList,
       monitors: [],
       ideas: [],
       artifacts: [],
@@ -78,6 +90,31 @@ export const createWorkspaceRoutes = (
     if (!result.ok)
       return c.json({ error: result.message }, result.code === "not_found" ? 404 : 409);
     return c.json(presentJob(result.job));
+  });
+  app.post("/api/agent/goals", async (c) => {
+    const parsed = createGoalSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: "Invalid goal request" }, 400);
+    return c.json(await goals.create(parsed.data));
+  });
+  app.post("/api/agent/goals/:id", async (c) => {
+    const parsed = editGoalSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: "Invalid goal request" }, 400);
+    const goal = await goals.edit(c.req.param("id"), parsed.data);
+    return goal ? c.json(goal) : c.json({ error: "Goal not found" }, 404);
+  });
+  app.post("/api/agent/goals/:id/status", async (c) => {
+    const parsed = goalStatusSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: "Invalid goal status request" }, 400);
+    const goal = await goals.setStatus(c.req.param("id"), parsed.data.status);
+    return goal ? c.json(goal) : c.json({ error: "Goal not found" }, 404);
+  });
+  app.post("/api/agent/goals/:id/milestones/:mid/toggle", async (c) => {
+    const result = await goals.toggleMilestone(c.req.param("id"), c.req.param("mid"));
+    return result.goal ? c.json(result.goal) : c.json({ error: "Not found" }, 404);
+  });
+  app.post("/api/agent/goals/:id/remove", async (c) => {
+    const ok = await goals.remove(c.req.param("id"));
+    return ok ? c.json({ ok: true }) : c.json({ error: "Goal not found" }, 404);
   });
   app.post("/api/agent/memories", async (c) => {
     const parsed = createMemorySchema.safeParse(await c.req.json().catch(() => undefined));

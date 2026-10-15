@@ -4,7 +4,7 @@ import type { Job } from "../../features/jobs/types.js";
 
 /** 固定安全文案，不在错误里附带原文、文件路径或用户资料。 */
 export class InvalidDocumentError extends Error {
-  constructor(kind: "memory" | "jobs" | "tasks") {
+  constructor(kind: "memory" | "jobs" | "tasks" | "goals") {
     super(`Invalid ${kind} document; restore a valid backup before writing`);
     this.name = "InvalidDocumentError";
   }
@@ -65,4 +65,26 @@ export const readJobsDocument = (value: unknown): Job[] => {
     )) throw new InvalidDocumentError("jobs");
   }
   return jobs;
+};
+
+/** goals 裸数组；状态与里程碑形状校验，损坏文档整体抛错不静默清空。 */
+export const readGoalsDocument = (
+  value: unknown,
+): import("../../features/goals/types.js").Goal[] => {
+  if (!Array.isArray(value)) throw new InvalidDocumentError("goals");
+  const statuses = ["active", "paused", "completed", "archived"];
+  const goals = value.filter(
+    (item): item is import("../../features/goals/types.js").Goal =>
+      isObject(item) &&
+      typeof item.id === "string" &&
+      typeof item.title === "string" &&
+      typeof item.status === "string" &&
+      statuses.includes(item.status) &&
+      Array.isArray(item.milestones) &&
+      item.milestones.every(
+        (m) => isObject(m) && typeof m.id === "string" && typeof m.title === "string" && typeof m.done === "boolean",
+      ),
+  );
+  if (goals.length !== value.length) throw new InvalidDocumentError("goals");
+  return goals;
 };
