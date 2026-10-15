@@ -22,6 +22,8 @@ import { createTools } from "./tools/index.js";
 export type PiDeps = {
   config: Config;
   layout: DataLayout;
+  /** 组合层预构建的 runtime（provider/key 已注册）；每轮重建只浪费 I/O。 */
+  modelRuntime: ModelRuntime;
   sessionManager: SessionManager;
   memory: MemoryService;
   jobs: JobService;
@@ -37,7 +39,7 @@ export type PiDeps = {
 
 /** 仅装配 pi 运行环境；agent loop 与 JSONL 持久化继续完全交给 SDK。 */
 export async function openPi(deps: PiDeps) {
-  const { config, layout, sessionManager, memory, jobs, worker } = deps;
+  const { config, layout, sessionManager, memory, jobs, worker, modelRuntime } = deps;
   const { tasks, goals, actions, actionTimeoutMs, monitors, web, weather } = deps;
   if (!config.configured) throw new Error("MODEL_NOT_CONFIGURED");
   const cwd = layout.workspaceDir;
@@ -56,12 +58,6 @@ export async function openPi(deps: PiDeps) {
     monitors,
     web,
     weather,
-  });
-  const modelRuntime = await ModelRuntime.create({
-    authPath: layout.piAuthFile,
-    modelsPath: null,
-    allowModelNetwork: false,
-    refreshOnCreate: false,
   });
   modelRuntime.registerProvider("personal", {
     baseUrl: config.baseUrl,

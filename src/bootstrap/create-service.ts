@@ -27,6 +27,7 @@ import { createHttpWebTransport } from "../adapters/web/http-transport.js";
 import { createOpenMeteoTransport } from "../adapters/weather/open-meteo.js";
 import { createWeatherService } from "../features/weather/weather-service.js";
 import { createSessionHistory } from "../adapters/pi/session-history.js";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { openPi } from "../adapters/pi/session-factory.js";
 import { createPiExecution } from "../adapters/pi/execution.js";
 import type { ServiceContainer } from "./types.js";
@@ -81,6 +82,36 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const workerRef: { current?: TaskWorker } = {};
 
   // 多会话：每个 thread 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
+  // pi runtime 全进程一份：provider 与 runtime key 注册一次，所有线程共用；
+  // 每轮会话重建只会重复读 auth 文件与注册表，无收益。
+  const modelRuntime = await ModelRuntime.create({
+    authPath: layout.piAuthFile,
+    modelsPath: null,
+    allowModelNetwork: false,
+    refreshOnCreate: false,
+  });
+  modelRuntime.registerProvider("personal", {
+    baseUrl: config.baseUrl,
+    api: "openai-completions",
+    models: [
+      {
+        id: config.modelId!,
+        name: config.modelId!,
+        reasoning: false,
+        input: ["text"],
+        contextWindow: config.contextWindow,
+        maxTokens: config.maxTokens,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        compat: {
+          supportsStore: false,
+          supportsDeveloperRole: false,
+          maxTokensField: "max_tokens",
+        },
+      },
+    ],
+  });
+  await modelRuntime.setRuntimeApiKey("personal", config.apiKey || "local-no-key");
+
   const conversationHub = createConversationHub(
     async (threadId) => {
       const { manager, history } = await createSessionHistory(layout, threadId, presentation);
@@ -89,6 +120,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
         openSession: async () => createPiExecution(
           await openPi({
             config,
+            modelRuntime,
             layout,
             sessionManager: manager,
             memory,
