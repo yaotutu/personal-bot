@@ -90,8 +90,9 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     allowModelNetwork: false,
     refreshOnCreate: false,
   });
-  modelRuntime.registerProvider("personal", {
-    baseUrl: config.baseUrl,
+  if (config.configured)
+    modelRuntime.registerProvider("personal", {
+      baseUrl: config.baseUrl,
     api: "openai-completions",
     models: [
       {
@@ -110,7 +111,8 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       },
     ],
   });
-  await modelRuntime.setRuntimeApiKey("personal", config.apiKey || "local-no-key");
+  if (config.configured)
+    await modelRuntime.setRuntimeApiKey("personal", config.apiKey || "local-no-key");
 
   const conversationHub = createConversationHub(
     async (threadId) => {
