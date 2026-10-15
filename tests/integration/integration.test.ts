@@ -1401,63 +1401,88 @@ test("write approval gate: approve writes the file, deny and boundary paths beha
   );
 });
 
-test("monitors: REST create/control, change baseline semantics and main-thread notification", {
+test("monitors: full loop with real fetch — baseline, change notify, keyword hit, control", {
   timeout: 30000,
 }, async (t) => {
-  const h = await harness();
+  // allowPrivateTargets 让 web 抓取允许本地测试页；快扫（500ms）驱动真实调度。
+  const h = await harness(5000, {
+    tools: { presentation: { default: "summary" }, web: { allowPrivateTargets: true } },
+    runtime: { monitorScanIntervalMs: 500 },
+  });
   t.after(h.close);
-  // 创建与控制走 REST；检查语义直接调 service（真实抓取由 scheduler 单测与
-  // 真实验收覆盖——web 安全边界拒绝回环地址，集成环境无法内嵌目标页）。
-  const created = await h
-    .request("/api/agent/monitors", {
-      url: "https://example.com/page",
-      condition: "change",
-      title: "页面变化",
-    })
+  let pageBody = "MONITOR-PAGE version-1";
+  const target = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<html><body>${pageBody}</body></html>`);
+  });
+  target.listen(0, "127.0.0.1");
+  await once(target, "listening");
+  const pageUrl = "http://127.0.0.1:" + (target.address() as AddressInfo).port + "/page";
+  t.after(() => new Promise<void>((resolve) => target.close(() => resolve())));
+
+  const rewind = async () => {
+    const monitors = JSON.parse(await readFile(join(h.dataDir, "monitors.json"), "utf8"));
+    for (const monitor of monitors)
+      monitor.lastCheckedAt = new Date(Date.now() - 3600_000).toISOString();
+    await writeFile(join(h.dataDir, "monitors.json"), JSON.stringify(monitors));
+  };
+
+  // change：首检建基线（真实抓取本地页）→ 内容变化 → 📡 通知主会话。
+  const change = await h
+    .request("/api/agent/monitors", { url: pageUrl, condition: "change", title: "页面变化" })
     .then((x) => x.json());
-  assert.equal(created.status, "active");
-  assert.equal(created.intervalMinutes, 30);
+  let notified = false;
+  for (let i = 0; i < 12 && !notified; i++) {
+    await sleep(1000);
+    notified = (await h.getHistory()).some(
+      (x) => x.role === "user" && String(x.content).startsWith("📡"),
+    );
+  }
+  assert.ok(!notified, "baseline check must not notify");
+  const baseline = (await h.request("/api/agent").then((x) => x.json())).monitors.find(
+    (m: { id: string }) => m.id === change.id,
+  ) as { checks: number; error?: string };
+  assert.ok(baseline.checks >= 1);
+  assert.ok(!baseline.error, "local fetch should succeed");
+  pageBody = "MONITOR-PAGE version-2 CHANGED";
+  await rewind();
+  notified = false;
+  for (let i = 0; i < 14 && !notified; i++) {
+    await sleep(1000);
+    notified = (await h.getHistory()).some(
+      (x) => x.role === "user" && String(x.content).startsWith("📡") && String(x.content).includes("页面变化"),
+    );
+  }
+  assert.ok(notified, "change should notify main thread with 📡");
+
+  // contains：首查未命中建状态 → 命中 → 通知一次；持续命中不重复。
+  await h.request("/api/agent/monitors", {
+    url: pageUrl, condition: "contains", value: "CHANGED", title: "关键词监控",
+  });
+  let keywordHit = false;
+  for (let i = 0; i < 14 && !keywordHit; i++) {
+    await sleep(1000);
+    const fresh = (await h.getHistory()).filter(
+      (x) => String(x.content).includes("关键词监控"),
+    );
+    keywordHit = fresh.length > 0;
+  }
+  assert.ok(keywordHit, "first keyword match should notify");
+  await rewind();
+  await sleep(2500);
+  // 通知轮写 user(📡 触发) + assistant(模型回复) 两条；只数 user 触发消息。
+  const dup = (await h.getHistory()).filter(
+    (x) => x.role === "user" && String(x.content).startsWith("📡") && String(x.content).includes("关键词监控"),
+  ).length;
+  assert.equal(dup, 1, "persistent match must not re-notify");
+
+  // 控制状态机。
   assert.equal(
-    (await h.request("/api/agent/monitors", { url: "ftp://x", condition: "change" })).status,
-    400,
-  );
-  assert.equal(
-    (await h.request("/api/agent/monitors", {
-      url: "https://example.com/", condition: "contains",
-    })).status,
-    400,
-  );
-  // change：首检建基线 silent；同内容 silent；变化 notified 并通知主会话。
-  const svc = h.service();
-  const first = await svc.monitors.check(created.id, { body: "v1" });
-  assert.equal(first.outcome.kind, "silent");
-  assert.equal((await svc.monitors.check(created.id, { body: "v1" })).outcome.kind, "silent");
-  const changed = await svc.monitors.check(created.id, { body: "v2-content" });
-  assert.equal(changed.outcome.kind, "notified");
-  // 通知主会话由 scheduler 驱动（单元测试注入 fake fetch/main 验证全链路）。
-  assert.ok(changed.monitor?.lastNotifiedAt);
-  // contains：未命中→命中通知；持续命中不重复；抓取失败记 error 不通知。
-  const kw = await h
-    .request("/api/agent/monitors", {
-      url: "https://example.com/", condition: "contains", value: "LAUNCH", title: "关键词",
-    })
-    .then((x) => x.json());
-  assert.equal((await svc.monitors.check(kw.id, { body: "nothing here" })).outcome.kind, "silent");
-  const hit = await svc.monitors.check(kw.id, { body: "the LAUNCH is live" });
-  assert.equal(hit.outcome.kind, "notified");
-  assert.equal((await svc.monitors.check(kw.id, { body: "LAUNCH again" })).outcome.kind, "silent");
-  const failed = await svc.monitors.check(kw.id, { error: "fetch rejected" });
-  assert.equal(failed.outcome.kind, "error");
-  // 控制状态机与快照。
-  assert.equal(
-    (await h.request(`/api/agent/monitors/${created.id}/control`, { action: "pause" })).status,
+    (await h.request(`/api/agent/monitors/${change.id}/control`, { action: "pause" })).status,
     200,
   );
   assert.equal(
-    (await h.request(`/api/agent/monitors/${created.id}/control`, { action: "pause" })).status,
+    (await h.request(`/api/agent/monitors/${change.id}/control`, { action: "pause" })).status,
     409,
   );
-  const snapshot = await h.request("/api/agent").then((x) => x.json());
-  assert.equal(snapshot.monitors.length, 2);
-  assert.ok(snapshot.monitors.some((m: { status: string }) => m.status === "paused"));
 });
