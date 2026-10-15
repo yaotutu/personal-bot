@@ -68,3 +68,17 @@ export const goalStatusSchema = z.object({
 export const actionDecisionSchema = z.object({
   decision: z.enum(["approve", "deny"]),
 });
+
+// ---------------------------------------------------------------------------
+// 监控：网页周期监控的控制端点（创建经对话工具或直接 POST）
+// ---------------------------------------------------------------------------
+export const monitorControlSchema = z.object({
+  action: z.enum(["pause", "resume", "stop"]),
+});
+export const createMonitorSchema = z.object({
+  title: z.string().trim().min(1).max(120).optional(),
+  url: z.string().url().max(2048).regex(/^https?:\/\//, "http(s) only"),
+  condition: z.enum(["change", "contains"]),
+  value: z.string().max(200).optional(),
+  intervalMinutes: z.number().int().min(5).max(1440).optional(),
+});

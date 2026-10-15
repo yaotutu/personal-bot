@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import type { HttpDependencies } from "../bootstrap/types.js";
 import {
   actionDecisionSchema,
+  createMonitorSchema,
+  monitorControlSchema,
   createGoalSchema,
   createMemorySchema,
   createTaskSchema,
@@ -29,11 +31,12 @@ export const createWorkspaceRoutes = (
     | "tasks"
     | "taskWorker"
     | "actions"
+    | "monitors"
     | "conversationHub"
     | "scheduler"
   >,
 ) => {
-  const { config, memory, identity: identityService, jobs, goals, tasks, taskWorker, actions, conversationHub, scheduler } =
+  const { config, memory, identity: identityService, jobs, goals, tasks, taskWorker, actions, monitors, conversationHub, scheduler } =
     dependencies;
   const app = new Hono();
   app.get("/api/agent", async (c) => {
@@ -57,7 +60,7 @@ export const createWorkspaceRoutes = (
       identity,
       // goals/monitors/ideas 等域尚未实现，诚实返回空集合而不是省略字段。
       goals: goalList,
-      monitors: [],
+      monitors: (await monitors.list()).map((m) => ({ ...m })),
       ideas: [],
       artifacts: [],
       notifications: actionList,
@@ -94,6 +97,24 @@ export const createWorkspaceRoutes = (
       return c.json({ error: result.message }, result.code === "not_found" ? 404 : 409);
     return c.json(presentJob(result.job));
   });
+  app.post("/api/agent/monitors", async (c) => {
+    const parsed = createMonitorSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: "Invalid monitor request" }, 400);
+    try {
+      return c.json(await monitors.create(parsed.data));
+    } catch (error) {
+      return c.json({ error: (error as Error).message }, 400);
+    }
+  });
+  app.post("/api/agent/monitors/:id/control", async (c) => {
+    const parsed = monitorControlSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: "Invalid monitor control request" }, 400);
+    const result = await monitors.control(c.req.param("id"), parsed.data.action);
+    if (!result.ok)
+      return c.json({ error: result.message }, result.code === "not_found" ? 404 : 409);
+    return c.json(result.monitor);
+  });
+
   // 审批决定：仅 pending 可决定；approve 放行等待中的写操作，deny 受控拒绝。
   app.post("/api/actions/:id/decide", async (c) => {
     const parsed = actionDecisionSchema.safeParse(await c.req.json().catch(() => undefined));

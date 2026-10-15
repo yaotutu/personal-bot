@@ -63,6 +63,7 @@ test("config defaults allow an unconfigured loopback instance", async (t) => {
       apiKey: undefined,
       dataDir: undefined,
       runTimeoutMs: 120000,
+      monitorScanIntervalMs: 60000,
       schedulerIntervalMs: 30000,
       allowedOrigins: [
         "http://localhost:8081",

@@ -4,7 +4,7 @@ import type { Job } from "../../features/jobs/types.js";
 
 /** 固定安全文案，不在错误里附带原文、文件路径或用户资料。 */
 export class InvalidDocumentError extends Error {
-  constructor(kind: "memory" | "jobs" | "tasks" | "goals" | "actions") {
+  constructor(kind: "memory" | "jobs" | "tasks" | "goals" | "actions" | "monitors") {
     super(`Invalid ${kind} document; restore a valid backup before writing`);
     this.name = "InvalidDocumentError";
   }
@@ -108,5 +108,29 @@ export const readActionsDocument = (
       isObject(item.payload),
   );
   if (list.length !== value.length) throw new InvalidDocumentError("actions");
+  return list;
+};
+
+/** monitors 裸数组；条件/状态形状校验。 */
+export const readMonitorsDocument = (
+  value: unknown,
+): import("../../features/monitors/types.js").Monitor[] => {
+  if (!Array.isArray(value)) throw new InvalidDocumentError("monitors");
+  const statuses = ["active", "paused", "stopped"];
+  const conditions = ["change", "contains"];
+  const list = value.filter(
+    (item): item is import("../../features/monitors/types.js").Monitor =>
+      isObject(item) &&
+      typeof item.id === "string" &&
+      typeof item.title === "string" &&
+      typeof item.url === "string" &&
+      typeof item.condition === "string" &&
+      conditions.includes(item.condition) &&
+      typeof item.intervalMinutes === "number" &&
+      typeof item.status === "string" &&
+      statuses.includes(item.status) &&
+      typeof item.checks === "number",
+  );
+  if (list.length !== value.length) throw new InvalidDocumentError("monitors");
   return list;
 };

@@ -18,7 +18,8 @@
   },
   "runtime": {
     "runTimeoutMs": 120000,
-    "schedulerIntervalMs": 30000
+    "schedulerIntervalMs": 30000,
+    "monitorScanIntervalMs": 60000
   },
   "tools": {
     "web": {
@@ -36,6 +37,10 @@
         "memory": "summary",
         "schedule": "summary"
       }
+    },
+    "writable": {
+      "enabled": true,
+      "actionTimeoutMs": 300000
     }
   }
 }

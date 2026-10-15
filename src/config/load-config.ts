@@ -35,7 +35,8 @@ const configFileSchema = z.object({
     .object({
       dataDir: z.string().optional(),
       runTimeoutMs: z.number().int().optional(),
-      schedulerIntervalMs: z.number().int().optional(),
+      monitorScanIntervalMs: z.number().int().optional(),
+          schedulerIntervalMs: z.number().int().optional(),
     })
     .strict()
     .default({}),
@@ -219,6 +220,12 @@ export const createConfig = (
       file.runtime.runTimeoutMs,
       120_000,
       "runtime.runTimeoutMs",
+      3_600_000,
+    ),
+    monitorScanIntervalMs: integer(
+      file.runtime?.monitorScanIntervalMs,
+      60_000,
+      "runtime.monitorScanIntervalMs",
       3_600_000,
     ),
     schedulerIntervalMs: integer(

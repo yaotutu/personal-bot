@@ -9,6 +9,8 @@ import type { TaskService } from "../features/tasks/task-service.js";
 import type { TaskWorker } from "../features/tasks/task-worker.js";
 import type { GoalService } from "../features/goals/goal-service.js";
 import type { ActionService } from "../features/actions/action-service.js";
+import type { MonitorService } from "../features/monitors/monitor-service.js";
+import type { MonitorScheduler } from "../features/monitors/monitor-scheduler.js";
 import type { createAuth } from "../adapters/auth/token-service.js";
 import type { ToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
 
@@ -27,10 +29,12 @@ export type ServiceContainer = {
   taskWorker: TaskWorker;
   goals: GoalService;
   actions: ActionService;
+  monitors: MonitorService;
+  monitorScheduler: MonitorScheduler;
   presentation: ToolPresentation;
 };
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "config" | "auth" | "memory" | "identity" | "jobs" | "goals" | "tasks" | "taskWorker" | "actions" | "conversationHub" | "presentation" | "scheduler"
+  "config" | "auth" | "memory" | "identity" | "jobs" | "goals" | "tasks" | "taskWorker" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler"
 >;

@@ -348,3 +348,51 @@ export const decideAction = async (
   });
   return response.ok;
 };
+
+// ---------------------------------------------------------------------------
+// 网页监控
+// ---------------------------------------------------------------------------
+export type MonitorView = {
+  id: string;
+  title: string;
+  url: string;
+  condition: "change" | "contains";
+  value?: string;
+  intervalMinutes: number;
+  status: "active" | "paused" | "stopped";
+  checks: number;
+  error?: string;
+  lastCheckedAt?: string;
+};
+
+export const listMonitors = async (): Promise<MonitorView[]> => {
+  const snapshot = await getAgentSnapshot();
+  return (snapshot as unknown as { monitors: MonitorView[] }).monitors ?? [];
+};
+
+export const createMonitor = async (input: {
+  url: string;
+  condition: "change" | "contains";
+  value?: string;
+  title?: string;
+  intervalMinutes?: number;
+}): Promise<MonitorView> => {
+  const response = await request("/api/agent/monitors", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw new ApiError(response.status, "创建失败");
+  return response.json();
+};
+
+export const controlMonitor = async (
+  id: string,
+  action: "pause" | "resume" | "stop",
+): Promise<MonitorView> => {
+  const response = await request(`/api/agent/monitors/${id}/control`, {
+    method: "POST",
+    body: JSON.stringify({ action }),
+  });
+  if (!response.ok) throw new ApiError(response.status, "操作失败");
+  return response.json();
+};

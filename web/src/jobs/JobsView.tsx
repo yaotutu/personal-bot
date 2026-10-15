@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
-import { controlTask, createTask, getAgentSnapshot, type TaskView } from "../lib/api";
+import {
+  controlMonitor,
+  controlTask,
+  createMonitor,
+  createTask,
+  getAgentSnapshot,
+  listMonitors,
+  type MonitorView,
+  type TaskView,
+} from "../lib/api";
 
 const kindLabel = (task: TaskView) =>
   (task as { kind?: string }).kind === "agent" ? "后台任务" : "定时";
@@ -28,6 +37,36 @@ export const JobsView = () => {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [draft, setDraft] = useState("");
+  const [monitors, setMonitors] = useState<MonitorView[]>([]);
+  const [watchUrl, setWatchUrl] = useState("");
+  const [watchCond, setWatchCond] = useState<"change" | "contains">("change");
+  const [watchValue, setWatchValue] = useState("");
+  const submitMonitor = async () => {
+    try {
+      await createMonitor({
+        url: watchUrl.trim(),
+        condition: watchCond,
+        value: watchCond === "contains" ? watchValue.trim() : undefined,
+        intervalMinutes: 30,
+      });
+      setWatchUrl("");
+      setWatchValue("");
+      setError("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "创建失败");
+    }
+    void listMonitors().then(setMonitors).catch(() => undefined);
+  };
+  const actMonitor = async (id: string, action: "pause" | "resume" | "stop") => {
+    try {
+      await controlMonitor(id, action);
+      setError("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "操作失败");
+    }
+    void listMonitors().then(setMonitors).catch(() => undefined);
+  };
+
   const submit = async () => {
     try {
       await createTask(draft.trim());
@@ -43,6 +82,7 @@ export const JobsView = () => {
     void getAgentSnapshot()
       .then((data) => setTasks(data.tasks))
       .catch((e: Error) => setError(e.message));
+    void listMonitors().then(setMonitors).catch(() => undefined);
   };
 
   useEffect(reload, []);
@@ -179,6 +219,103 @@ export const JobsView = () => {
             </div>
           );
         })}
+      </div>
+
+      <div className="mx-auto mt-6 max-w-2xl space-y-4">
+        <h2 className="text-sm font-semibold text-stone-700">网页监控</h2>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={watchUrl}
+            onChange={(e) => setWatchUrl(e.target.value)}
+            placeholder="https://example.com/page"
+            className="min-w-0 flex-1 rounded-lg border border-stone-300 px-3 py-1.5 text-sm outline-none focus:border-stone-500"
+          />
+          <select
+            value={watchCond}
+            onChange={(e) => setWatchCond(e.target.value as "change" | "contains")}
+            className="rounded-lg border border-stone-300 px-2 py-1.5 text-sm"
+          >
+            <option value="change">变化时</option>
+            <option value="contains">出现关键词</option>
+          </select>
+          {watchCond === "contains" && (
+            <input
+              value={watchValue}
+              onChange={(e) => setWatchValue(e.target.value)}
+              placeholder="关键词"
+              className="w-28 rounded-lg border border-stone-300 px-3 py-1.5 text-sm outline-none focus:border-stone-500"
+            />
+          )}
+          <button
+            onClick={() => watchUrl.trim() && void submitMonitor()}
+            disabled={!watchUrl.trim()}
+            className="rounded-lg bg-stone-800 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+          >
+            监控
+          </button>
+        </div>
+        <p className="text-xs text-stone-400">
+          每 30 分钟检查一次；"变化时"首次检查只建立基线，之后内容变化才通知聊天。
+        </p>
+        {monitors.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-stone-300 py-8 text-center text-sm text-stone-400">
+            还没有监控
+          </div>
+        )}
+        {monitors.map((monitor) => (
+          <div key={monitor.id} className="rounded-2xl border border-stone-200 bg-white p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-stone-800">{monitor.title}</p>
+                <p className="mt-0.5 truncate text-xs text-stone-400">
+                  {monitor.url} ·{" "}
+                  {monitor.condition === "contains" ? `包含"${monitor.value}"` : "变化"} · 每{" "}
+                  {monitor.intervalMinutes} 分钟 · 已查 {monitor.checks} 次
+                </p>
+                {monitor.error && (
+                  <p className="mt-1 text-xs text-red-600">上次抓取失败</p>
+                )}
+              </div>
+              <span
+                className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                  monitor.status === "active"
+                    ? "bg-blue-50 text-blue-700"
+                    : monitor.status === "paused"
+                      ? "bg-stone-100 text-stone-600"
+                      : "bg-stone-100 text-stone-400"
+                }`}
+              >
+                {monitor.status === "active" ? "监控中" : monitor.status === "paused" ? "已暂停" : "已停止"}
+              </span>
+            </div>
+            {monitor.status !== "stopped" && (
+              <div className="mt-3 flex gap-2">
+                {monitor.status === "active" && (
+                  <button
+                    onClick={() => void actMonitor(monitor.id, "pause")}
+                    className="rounded-lg border border-stone-300 px-2.5 py-1 text-xs text-stone-600 hover:bg-stone-50"
+                  >
+                    暂停
+                  </button>
+                )}
+                {monitor.status === "paused" && (
+                  <button
+                    onClick={() => void actMonitor(monitor.id, "resume")}
+                    className="rounded-lg border border-stone-300 px-2.5 py-1 text-xs text-stone-600 hover:bg-stone-50"
+                  >
+                    恢复
+                  </button>
+                )}
+                <button
+                  onClick={() => void actMonitor(monitor.id, "stop")}
+                  className="rounded-lg border border-red-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50"
+                >
+                  停止
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

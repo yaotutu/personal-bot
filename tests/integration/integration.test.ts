@@ -1,12 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, readdir, readFile, writeFile, stat } from "node:fs/promises";
-import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { connect, type AddressInfo } from "node:net";
 import { serve } from "@hono/node-server";
+import { createServer } from "node:http";
+import { once } from "node:events";
 import { HttpAgent } from "@ag-ui/client";
 import {
   type BaseEvent,
@@ -79,6 +80,7 @@ const expectedTools = [
   "grep",
   "ls",
   "memory",
+  "monitor",
   "read",
   "schedule",
   "search_web",
@@ -174,6 +176,7 @@ async function harness(
         dataDir,
         runTimeoutMs: timeout,
         schedulerIntervalMs: 2000,
+        monitorScanIntervalMs: 500,
         ...overrides.runtime,
       },
     });
@@ -1388,4 +1391,65 @@ test("write approval gate: approve writes the file, deny and boundary paths beha
     await readFile(join(h.dataDir, "workspace", "draft.md"), "utf8"),
     /marker-edited/,
   );
+});
+
+test("monitors: REST create/control, change baseline semantics and main-thread notification", {
+  timeout: 30000,
+}, async (t) => {
+  const h = await harness();
+  t.after(h.close);
+  // 创建与控制走 REST；检查语义直接调 service（真实抓取由 scheduler 单测与
+  // 真实验收覆盖——web 安全边界拒绝回环地址，集成环境无法内嵌目标页）。
+  const created = await h
+    .request("/api/agent/monitors", {
+      url: "https://example.com/page",
+      condition: "change",
+      title: "页面变化",
+    })
+    .then((x) => x.json());
+  assert.equal(created.status, "active");
+  assert.equal(created.intervalMinutes, 30);
+  assert.equal(
+    (await h.request("/api/agent/monitors", { url: "ftp://x", condition: "change" })).status,
+    400,
+  );
+  assert.equal(
+    (await h.request("/api/agent/monitors", {
+      url: "https://example.com/", condition: "contains",
+    })).status,
+    400,
+  );
+  // change：首检建基线 silent；同内容 silent；变化 notified 并通知主会话。
+  const svc = h.service();
+  const first = await svc.monitors.check(created.id, { body: "v1" });
+  assert.equal(first.outcome.kind, "silent");
+  assert.equal((await svc.monitors.check(created.id, { body: "v1" })).outcome.kind, "silent");
+  const changed = await svc.monitors.check(created.id, { body: "v2-content" });
+  assert.equal(changed.outcome.kind, "notified");
+  // 通知主会话由 scheduler 驱动（单元测试注入 fake fetch/main 验证全链路）。
+  assert.ok(changed.monitor?.lastNotifiedAt);
+  // contains：未命中→命中通知；持续命中不重复；抓取失败记 error 不通知。
+  const kw = await h
+    .request("/api/agent/monitors", {
+      url: "https://example.com/", condition: "contains", value: "LAUNCH", title: "关键词",
+    })
+    .then((x) => x.json());
+  assert.equal((await svc.monitors.check(kw.id, { body: "nothing here" })).outcome.kind, "silent");
+  const hit = await svc.monitors.check(kw.id, { body: "the LAUNCH is live" });
+  assert.equal(hit.outcome.kind, "notified");
+  assert.equal((await svc.monitors.check(kw.id, { body: "LAUNCH again" })).outcome.kind, "silent");
+  const failed = await svc.monitors.check(kw.id, { error: "fetch rejected" });
+  assert.equal(failed.outcome.kind, "error");
+  // 控制状态机与快照。
+  assert.equal(
+    (await h.request(`/api/agent/monitors/${created.id}/control`, { action: "pause" })).status,
+    200,
+  );
+  assert.equal(
+    (await h.request(`/api/agent/monitors/${created.id}/control`, { action: "pause" })).status,
+    409,
+  );
+  const snapshot = await h.request("/api/agent").then((x) => x.json());
+  assert.equal(snapshot.monitors.length, 2);
+  assert.ok(snapshot.monitors.some((m: { status: string }) => m.status === "paused"));
 });

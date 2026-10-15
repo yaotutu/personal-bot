@@ -1,6 +1,6 @@
 # pi 复用清单与选型边界
 
-调研日期：2026-10-10。已采用版本：@earendil-works/pi-coding-agent@1.1.0。
+调研日期：2026-10-10；生态复查：2026-10-14（见第 8 节）。已采用版本：@earendil-works/pi-coding-agent@1.1.0。
 已安装并锁定该版本；真实 SDK + 本地模拟 OpenAI SSE 已通过自动测试和 OpenMuse Web 联调。真实目标模型尚未配置。
 
 ## 1. 优先复用什么
@@ -88,3 +88,31 @@ Epsilondelta-ai/pi-web 自身声明有AG-UI SSE bridge，可以参考其session�
 P1 已复用 createAgentSession / ModelRuntime / SessionManager / abort / waitForIdle。业务历史和运行标识通过 custom entry 关联，重试通过 context edit 排除旧条目；不自行实现 agent loop 或模型 token parser。
 
 选择自写薄 AG-UI adapter 和 runner，没有引入 pi-web 的完整服务栈，也没有复制其代码；社区 bridge 仍未完成源码审计，不作为当前可靠性依据。Pi 资源使用完全由宿主提供的 ResourceLoader；P2 再选择可信 skills/工具，避免自动开放执行能力。
+
+## 8. 生态复查（2026-10-14）：版本动态与包适配结论
+
+复查时点：官方包全线发布 1.2.0（2026-10-12），本项目仍锁定 1.1.0。monorepo 现有包：pi-ai、pi-agent-core、pi-coding-agent、pi-durable、chord、pi-codemode、pi-mcp、pi-tui、pi-telemetry、pi-server（停在 1.1.0）。项目活跃度：~115k stars，约每周一版。
+
+### 版本策略
+
+v1 稳定期继续锁 1.1.0；v2 动工（V0）时一次性升 1.2.x，按以下 SDK 相关变更核对：
+
+- run 启动期间会话即计入 busy：`isIdle()` 为 false、`sendMessage()` 改为排队、abort 传递到启动中的 run（对取消链路是行为修正）。
+- `before_agent_start` 变 union 且 sendMessage 触发的 run 也会触发；确认 resource-loader 的 `createExtensionRuntime` 未注册受影响 hook。
+- `serializeConversation()`（压缩序列化）不再输出 thinking 块，修复"摘要请求大于被摘要上下文"的故障模式。
+- 1.2.0 起 coding-agent 依赖树移除 chord（仅 pi-durable 依赖它），对我们是净简化。
+
+### 包适配复查：自研功能对照 pi 生态
+
+| 包 / 内置能力 | 对应本项目功能 | 结论 |
+| --- | --- | --- |
+| `pi-mcp` | MCP 接入（P2 以后） | 采用路径：已随 coding-agent 传递依赖存在，真要用时提为直接依赖，不引入第二套 wire 实现 |
+| coding-agent 内置 skills | resource-loader `getSkills()` 现显式为空 | 未来给助手加技能知识时，开受控的 `DATA_DIR/skills` 目录发现，零新依赖；不打开默认发现 |
+| `pi-codemode` | 模型写沙箱 JS 组合只读工具（新能力候选，非现有需求） | 唯一值得排期评估的新包；启用前须单独设计权限与资源边界（CPU/时间/输出大小/审批） |
+| `pi-durable` | tasks/worker、jobs、PGlite records（v2 主线） | 否决维持：官方自标实验性且 API 随版变更；独立于 coding-agent 的第二套持久化体系；与"简单优先，崩了重跑"定论冲突。若未来要求任务断点续跑，应整体评估替换执行层而非混用 |
+| `pi-telemetry` | 工具/模型错误诊断 | 单用户场景过重，不用 |
+| `chord` / `pi-tui` | — | 不用：插件宿主/终端 UI 均超出项目边界 |
+| `pi-server` | HTTP/AG-UI 服务 | 不用：仍 experimental 且未跟进 1.2.0，形状非本项目 API |
+| 社区 pi-web 的 AG-UI 桥 | `src/adapters/ag-ui/` | 不用：桥内嵌于 Astro+Go 单二进制，不可独立安装；维持自研薄适配层 |
+
+其余自研功能——memory 长期记忆、jobs 调度、goals/monitors、actions 审批、文件/web/天气工具、AG-UI 投影、鉴权——在 pi 生态没有对应物，是产品语义层，维持自研。文件工具不复用 pi 内置 read/grep/edit：结果 JSON 结构是 OpenMuse renderer 协议契约，且必须挂接本项目 workspace 边界与审批闸。

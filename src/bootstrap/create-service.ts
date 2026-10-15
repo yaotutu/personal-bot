@@ -7,6 +7,8 @@ import { createJobService } from "../features/jobs/job-service.js";
 import { createTaskService } from "../features/tasks/task-service.js";
 import { createGoalService } from "../features/goals/goal-service.js";
 import { createActionService } from "../features/actions/action-service.js";
+import { createMonitorService } from "../features/monitors/monitor-service.js";
+import { createMonitorScheduler } from "../features/monitors/monitor-scheduler.js";
 import { createTaskWorker, type TaskWorker } from "../features/tasks/task-worker.js";
 import { createMemoryService } from "../features/memory/memory-service.js";
 import { createIdentityService } from "../features/identity/identity-service.js";
@@ -15,6 +17,7 @@ import { createJobRepository } from "../adapters/storage/job-repository.js";
 import { createTaskRepository } from "../adapters/storage/task-repository.js";
 import { createGoalRepository } from "../adapters/storage/goal-repository.js";
 import { createActionRepository } from "../adapters/storage/action-repository.js";
+import { createMonitorRepository } from "../adapters/storage/monitor-repository.js";
 import { createMemoryRepository } from "../adapters/storage/memory-repository.js";
 import { createHttpApp } from "../http/app.js";
 import { createDataLayout, ensureThreadLayout, threadSessionsDir } from "../adapters/storage/data-layout.js";
@@ -74,6 +77,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const tasks = createTaskService(createTaskRepository(layout.tasksFile));
   const goals = createGoalService(createGoalRepository(layout.goalsFile));
   const actions = createActionService(createActionRepository(layout.actionsFile));
+  const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile));
   const workerRef: { current?: TaskWorker } = {};
 
   // 多会话：每个 thread 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
@@ -83,7 +87,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       return createConversation(config, {
         history,
         openSession: async () => createPiExecution(
-          await openPi(config, manager, memory, jobs, layout, web, weather, tasks, workerRef.current, goals, config.writable.enabled ? actions : undefined, config.writable.actionTimeoutMs), manager,
+          await openPi(config, manager, memory, jobs, layout, web, weather, tasks, workerRef.current, goals, config.writable.enabled ? actions : undefined, config.writable.actionTimeoutMs, monitors), manager,
         ),
       });
     },
@@ -104,10 +108,15 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   // 定时任务结果固定进入主会话（与现有语义一致）；启动时确保 main thread 就绪。
   const mainConversation = await conversationHub.forThread("local-main");
   const scheduler = createScheduler(config, jobs, mainConversation);
+  const monitorScheduler = createMonitorScheduler(
+    { monitorScanIntervalMs: config.monitorScanIntervalMs, web: web ? { fetch: (url, mode, max) => web.fetch(url, mode, max) } : undefined },
+    monitors,
+    mainConversation,
+  );
   // 异步任务 worker：串行执行 + 完成通知主会话；遗留 running 标记 failed 可重试。
   const taskWorker = createTaskWorker(tasks, conversationHub, mainConversation);
   workerRef.current = taskWorker;
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, tasks, taskWorker, actions, conversationHub, scheduler, presentation };
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, tasks, taskWorker, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation };
   let app: Awaited<ReturnType<typeof createHttpApp>>;
   try {
     app = await createHttpApp(dependencies);
@@ -116,6 +125,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     throw error;
   }
   scheduler.start();
+  monitorScheduler.start();
   {
     // 启动恢复：把上次进程中断遗留的 running 任务标记为 failed，再跑排队任务。
     const leftovers = (await tasks.list()).filter((task) => task.status === "running");
@@ -131,7 +141,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       if (closing) return closing;
       // close 立即停掉 interval，但不先等待正在执行的定时轮：先取消会话，
       // 再等调度器把本轮失败/完成状态落盘。并发 close 共用同一个完成信号。
-      const stopped = scheduler.close();
+      const stopped = Promise.all([scheduler.close(), monitorScheduler.close()]).then(() => undefined);
       closing = (async () => {
         try {
           await Promise.all([conversationHub.closeAll(), taskWorker.close()]);

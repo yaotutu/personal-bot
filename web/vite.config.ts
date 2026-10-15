@@ -7,12 +7,14 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
+    host: true,
     // API 目标可用环境变量覆盖；默认 8787，被占用时 API_TARGET=http://127.0.0.1:8790
     proxy: { "/api": process.env.API_TARGET ?? "http://127.0.0.1:8787" },
   },
   // preview（构建产物验收）与 dev 共用同一代理配置。
   preview: {
     port: 4173,
+    host: true,
     proxy: { "/api": process.env.API_TARGET ?? "http://127.0.0.1:8787" },
   },
 });

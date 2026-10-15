@@ -110,6 +110,7 @@ R0-R6 与 R7A 已完成；R7B（物理数据目录迁移）条件性延期，当
 | `sessions/` | pi 会话 JSONL（历史权威来源） |
 | `SOUL.md` / `USER.md` | 自由文本身份（注入 system prompt，每轮重读） |
 | `memory.json` | 长期记忆条目 + identity 设置（P3 权威存储） |
+| `goals.json` `tasks.json` `actions.json` `monitors.json` | 目标 / 后台任务 / 审批 / 监控（各自裸数组） |
 | `jobs.json` | 定时任务（P4） |
 | `workspace/` | 资料目录（read/grep/find/ls 的唯一可达范围） |
 | `config.json` | 必需服务配置；模型 key 与访问密钥直接存放于此 |
@@ -120,6 +121,13 @@ R0-R6 与 R7A 已完成；R7B（物理数据目录迁移）条件性延期，当
 - 仅文件缺失可返回初始化默认值；JSON 损坏、非法根结构、已知 identity 字段类型错误、未知版本和其他 I/O 错误必须抛错，禁止静默覆盖为空文档。条目筛选保留旧 reader 的兼容语义，不在重构中顺手收紧历史数据要求。
 - 写入先在内存序列化，以 `wx`、`0600` 创建同目录临时文件，再 `rename` 替换；失败清理本次临时文件并保留原始错误。底层 writer 不做 fsync、自动重试、跨进程锁或 durable execution；scheduler 的补存仅重用已经得到的运行结果和完成时间。
 - 损坏文档需停止服务、保留原件并从有效备份恢复，不直接删文件消除报错。未来若改格式或路径，单独设计离线迁移与回退，不运行中双写。
+
+## 监控域（monitors）
+
+- `src/features/monitors/`：网页周期监控（change=内容指纹变化；contains=关键词未命中→命中），
+  首检建基线不通知；抓取复用 web 服务安全边界（公网 DNS 校验/私网拒绝），失败只记 error。
+- 调度 `monitor-scheduler`（默认 60s 扫表，间隔分钟级到期的 active 才检查）；通知进主会话（📡）。
+- 入口：对话 `monitor` 工具 / `POST /api/agent/monitors`；控制 pause/resume/stop。
 
 ## 异步任务域（worker）
 

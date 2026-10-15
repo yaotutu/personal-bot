@@ -49,6 +49,7 @@ test("DataLayout describes every legacy path without migrating data", () => {
     tasksFile: join(root, "tasks.json"),
     goalsFile: join(root, "goals.json"),
     actionsFile: join(root, "actions.json"),
+    monitorsFile: join(root, "monitors.json"),
     soulFile: join(root, "SOUL.md"),
     userFile: join(root, "USER.md"),
     authKeyFile: join(root, "auth.key"),
@@ -455,7 +456,10 @@ test("HTTP construction does not own or implicitly restart the scheduler", async
     try { await service.close(); }
     finally { await rm(dataDir, { recursive: true, force: true }); }
   });
+  // 两个调度器都要在 mock timers 激活前真实关闭；否则 close 时的
+  // clearInterval 被 mock 拦截，真实 interval 泄漏挂起进程。
   await service.scheduler.close();
+  await service.monitorScheduler.close();
   t.mock.timers.enable({ apis: ["setInterval"] });
   const scans = t.mock.method(service.jobs, "list");
   const main = await service.conversationHub.forThread("local-main");
