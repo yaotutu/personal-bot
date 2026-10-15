@@ -23,7 +23,7 @@ type ToolDependencies = {
   memory: MemoryService;
   jobs: JobService;
   tasks?: TaskService;
-  worker?: TaskWorker;
+  worker?: Pick<TaskWorker, "kick">;
   goals?: GoalService;
   actions?: ActionService;
   actionTimeoutMs?: number;

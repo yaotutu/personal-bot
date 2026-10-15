@@ -14,22 +14,31 @@ import { buildSystemPrompt } from "./system-prompt.js";
 import { createResourceLoader } from "./resource-loader.js";
 import { createTools } from "./tools/index.js";
 
+/**
+ * pi 装配的依赖集合。全部经由组合入口显式注入；可选能力（goals/actions/
+ * monitors/tasks/web/weather）缺省时对应工具不声明，不留第二套装配路径。
+ * 单对象参数消除此前 13 个位置参数的传错序风险。
+ */
+export type PiDeps = {
+  config: Config;
+  layout: DataLayout;
+  sessionManager: SessionManager;
+  memory: MemoryService;
+  jobs: JobService;
+  worker?: Pick<TaskWorker, "kick">;
+  tasks?: TaskService;
+  goals?: GoalService;
+  actions?: ActionService;
+  actionTimeoutMs?: number;
+  monitors?: MonitorService;
+  web?: WebService;
+  weather?: WeatherService;
+};
+
 /** 仅装配 pi 运行环境；agent loop 与 JSONL 持久化继续完全交给 SDK。 */
-export async function openPi(
-  config: Config,
-  sessionManager: SessionManager,
-  memory: MemoryService,
-  jobs: JobService,
-  layout: DataLayout,
-  web?: WebService,
-  weather?: WeatherService,
-  tasks?: TaskService,
-  worker?: TaskWorker,
-  goals?: GoalService,
-  actions?: ActionService,
-  actionTimeoutMs?: number,
-  monitors?: MonitorService,
-) {
+export async function openPi(deps: PiDeps) {
+  const { config, layout, sessionManager, memory, jobs, worker } = deps;
+  const { tasks, goals, actions, actionTimeoutMs, monitors, web, weather } = deps;
   if (!config.configured) throw new Error("MODEL_NOT_CONFIGURED");
   const cwd = layout.workspaceDir;
   const agentDir = layout.agentDir;

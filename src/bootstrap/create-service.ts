@@ -87,7 +87,21 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       return createConversation(config, {
         history,
         openSession: async () => createPiExecution(
-          await openPi(config, manager, memory, jobs, layout, web, weather, tasks, workerRef.current, goals, config.writable.enabled ? actions : undefined, config.writable.actionTimeoutMs, monitors), manager,
+          await openPi({
+            config,
+            layout,
+            sessionManager: manager,
+            memory,
+            jobs,
+            tasks,
+            worker: workerRef.current,
+            goals,
+            actions: config.writable.enabled ? actions : undefined,
+            actionTimeoutMs: config.writable.actionTimeoutMs,
+            monitors,
+            web,
+            weather,
+          }), manager,
         ),
       });
     },
