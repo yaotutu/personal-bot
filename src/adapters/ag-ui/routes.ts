@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { RunAgentInputSchema } from "@ag-ui/core";
+import { runRequestSchema } from "../../http/contracts/rest.js";
 import type { ConversationHub } from "../../features/conversation/conversation-hub.js";
 import { PiAgent } from "./agent.js";
 import { createRunner } from "./runner.js";
@@ -39,13 +39,14 @@ export const createAgUiRoutes = async (conversationHub: ConversationHub, present
       );
     if (path.endsWith("/run")) {
       // SDK 自带验证，但错误日志可能打印请求内容；宿主先验证并返回清晰 JSON。
-      const parsed = RunAgentInputSchema.safeParse(
+      // 宿主预校验用自有 v4 契约（SDK 仍会做完整校验；错误日志不打印请求内容）。
+      const parsed = runRequestSchema.safeParse(
         await c.req.raw
           .clone()
           .json()
           .catch(() => undefined),
       );
-      if (!parsed.success || parsed.data.messages.length > 1000)
+      if (!parsed.success)
         return c.json({ error: "Invalid AG-UI run request" }, 400);
     }
     return handler.fetch(c.req.raw);

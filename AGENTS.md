@@ -122,6 +122,22 @@ R0-R6 与 R7A 已完成；R7B（物理数据目录迁移）条件性延期，当
 - 写入先在内存序列化，以 `wx`、`0600` 创建同目录临时文件，再 `rename` 替换；失败清理本次临时文件并保留原始错误。底层 writer 不做 fsync、自动重试、跨进程锁或 durable execution；scheduler 的补存仅重用已经得到的运行结果和完成时间。
 - 损坏文档需停止服务、保留原件并从有效备份恢复，不直接删文件消除报错。未来若改格式或路径，单独设计离线迁移与回退，不运行中双写。
 
+## API 文档（自动生成，禁止手写 OpenAPI）
+
+- **端点注册表** `src/http/contracts/endpoints.ts` 是所有对外 HTTP 接口的唯一清单：
+  新增/修改端点必须在此登记（method/path/tag/summary/hint/request/response schema）。
+- **schema 即文档**：`contracts/rest.ts`（请求）、`contracts/responses.ts`（响应）、
+  `contracts/sse-events.ts`（AG-UI 事件子集）全部 zod v4；`.describe()` 直接进文档。
+  **禁止手写 OpenAPI JSON/YAML 文件**——文档由 `src/http/openapi.ts` 调
+  `z.toJSONSchema`（请求 io=input、响应 io=output）自动拼装 OpenAPI 3.1。
+- 运行时端点：`GET /openapi.json`（规范本体）、`GET /docs`（Scalar 页，
+  本地 bundle `/scalar.js` 优先、加载失败回退 CDN）。三者免鉴权。
+- **防漂移**：`tests/integration/docs-contract.test.ts` 三重守卫——结构完整
+  （每端点有 summary+schema）、文档路由可达、无副作用 GET 响应被注册表
+  schema safeParse。改接口不改 schema，测试红。
+- SSE 端点在 OpenAPI 里标 `text/event-stream`，事件契约挂 `x-sse-events` 扩展
+  （agent 可直接读）；非法 threadId 在宿主预校验即 HTTP 400（不进 SSE 流）。
+
 ## 监控域（monitors）
 
 - `src/features/monitors/`：网页周期监控（change=内容指纹变化；contains=关键词未命中→命中），

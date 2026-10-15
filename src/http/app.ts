@@ -1,9 +1,11 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
-import { z } from "zod/v3";
+import { z } from "zod";
 import type { HttpDependencies } from "../bootstrap/types.js";
 import { createWorkspaceRoutes } from "./workspace-routes.js";
+import { sessionRequestSchema } from "./contracts/rest.js";
+import { buildOpenApiDocument } from "./openapi.js";
 import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
 import { saveProfileSchema } from "./contracts/rest.js";
 
@@ -28,13 +30,21 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     }),
   );
   app.onError((_error, c) => c.json({ error: "Internal server error" }, 500));
+  // ---- API 文档（自动生成，免鉴权）----
+  app.get("/openapi.json", (c) => c.json(buildOpenApiDocument()));
+  app.get("/docs", (c) => c.html(docsPage));
+  app.get("/scalar.js", async (c) => {
+    const file = await readScalarStandalone();
+    return file
+      ? c.body(file, 200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" })
+      : c.text("Scalar bundle not installed; run pnpm install", 404);
+  });
+
   app.get("/api/health", (c) =>
     c.json({ ok: true, backend: "pi", configured: config.configured }),
   );
   app.post("/api/session", async (c) => {
-    const input = z
-      .object({ accessKey: z.string().max(512).optional() })
-      .safeParse(await c.req.json().catch(() => undefined));
+    const input = sessionRequestSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!input.success)
       return c.json({ error: "Invalid session request" }, 400);
     const token = auth.login(input.data.accessKey);
@@ -75,3 +85,49 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.notFound((c) => c.json({ error: "Not found" }, 404));
   return app;
 }
+
+// ---------------------------------------------------------------------------
+// Scalar 文档页：本地 bundle 优先，加载失败自动回退 CDN（离线安装也可见）。
+// ---------------------------------------------------------------------------
+const docsPage = `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Personal Bot API 文档</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      (function () {
+        var boot = function () {
+          Scalar.createApiReference('#app', { url: '/openapi.json' });
+        };
+        var local = document.createElement('script');
+        local.src = '/scalar.js';
+        local.onload = boot;
+        local.onerror = function () {
+          var cdn = document.createElement('script');
+          cdn.src = 'https://cdn.jsdelivr.net/npm/@scalar/api-reference';
+          cdn.onload = boot;
+          document.head.appendChild(cdn);
+        };
+        document.head.appendChild(local);
+      })();
+    </script>
+  </body>
+</html>`;
+
+import { readFile } from "node:fs/promises";
+import { join, dirname } from "node:path";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const readScalarStandalone = async (): Promise<string | undefined> => {
+  // exports 映射不含 package.json；从主入口（dist/index.js）反推包根再拼浏览器构建。
+  try {
+    const entry = require.resolve("@scalar/api-reference");
+    return await readFile(join(dirname(entry), "browser", "standalone.js"), "utf8");
+  } catch {
+    return undefined;
+  }
+};

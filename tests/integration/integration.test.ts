@@ -560,9 +560,13 @@ test("timeout and broken endpoint terminate with errors; validation cannot mutat
   const stale = await h.events(input([user("stale")]));
   assert.equal(stale.at(-1)?.code, "HISTORY_CONFLICT");
   assert.deepEqual(await h.getHistory(), canonical);
+  // 非法 threadId 在宿主预校验即被拒绝（HTTP 400），不再进入 SSE 流。
   const wrong = input([...canonical, user("wrong")]);
   wrong.threadId = "../../evil";
-  assert.equal((await h.events(wrong)).at(-1)?.code, "UNSUPPORTED_THREAD");
+  assert.equal(
+    (await h.request("/api/copilotkit/agent/default/run", wrong)).status,
+    400,
+  );
 });
 
 for (const failure of ["empty", "malformed", "broken"] as const) {
@@ -1205,9 +1209,13 @@ test("multi-thread: independent histories, thread listing and stop scoped per th
     .then((x) => x.json())
     .then((x) => (x.threads as { id: string }[]).map((y) => y.id).sort());
   assert.deepEqual(threads, ["local-main", "trip-2026"]);
+  // 非法 threadId 现在在宿主预校验被 HTTP 400 拒绝（不进 SSE 流）。
   const evil = input([user("x")], "t-evil");
   evil.threadId = "../evil";
-  assert.equal((await h.events(evil)).at(-1)?.code, "UNSUPPORTED_THREAD");
+  assert.equal(
+    (await h.request("/api/copilotkit/agent/default/run", evil)).status,
+    400,
+  );
   // 重启后两个 thread 历史仍独立。
   await h.restart();
   const after = await h.request("/api/threads")
