@@ -7,6 +7,6 @@ import type { Job } from "./types.js";
 export type JobRepository = {
   read: () => Promise<Job[]>;
   update: <T>(
-    change: (jobs: Job[]) => { jobs?: Job[]; result: T },
+    change: (items: Job[]) => { items?: Job[]; result: T },
   ) => Promise<T>;
 };

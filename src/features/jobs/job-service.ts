@@ -12,8 +12,8 @@ const controlJob = (
   id: string,
   action: JobControlAction,
   isBusy: () => boolean,
-): Promise<JobControlResult> => repository.update<JobControlResult>((jobs) => {
-  const job = jobs.find((item) => item.id === id);
+): Promise<JobControlResult> => repository.update<JobControlResult>((items) => {
+  const job = items.find((item) => item.id === id);
   if (!job) return { result: { ok: false, code: "not_found", message: "Task not found" } };
   const conflict = (message: string) => ({ result: { ok: false as const, code: "conflict" as const, message } });
   const unchanged = () => ({ result: { ok: true as const, job } });
@@ -50,7 +50,7 @@ const controlJob = (
     };
   }
   return {
-    jobs: jobs.map((item) => item === job ? updated : item),
+    items: items.map((item) => item === job ? updated : item),
     result: { ok: true, job: updated },
   };
 });
@@ -67,9 +67,9 @@ export const createJobService = (repository: JobRepository) => ({
    * 启动时沿 nanobot 语义重算 daily、停用过期 once；没有断点续跑。
    * 用户请求的即时 retry 也不在重启后自动恢复，清除队列展示标记，保留控制记录。
    */
-  reconcileOnStart: (): Promise<void> => repository.update((jobs) => {
+  reconcileOnStart: (): Promise<void> => repository.update((items) => {
     const now = new Date();
-    const updated = jobs.map((original) => {
+    const updated = items.map((original) => {
       const job = original.controlState === "retry_pending"
         ? { ...original, controlState: undefined } : original;
       if (!job.enabled) return job;
@@ -78,17 +78,17 @@ export const createJobService = (repository: JobRepository) => ({
       return nextRunAt === job.nextRunAt ? job : { ...job, nextRunAt };
     });
     return {
-      ...(updated.some((job, index) => job !== jobs[index]) ? { jobs: updated } : {}),
+      ...(updated.some((job, index) => job !== items[index]) ? { items: updated } : {}),
       result: undefined,
     };
   }),
 
-  add: (prompt: string, daily: boolean, at: string): Promise<Job> => repository.update((jobs) => {
+  add: (prompt: string, daily: boolean, at: string): Promise<Job> => repository.update((items) => {
     const job: Job = {
       id: randomUUID(), prompt: prompt.trim(), daily, at, enabled: true,
       createdAt: new Date().toISOString(), nextRunAt: nextRunAfter(daily, at, new Date()),
     };
-    return { jobs: [...jobs, job], result: job };
+    return { items: [...items, job], result: job };
   }),
 
   /** 对话 schedule 与页面 Cancel 复用同一转换；已完成 once 保持原有幂等确认，不改结果。 */
@@ -107,8 +107,8 @@ export const createJobService = (repository: JobRepository) => ({
     status: "completed" | "failed",
     result: string,
     completedAt: Date = new Date(),
-  ): Promise<Job | undefined> => repository.update((jobs) => {
-    const job = jobs.find((item) => item.id === id);
+  ): Promise<Job | undefined> => repository.update((items) => {
+    const job = items.find((item) => item.id === id);
     if (!job) return { result: undefined };
     const updated: Job = {
       ...job,
@@ -116,7 +116,7 @@ export const createJobService = (repository: JobRepository) => ({
       ...(job.controlState === "retry_pending" ? { controlState: undefined } : {}),
       ...(job.daily ? { nextRunAt: nextRunAfter(true, job.at, completedAt) } : { enabled: false }),
     };
-    return { jobs: jobs.map((item) => item === job ? updated : item), result: updated };
+    return { items: items.map((item) => item === job ? updated : item), result: updated };
   }),
 });
 

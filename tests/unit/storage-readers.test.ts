@@ -78,7 +78,7 @@ for (const kind of ["memory", "jobs"] as const) {
       }));
       assert.equal(JSON.parse(await readFile(file, "utf8")).identity.name, "Repaired");
     } else {
-      await (repository as ReturnType<typeof createJobRepository>).update(() => ({ jobs: [], result: undefined }));
+      await (repository as ReturnType<typeof createJobRepository>).update(() => ({ items: [], result: undefined }));
       assert.equal(await readFile(file, "utf8"), "[]\n");
     }
   });

@@ -11,7 +11,7 @@ export const createTaskService = (repository: TaskRepository) => {
     get: async (id: string): Promise<Task | undefined> =>
       (await repository.read()).find((task) => task.id === id),
     create: (prompt: string, source: Task["source"], title?: string): Promise<Task> =>
-      repository.update((tasks) => {
+      repository.update((items) => {
         const task: Task = {
           id: randomUUID(),
           title: (title ?? prompt).slice(0, 80),
@@ -20,8 +20,8 @@ export const createTaskService = (repository: TaskRepository) => {
           source,
           createdAt: now(),
         };
-        tasks.push(task);
-        return { tasks, result: task };
+        items.push(task);
+        return { items, result: task };
       }),
     /**
      * 控制语义（诚实边界）：
@@ -37,13 +37,13 @@ export const createTaskService = (repository: TaskRepository) => {
       | { ok: false; code: "not_found" | "invalid_state"; message: string }
     > =>
       repository.update(
-        (tasks): {
-          tasks?: Task[];
+        (items): {
+          items?: Task[];
           result:
             | { ok: true; task: Task }
             | { ok: false; code: "not_found" | "invalid_state"; message: string };
         } => {
-        const task = tasks.find((x) => x.id === id);
+        const task = items.find((x) => x.id === id);
         if (!task) return { result: { ok: false, code: "not_found", message: "Task not found" } };
         if (action === "cancel") {
           if (task.status === "succeeded" || task.status === "cancelled")
@@ -70,31 +70,31 @@ export const createTaskService = (repository: TaskRepository) => {
           task.result = undefined;
           task.finishedAt = undefined;
         }
-        return { tasks, result: { ok: true, task } };
+        return { items, result: { ok: true, task } };
       }),
     /** worker 专用状态迁移；非法迁移保持 no-op 并返回 false。 */
     markRunning: (id: string): Promise<boolean> =>
-      repository.update((tasks) => {
-        const task = tasks.find((x) => x.id === id);
+      repository.update((items) => {
+        const task = items.find((x) => x.id === id);
         if (!task || task.status !== "queued") return { result: false };
         task.status = "running";
         task.startedAt = now();
-        return { tasks, result: true };
+        return { items, result: true };
       }),
     markFinished: (
       id: string,
       status: "succeeded" | "failed",
       output?: string,
     ): Promise<Task | undefined> =>
-      repository.update((tasks) => {
-        const task = tasks.find((x) => x.id === id);
+      repository.update((items) => {
+        const task = items.find((x) => x.id === id);
         // 只有 running 状态允许迁移到终态；已被并发 cancel 的任务保持 cancelled。
         if (!task || task.status !== "running") return { result: undefined };
         task.status = status;
         task.finishedAt = now();
         task.result = status === "succeeded" ? output?.slice(0, 4000) : undefined;
         task.error = status === "failed" ? "Task run failed" : undefined;
-        return { tasks, result: task };
+        return { items, result: task };
       }),
   };
 };

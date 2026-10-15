@@ -19,7 +19,7 @@ export const createMonitorService = (repository: MonitorRepository) => {
     create: (
       input: { title?: string; url: string; condition: MonitorCondition; value?: string; intervalMinutes?: number },
     ): Promise<Monitor> =>
-      repository.update((monitors) => {
+      repository.update((items) => {
         if (input.condition === "contains" && !input.value?.trim())
           throw Object.assign(new Error("contains condition needs a keyword"), {
             code: "INVALID_MONITOR",
@@ -35,8 +35,8 @@ export const createMonitorService = (repository: MonitorRepository) => {
           createdAt: now(),
           checks: 0,
         };
-        monitors.push(monitor);
-        return { monitors, result: monitor };
+        items.push(monitor);
+        return { items, result: monitor };
       }),
     control: (
       id: string,
@@ -46,13 +46,13 @@ export const createMonitorService = (repository: MonitorRepository) => {
       | { ok: false; code: "not_found" | "invalid_state"; message: string }
     > =>
       repository.update(
-        (monitors): {
-          monitors?: Monitor[];
+        (items): {
+          items?: Monitor[];
           result:
             | { ok: true; monitor: Monitor }
             | { ok: false; code: "not_found" | "invalid_state"; message: string };
         } => {
-          const monitor = monitors.find((x) => x.id === id);
+          const monitor = items.find((x) => x.id === id);
           if (!monitor)
             return { result: { ok: false, code: "not_found", message: "Monitor not found" } };
           if (
@@ -69,16 +69,16 @@ export const createMonitorService = (repository: MonitorRepository) => {
             };
           monitor.status =
             action === "pause" ? "paused" : action === "resume" ? "active" : "stopped";
-          return { monitors, result: { ok: true, monitor } };
+          return { items, result: { ok: true, monitor } };
         },
       ),
     remove: (id: string): Promise<boolean> =>
-      repository.update((monitors) => {
-        const before = monitors.length;
-        const next = monitors.filter((x) => x.id !== id);
+      repository.update((items) => {
+        const before = items.length;
+        const next = items.filter((x) => x.id !== id);
         return before === next.length
           ? { result: false }
-          : { monitors: next, result: true };
+          : { items: next, result: true };
       }),
     /**
      * 执行一次检查并落盘。body 是抓取到的正文（由 scheduler 注入，复用 web
@@ -91,11 +91,11 @@ export const createMonitorService = (repository: MonitorRepository) => {
       result: { body?: string; error?: string },
     ): Promise<{ monitor?: Monitor; outcome: MonitorCheckOutcome }> =>
       repository.update(
-        (monitors): {
-          monitors?: Monitor[];
+        (items): {
+          items?: Monitor[];
           result: { monitor?: Monitor; outcome: MonitorCheckOutcome };
         } => {
-          const monitor = monitors.find((x) => x.id === id);
+          const monitor = items.find((x) => x.id === id);
           if (!monitor || monitor.status !== "active")
             return { result: { outcome: { kind: "silent" } } };
           monitor.checks += 1;
@@ -103,7 +103,7 @@ export const createMonitorService = (repository: MonitorRepository) => {
           if (result.error) {
             // 抓取失败只记错误不通知（网页偶发抖动常见）；连续失败可见于 error 字段。
             monitor.error = "Fetch failed";
-            return { monitors, result: { monitor, outcome: { kind: "error", message: result.error } } };
+            return { items, result: { monitor, outcome: { kind: "error", message: result.error } } };
           }
           monitor.error = undefined;
           const body = result.body ?? "";
@@ -112,11 +112,11 @@ export const createMonitorService = (repository: MonitorRepository) => {
             const previous = monitor.lastFingerprint;
             monitor.lastFingerprint = fingerprint;
             if (previous === undefined || previous === fingerprint)
-              return { monitors, result: { monitor, outcome: { kind: "silent" } } };
+              return { items, result: { monitor, outcome: { kind: "silent" } } };
             monitor.lastNotifiedAt = now();
             const summary = body.replace(/\s+/g, " ").trim().slice(0, 300);
             return {
-              monitors,
+              items,
               result: { monitor, outcome: { kind: "notified", summary } },
             };
           }
@@ -124,12 +124,12 @@ export const createMonitorService = (repository: MonitorRepository) => {
           const wasMatched = monitor.lastMatched ?? false;
           monitor.lastMatched = matched;
           if (!matched || wasMatched)
-            return { monitors, result: { monitor, outcome: { kind: "silent" } } };
+            return { items, result: { monitor, outcome: { kind: "silent" } } };
           monitor.lastNotifiedAt = now();
           const at = body.indexOf(monitor.value!);
           const around = body.slice(Math.max(0, at - 80), at + 120).replace(/\s+/g, " ");
           return {
-            monitors,
+            items,
             result: { monitor, outcome: { kind: "notified", summary: around } },
           };
         },

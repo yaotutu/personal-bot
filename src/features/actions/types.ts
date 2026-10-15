@@ -28,6 +28,6 @@ export type ActionDecision =
 export type ActionRepository = {
   read: () => Promise<PendingAction[]>;
   update: <T>(
-    change: (actions: PendingAction[]) => { actions?: PendingAction[]; result: T },
+    change: (items: PendingAction[]) => { items?: PendingAction[]; result: T },
   ) => Promise<T>;
 };

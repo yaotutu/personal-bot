@@ -34,5 +34,5 @@ export type MonitorCheckOutcome =
 
 export type MonitorRepository = {
   read: () => Promise<Monitor[]>;
-  update: <T>(change: (monitors: Monitor[]) => { monitors?: Monitor[]; result: T }) => Promise<T>;
+  update: <T>(change: (items: Monitor[]) => { items?: Monitor[]; result: T }) => Promise<T>;
 };

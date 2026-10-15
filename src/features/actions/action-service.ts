@@ -15,7 +15,7 @@ export const createActionService = (repository: ActionRepository) => {
   return {
     list: (): Promise<PendingAction[]> => repository.read(),
     submit: (kind: ActionKind, title: string, payload: Record<string, string>): Promise<PendingAction> =>
-      repository.update((actions) => {
+      repository.update((items) => {
         const action: PendingAction = {
           id: randomUUID(),
           kind,
@@ -24,12 +24,12 @@ export const createActionService = (repository: ActionRepository) => {
           status: "pending",
           createdAt: now(),
         };
-        actions.push(action);
+        items.push(action);
         // 只裁剪终态：pending 永不被挤掉。
-        const settled = actions.filter((x) => x.status !== "pending");
-        const pending = actions.filter((x) => x.status === "pending");
+        const settled = items.filter((x) => x.status !== "pending");
+        const pending = items.filter((x) => x.status === "pending");
         return {
-          actions: [...pending, ...settled.slice(-100)],
+          items: [...pending, ...settled.slice(-100)],
           result: action,
         };
       }),
@@ -38,24 +38,24 @@ export const createActionService = (repository: ActionRepository) => {
       id: string,
       decision: "approve" | "deny",
     ): Promise<PendingAction | undefined> =>
-      repository.update((actions) => {
-        const action = actions.find((x) => x.id === id);
+      repository.update((items) => {
+        const action = items.find((x) => x.id === id);
         if (!action || action.status !== "pending") return { result: undefined };
         action.status = decision === "approve" ? "approved" : "denied";
         action.decidedAt = now();
-        return { actions, result: action };
+        return { items, result: action };
       }),
     /** 工具侧轮询：pending 超 timeoutMs 标记 expired 并返回 expired。 */
     poll: async (id: string, timeoutMs: number): Promise<ActionDecision> =>
       repository.update(
-        (actions): { actions?: PendingAction[]; result: ActionDecision } => {
-        const action = actions.find((x) => x.id === id);
+        (items): { items?: PendingAction[]; result: ActionDecision } => {
+        const action = items.find((x) => x.id === id);
         if (!action) return { result: { status: "denied" } };
         if (action.status !== "pending") return { result: { status: action.status } };
         if (Date.now() - Date.parse(action.createdAt) > timeoutMs) {
           action.status = "expired";
           action.decidedAt = now();
-          return { actions, result: { status: "expired" } };
+          return { items, result: { status: "expired" } };
         }
         return { result: { status: "pending" } };
       }),

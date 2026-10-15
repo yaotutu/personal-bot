@@ -28,5 +28,5 @@ export type Task = {
 /** 任务存储 port；实现由 storage adapter 注入，feature 不碰文件系统。 */
 export type TaskRepository = {
   read: () => Promise<Task[]>;
-  update: <T>(change: (tasks: Task[]) => { tasks?: Task[]; result: T }) => Promise<T>;
+  update: <T>(change: (items: Task[]) => { items?: Task[]; result: T }) => Promise<T>;
 };

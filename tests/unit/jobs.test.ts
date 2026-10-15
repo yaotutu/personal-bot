@@ -72,7 +72,7 @@ test("reconcileOnStart follows nanobot restart semantics", async (t) => {
   const disabled = { ...daily, id: "cancelled", enabled: false };
   const completed = { ...expired, id: "completed", enabled: false, lastStatus: "completed" as const };
   await createJobRepository(file).update(() => ({
-    jobs: [daily, expired, future, staleFuture, disabled, completed], result: undefined,
+    items: [daily, expired, future, staleFuture, disabled, completed], result: undefined,
   }));
   await service.reconcileOnStart();
   const jobs = await service.list();
@@ -315,6 +315,6 @@ test("repository writes returned empty arrays and recovers after a failed update
   const file = await tempFile(t);
   const repository = createJobRepository(file);
   await assert.rejects(repository.update(() => { throw new Error("change failed"); }));
-  assert.equal(await repository.update(() => ({ jobs: [], result: "cleared" })), "cleared");
+  assert.equal(await repository.update(() => ({ items: [], result: "cleared" })), "cleared");
   assert.equal(await readFile(file, "utf8"), "[]\n");
 });

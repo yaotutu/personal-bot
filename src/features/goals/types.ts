@@ -27,5 +27,5 @@ export type Goal = {
 /** 目标存储 port；实现由 storage adapter 注入。 */
 export type GoalRepository = {
   read: () => Promise<Goal[]>;
-  update: <T>(change: (goals: Goal[]) => { goals?: Goal[]; result: T }) => Promise<T>;
+  update: <T>(change: (items: Goal[]) => { items?: Goal[]; result: T }) => Promise<T>;
 };

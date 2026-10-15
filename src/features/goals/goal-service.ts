@@ -11,7 +11,7 @@ export const createGoalService = (repository: GoalRepository) => {
     create: (
       input: { title: string; description?: string; category?: string; milestones?: string[] },
     ): Promise<Goal> =>
-      repository.update((goals) => {
+      repository.update((items) => {
         const goal: Goal = {
           id: randomUUID(),
           title: input.title.trim().slice(0, 160),
@@ -26,15 +26,15 @@ export const createGoalService = (repository: GoalRepository) => {
           createdAt: now(),
           updatedAt: now(),
         };
-        goals.push(goal);
-        return { goals, result: goal };
+        items.push(goal);
+        return { items, result: goal };
       }),
     edit: async (
       id: string,
       patch: { title?: string; description?: string; category?: string },
     ): Promise<Goal | undefined> =>
-      repository.update((goals) => {
-        const goal = goals.find((x) => x.id === id);
+      repository.update((items) => {
+        const goal = items.find((x) => x.id === id);
         if (!goal) return { result: undefined };
         if (patch.title !== undefined) goal.title = patch.title.trim().slice(0, 160);
         if (patch.description !== undefined)
@@ -42,12 +42,12 @@ export const createGoalService = (repository: GoalRepository) => {
         if (patch.category !== undefined)
           goal.category = patch.category.trim().slice(0, 40) || "general";
         goal.updatedAt = now();
-        return { goals, result: goal };
+        return { items, result: goal };
       }),
     /** 状态迁移：completed 自动勾掉全部里程碑；重新激活不回退勾选（诚实保留历史）。 */
     setStatus: async (id: string, status: GoalStatus): Promise<Goal | undefined> =>
-      repository.update((goals) => {
-        const goal = goals.find((x) => x.id === id);
+      repository.update((items) => {
+        const goal = items.find((x) => x.id === id);
         if (!goal) return { result: undefined };
         goal.status = status;
         if (status === "completed")
@@ -57,7 +57,7 @@ export const createGoalService = (repository: GoalRepository) => {
               milestone.doneAt = now();
             }
         goal.updatedAt = now();
-        return { goals, result: goal };
+        return { items, result: goal };
       }),
     /** 勾选/取消里程碑；全部勾选不自动完成目标（完成是用户的显式决定）。 */
     toggleMilestone: async (
@@ -65,22 +65,22 @@ export const createGoalService = (repository: GoalRepository) => {
       milestoneId: string,
     ): Promise<{ goal?: Goal; milestone?: { done: boolean } }> =>
       repository.update(
-        (goals): { goals?: Goal[]; result: { goal?: Goal; milestone?: { done: boolean } } } => {
-        const goal = goals.find((x) => x.id === goalId);
+        (items): { items?: Goal[]; result: { goal?: Goal; milestone?: { done: boolean } } } => {
+        const goal = items.find((x) => x.id === goalId);
         const milestone = goal?.milestones.find((x) => x.id === milestoneId);
         if (!goal || !milestone) return { result: {} };
         milestone.done = !milestone.done;
         milestone.doneAt = milestone.done ? now() : undefined;
         goal.updatedAt = now();
-        return { goals, result: { goal, milestone: { done: milestone.done } } };
+        return { items, result: { goal, milestone: { done: milestone.done } } };
         },
       ),
     remove: (id: string): Promise<boolean> =>
-      repository.update((goals) => {
-        const before = goals.length;
-        const next = goals.filter((x) => x.id !== id);
+      repository.update((items) => {
+        const before = items.length;
+        const next = items.filter((x) => x.id !== id);
         if (next.length === before) return { result: false };
-        return { goals: next, result: true };
+        return { items: next, result: true };
       }),
   };
 };
