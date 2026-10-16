@@ -36,10 +36,13 @@ export async function createAuth(
         !timingSafeEqual(digest(key || ""), digest(config.accessKey))
       )
         return undefined;
+      // 本机单用户场景下重新登录没有安全收益（签名密钥 + accessKey 已经控访问），
+      // 因此签发的 token 不再设硬过期：旧 token（payload 里 exp 是 +24h）继续按原 24h 到期时间被 authorized() 拒绝，
+      // 新 token 的 exp 写为 MAX_SAFE_INTEGER，data.exp > Date.now() 永远成立。作废仍交给 accessKey 轮换触发签名密钥变化。
       const payload = Buffer.from(
         JSON.stringify({
           owner: "local-user",
-          exp: Date.now() + 86_400_000,
+          exp: Number.MAX_SAFE_INTEGER,
           nonce: randomBytes(12).toString("hex"),
         }),
       ).toString("base64url");

@@ -13,7 +13,9 @@ export const healthResponse = z.object({
   configured: z.boolean().describe("模型是否已配置（决定聊天能否运行）"),
 });
 export const sessionResponse = z.object({
-  token: z.string().describe("Bearer token，后续所有 /api/* 请求放 Authorization 头，24h 有效"),
+  token: z.string().describe(
+    "Bearer token，后续所有 /api/* 请求放 Authorization 头。长期有效：服务重启仍可用，仅当 config.json 的 accessKey 变更/清除后旧 token 才会被拒绝。",
+  ),
   mode: z.literal("live"),
 });
 export const okResponse = z.object({ ok: z.literal(true) });

@@ -142,6 +142,37 @@ test("auth: rotating the access key invalidates existing tokens in the same data
   assert.equal(restarted.authorized(`Bearer ${newToken}`), true);
 });
 
+test("auth: newly issued tokens carry a far-future exp and stay valid across many calls", async (t) => {
+  // 验收 #2：login() 不再写 +24h 过期；新 token 的 payload.exp 必须远超原 24h（一年以上），
+  // 并且同一 token 多次 authorized() 都返回 true，确保 authorized() 没有把"过期"语义写死。
+  // 不引入时间冻结：仓库无 sinon/fake timers，伪造 Date.now() 容易绕过分支；改为断言 payload 结构和重复调用。
+  const config = await temporaryConfig(t, {
+    server: { accessKey: "workspace-key" },
+    model: { apiKey: "model-key" },
+  });
+  const auth = await createAuth(config);
+  const token = auth.login("workspace-key");
+  assert.ok(token);
+  const [payload, signature] = token.split(".");
+  assert.ok(payload);
+  assert.ok(signature);
+  const decoded = JSON.parse(
+    Buffer.from(payload, "base64url").toString(),
+  ) as { owner?: string; exp?: number };
+  assert.equal(decoded.owner, "local-user");
+  assert.equal(typeof decoded.exp, "number");
+  // 原 24h = 86_400_000；这里要求至少 1 年 (365d) 作为"远超 24h"的硬指标，
+  // 实际上线后实现为 Number.MAX_SAFE_INTEGER，这个上界会远大于 1 年。
+  assert.ok(
+    decoded.exp! > Date.now() + 365 * 86_400_000,
+    `expected exp > now + 365d, got exp=${decoded.exp} now=${Date.now()}`,
+  );
+  // 同一 token 多次 authorized() 必须稳定为 true，避免有人偷偷加 TTL/cache 之类的过期路径。
+  assert.equal(auth.authorized(`Bearer ${token}`), true);
+  assert.equal(auth.authorized(`Bearer ${token}`), true);
+  assert.equal(auth.authorized(`Bearer ${token}`), true);
+});
+
 test("app: offline health, authentication and text-only HTTP boundaries", async (t) => {
   const config = await temporaryConfig(t, {
     server: {
