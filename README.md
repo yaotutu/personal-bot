@@ -1,6 +1,7 @@
-# Personal Bot
+# pi-muse
 
-基于 pi 的单用户个人助手，主要客户端为仓库内的 `web/`（Vite + React）。
+基于 pi 构建的开源单用户个人助手，UI 与交互参考 Muse，主要客户端为仓库内的 `web/`（Vite + React）。
+本项目为非官方项目，不代表 Muse 官方开源版本。
 支持多 thread 对话、会话压缩、身份/记忆、定时任务、后台任务、网页监控和逐次审批的文件写入；不是 nanobot 的整套功能迁移，也不使用 nanobot WebUI。
 
 ## 已实现
@@ -14,7 +15,7 @@
   执行前强制路径边界——解析后必须落在 `DATA_DIR/workspace` 资料目录内，绝对路径与 `../` 逃逸一律拒绝）；
   工具调用与结果按展示策略投影为 AG-UI 四类事件（START/ARGS/END/RESULT），供客户端展示，
   历史投影包含 assistant 的 toolCalls 与 role "tool" 消息，刷新/重启后关联不变。
-  把资料放进 `.personal-bot/workspace/` 即可让助手读它回答问题。
+  把资料放进 `.pi-muse/workspace/` 即可让助手读它回答问题。
 - 文件写入：`write`/`edit` 默认开启，但每次执行都需人工审批。审批包含完整修改前后文本并绑定文件版本；提交前复核 workspace 路径、文件版本、审批期限和取消状态。拒绝、过期或运行取消不会提交该次修改，文件变化需重新审批；`bash` 永不暴露。
 - pi JSONL 是历史权威来源；客户端每轮完成后读取历史，不再用旧快照覆盖服务端。
 - 会话压缩（P2.5）：超阈值时 pi 用摘要替换模型上下文，展示历史全量保留；压缩参数按
@@ -44,17 +45,16 @@
 
 ## 启动真实模型
 
-需要 Node 24+；此项目锁定 pnpm 12.10.1。
+需要 Node 24+；此项目锁定 pnpm 12.10.1。以下命令均从仓库根目录执行，Web 使用 `pnpm --dir web` 启动。
 
 ~~~sh
-cd /Users/yaotutu/Desktop/code/personal-bot
 pnpm install
-mkdir -p .personal-bot
-cp config.example.json .personal-bot/config.json
-chmod 600 .personal-bot/config.json
+mkdir -p .pi-muse
+cp config.example.json .pi-muse/config.json
+chmod 600 .pi-muse/config.json
 ~~~
 
-所有启动配置都来自 `.personal-bot/config.json`：模型、端口、超时、调度间隔、访问密钥
+所有启动配置都来自 `.pi-muse/config.json`：模型、端口、超时、调度间隔、访问密钥
 和模型 API key 都直接写在这个文件中。项目不再读取旧的环境变量配置。完整字段说明见
 `docs/configuration.md`。
 
@@ -68,9 +68,7 @@ pnpm dev
 在另一终端启动仓库内的 Web 客户端：
 
 ~~~sh
-cd /Users/yaotutu/Desktop/code/personal-bot/web
-pnpm install
-pnpm dev
+pnpm --dir web dev
 ~~~
 
 打开 http://localhost:15173。Vite 默认把 `/api` 代理到 `http://127.0.0.1:17890`；若配置访问密钥，在 Web 登录框填写该密钥。
@@ -92,10 +90,9 @@ pnpm start
 Vite + React + Tailwind，契约类型直接引用 `src/http/contracts`。默认服务端为 `17890`；若实际配置了其他端口，可仅为 Web 开发代理设置 `API_TARGET`：
 
 ```sh
-cd web
 pnpm install
-API_TARGET=http://127.0.0.1:17891 pnpm dev   # 仅当 mock 实际监听 17891 时使用
-# 或：服务端被自动避让到了其他端口（看启动日志的实际端口）
+API_TARGET=http://127.0.0.1:17891 pnpm --dir web dev   # 仅当 mock 实际监听 17891 时使用
+# 若服务端配置了其他端口，按启动日志设置 API_TARGET
 ```
 
 功能：多会话列表/新建、流式对话（AG-UI SSE 子集）、工具卡片、停止、历史刷新恢复。
@@ -106,7 +103,7 @@ API_TARGET=http://127.0.0.1:17891 pnpm dev   # 仅当 mock 实际监听 17891 �
 小屏抽屉式会话列表 + 安全区适配）。构建产物自带 PWA：
 
 ```sh
-cd web && pnpm build && pnpm preview  # 14173，默认 API 代理到 17890
+pnpm --dir web build && pnpm --dir web preview  # 14173，默认 API 代理到 17890
 ```
 
 安装边界（诚实说明）：Android Chrome 要求 secure context，局域网 HTTP IP 不能安装
@@ -116,26 +113,23 @@ cd web && pnpm build && pnpm preview  # 14173，默认 API 代理到 17890
 ## 无凭据本地联调
 
 ~~~sh
-cd /Users/yaotutu/Desktop/code/personal-bot
 pnpm dev:mock
 # 另一终端
-cd /Users/yaotutu/Desktop/code/personal-bot/web
-pnpm install
-API_TARGET=http://127.0.0.1:17891 pnpm dev
+API_TARGET=http://127.0.0.1:17891 pnpm --dir web dev
 ~~~
 
 mock 默认监听 17891，使用真实 pi SDK + 本地模拟 OpenAI SSE endpoint，不读取正式 config.json，不调用真实供应商。
 模拟回复展示收到的用户轮数；发送 slow 可测试停止；发送含「时间/几点」的消息走 currentTime 工具闭环（模拟模型先发起 tool_calls，pi 执行工具后生成回答）。
-模拟历史在 `.personal-bot/mock`，与正式历史隔离。
+模拟历史在 `.pi-muse/mock`，与正式历史隔离。
 mock 端口和数据目录由脚本内显式配置固定，不提供环境变量覆盖。
 这里的 `API_TARGET` 只改变 Vite 代理，不覆盖服务端或 mock 配置。
 
 ## 存储与安全边界
 
-默认目录 `.personal-bot`（已忽略）：`config.json` 是必需服务配置，`sessions/<threadId>/` 保存各 thread 的 pi 会话，auth.key 是随机 token 签名密钥，workspace/ 与 agent/ 是专用运行目录。
+默认实例目录为 `.pi-muse`（已忽略）：`config.json` 是必需服务配置，`sessions/<threadId>/` 保存各 thread 的 pi 会话，auth.key 是随机 token 签名密钥，workspace/ 与 agent/ 是专用运行目录。
 `runtime.dataDir` 省略时使用配置文件所在目录；相对值也按配置文件目录解析，不按进程 cwd。推荐绝对路径以便部署排查，但并非必需。
 默认 CORS 包含 localhost/127.0.0.1 的 15173 与 17890 四个 origin，便于从本机或局域网访问；显式 `server.allowedOrigins` 会替换默认列表。
-模型 key 只驻留受保护的 `.personal-bot/config.json` 与服务端内存，不写入 pi auth.json、不返回客户端；供应商错误诊断在持久化前脱敏。
+模型 key 只驻留受保护的 `.pi-muse/config.json` 与服务端内存，不写入 pi auth.json、不返回客户端；供应商错误诊断在持久化前脱敏。
 对话本身按明文落盘，应保护或备份数据目录。登录 token 长期有效，服务重启仍有效；更换访问密钥会使旧 token 立即失效，本轮之前签发的 24h 短 token 仍按原到期时间被拒。
 
 这是可信本机、单进程、单 owner 服务，不是公开互联网生产部署。不要让两个进程共用同一个实例数据目录。
@@ -149,6 +143,8 @@ pi 自动压缩已开启（参数随上下文窗口收缩），展示历史完�
 
 ## 验证状态与后续
 
+- 2026-10-17：默认数据目录及真实实例已离线迁移为 `.pi-muse/`，绝对配置路径与pi会话头同步更新；261项测试、类型检查、前后端构建和迁移后历史/登录回归通过。受保护备份位置与回退方式见 `docs/HANDOFF.md`。
+- 2026-10-17：品牌统一为 `pi-muse`；260 项自动化测试、类型检查、服务端/Web 构建通过。隔离 DEV 已验证桌面/移动端品牌、真实模型时间工具及历史刷新；PWA 已验证旧壳刷新与离线品牌。数据目录随后已离线迁移为 `.pi-muse/`，历史协议标识和已有自定义身份仍保留，备份及完整验收范围见 `docs/HANDOFF.md`。
 - 测试入口为 `pnpm test`（unit/integration + fake provider）；测试数量和通过状态以实际运行输出为准，不将模拟模型结果当作真实模型验收。
 - 2026-10-15：252 项自动化测试、类型检查、服务端与 Web 构建通过；隔离 DEV 页面已验证工具、Stop、审批和版本冲突草稿恢复，真实模型 currentTime 与刷新恢复通过。既有 5173 正在使用，隔离验收另用 15173/15174；完整范围见 `docs/HANDOFF.md`。
 - 默认端口已迁移到 17890/17891/15173/14173（避开 nanobot/Vite 默认区间）；被占用时启动直接报错并给出占用 PID，不自动避让；详见 `docs/HANDOFF.md`。

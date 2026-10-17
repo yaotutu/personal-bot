@@ -1,6 +1,33 @@
-# Personal Bot 当前交接
+# pi-muse 当前交接
 
-更新：2026-10-15。当前为单进程、单用户、单模型、多 thread 的模块化单体，自有 `web/` 是客户端。用户已明确不保留任何历史逻辑兼容；旧接口、占位字段和隐式迁移已移除。此前交接全文归档到 `docs/archive/handoff-before-incremental-protocol.md`，不能作为当前实现约定。
+更新：2026-10-17。当前为单进程、单用户、单模型、多 thread 的模块化单体，自有 `web/` 是客户端。用户已明确不保留任何历史逻辑兼容；旧接口、占位字段和隐式迁移已移除。此前交接全文归档到 `docs/archive/handoff-before-incremental-protocol.md`，不能作为当前实现约定。
+
+## 迁移后真实运行复测（2026-10-17）
+
+- 正式 17890 服务健康检查通过，6 个 thread 的 49 条展示消息及 revision 与迁移备份一致，auth.key 未变；没有向正式会话写测试消息。
+- 隔离实例使用真实模型，在自有 Web DEV 验证错误密钥、currentTime 查询、memory 写入、中文回答、桌面/移动端工具卡片与刷新恢复；正常重启隔离服务后，消息数量、revision、记忆和原 token 保持一致，无未捕获异常或 console.error。
+- 类型检查、261 项测试、服务端与 Web 构建、差异检查通过；本轮临时浏览器、服务及隔离数据已清理，正式服务保持运行。现有非回环监听且未设 accessKey 的配置警告未在改名任务中擅自修改。
+
+## 数据目录迁移（2026-10-17）
+
+- 当前默认配置与实例目录为 `.pi-muse/config.json` / `.pi-muse/`，mock 为 `.pi-muse/mock`；不读取旧目录、不运行中迁移、不新增 fallback。当前启动说明以本节和下方“启动与联调”为准，后文品牌更新中“保留旧目录”是此前阶段记录。
+- 经用户确认正常停止原 watcher/服务后，完整备份到 `.pi-muse-backups/2026-10-17T07-58-38-142Z/`（0700，config.json/auth.key 为0600），58个文件逐一校验后移动目录；配置仅更新 runtime.dataDir 的绝对路径语义，其余字段不变。
+- pi continueRecent 会按 header.cwd 筛选会话，因此离线更新正式、mock及既有嵌套实例中23个会话头的旧根前缀；消息正文、自定义条目、ID、时间戳及文件mtime保持。既有内部相对目录结构不重排，原本cwd不匹配的历史不强制纳入；22个会话目录的最近会话选择与迁移前一致。未修改pi SDK或增加新的会话选择策略。
+- 原17890开发服务已从新默认目录恢复；只读核对6个thread、49条展示消息及revision与备份投影相同，auth.key字节未变，备份密钥签发的token可用，旧根目录已不存在；未向真实会话发送验收消息。
+- 类型检查、261项测试、服务端/Web构建和diff检查通过。新增默认路径测试覆盖“只读新目录、旧目录不回退”；隔离迁移覆盖绝对路径配置、历史/revision/工具结果/通知、token、自定义identity、parentSession、mtime及cwd隔离，损坏header在rename前拒绝。新默认目录的编译入口验证SIGTERM code 0、配置/数据损坏code 1且原件不变。
+- 隔离Web DEV验证迁移后工具卡片、通知和刷新、迁移前token继续登录，无未捕获异常或console.error；模型为fake provider，仅用于本轮迁移回归，不冒充新的真实模型验收。此前品牌阶段的真实模型验收范围不扩大。
+- 回退必须先停新服务，保留故障目录，再从上述受保护备份恢复原 `.personal-bot/` 及config/会话头，并同步回退本轮默认路径（不要撤销品牌改动）或显式加载原配置；不能让两套目录同时运行。备份含凭据和对话，保持权限、不要提交/上传，不通过删损坏文档消除错误。启动仍沿用既有审批取消、任务状态恢复和jobs重算语义。
+- 本地项目文件夹、GitHub仓库/remote、历史协议标识和已有identity未改；未覆盖用户正在编辑的讨论稿，未自动commit/push。
+
+## pi-muse 品牌更新（2026-10-17）
+
+- 项目及页面品牌统一为 `pi-muse`，包名为 `pi-muse` / `pi-muse-web`；登录页、桌面侧栏、移动顶栏、HTML/PWA 标题、API 文档、日志与新实例默认身份均已更新。README 说明基于 pi、UI 与交互参考 Muse，属于非官方项目。
+- `.personal-bot/`、默认配置路径、pi 历史条目类型及通知元数据、浏览器 token/cache key 均保留；不做自动迁移、双写或旧格式 reader。已有 identity 名称属于用户数据，不覆盖；历史方案中的旧名及对 OpenMuse 的引用不改写。本地目录、GitHub 仓库和 remote 未改名。
+- `pnpm typecheck`、`pnpm test`（260/260）、`pnpm build`、`pnpm --dir web build`、`git diff --check` 通过；API 品牌标题已有契约回归断言。
+- 自有 Web DEV 在独立端口 15175、隔离后端 18890 验证登录及错误密钥、桌面/390px 移动端品牌、manifest、真实模型 currentTime 工具卡片与中文回答、刷新恢复和登录保持、Scalar API 文档。未观察到未捕获异常或 console.error；真实模型范围仅为此次时间工具链路。
+- 构建预览在 14175 验证 Service Worker 激活、旧应用壳缓存经联网刷新更新为新品牌、离线导航保留新品牌、token 保留且 `/api` 未缓存；未将这些结果表述为手机系统安装名称已自动更新。
+- 编译入口在自建临时 cwd/DATA_DIR 验证 health/API 标题与 SIGTERM code 0；非法配置及损坏 monitors 初始化失败均自然 code 1，原文件字节不变。真实配置仅为隔离真实模型验收在内存中读取模型配置，凭据未打印或复制到临时配置文件；未修改真实数据、OpenMuse 仓库及用户未跟踪的讨论稿。
+- 下方保留此前架构调整的阶段记录；当前工作区以 `git status` 为准，不能将此前“干净”的记录当作本轮状态。此次未自动 commit/push。
 
 ## 接手起点
 
@@ -40,9 +67,9 @@ pnpm dev
 pnpm --dir web dev
 ```
 
-真实服务读取必需的 `.personal-bot/config.json`，实际端口以该文件或启动日志为准，不要在交接文档里复制模型凭据。**端口被占用时不会自动避让**：启动直接报错，错误信息包含占用进程的 PID（用 `lsof` 查），由用户决定是改 `server.port` 还是 `kill -15 <pid>` 释放端口；这避免了"启动时端口悄悄变了而 Vite 代理还在 17890"的同步错位。启动前检查端口监听，不要停止已有开发进程。
+真实服务读取必需的 `.pi-muse/config.json`，实际端口以该文件或启动日志为准，不要在交接文档里复制模型凭据。**端口被占用时不会自动避让**：启动直接报错，错误信息包含占用进程的 PID（用 `lsof` 查），由用户决定是改 `server.port` 还是 `kill -15 <pid>` 释放端口；这避免了"启动时端口悄悄变了而 Vite 代理还在 17890"的同步错位。启动前检查端口监听，不要停止已有开发进程。
 
-模拟联调用 `pnpm dev:mock`（17891）和 `API_TARGET=http://127.0.0.1:17891 pnpm --dir web dev`；其数据写入 `.personal-bot/mock`，不是自动化测试的隔离目录。自动化与临时页面验收仍必须使用自己创建的临时 DATA_DIR；不修改真实配置或数据。
+模拟联调用 `pnpm dev:mock`（17891）和 `API_TARGET=http://127.0.0.1:17891 pnpm --dir web dev`；其数据写入 `.pi-muse/mock`，不是自动化测试的隔离目录。自动化与临时页面验收仍必须使用自己创建的临时 DATA_DIR；不修改真实配置或数据。
 
 端口选择说明：服务端默认 17890、mock 默认 17891、Web dev 默认 15173、Web preview 默认 14173，避开 nanobot(7890) 与 Vite(5173/4173) 的默认区间；host 默认 `0.0.0.0` 便于局域网访问，未设 `server.accessKey` 时启动会打印安全警告。
 

@@ -269,7 +269,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
         ].forEach((name) => {
           assert.deepEqual(agent[name], []);
         });
-        assert.equal(agent.identity.name, "Personal Bot");
+        assert.equal(agent.identity.name, "pi-muse");
         assert.equal(agent.worker.running, false);
         const history = await authorized("/api/conversation");
         assert.equal(history.status, 200);

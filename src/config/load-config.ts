@@ -78,7 +78,7 @@ const configFileSchema = z.object({
 
 export type ConfigFileInput = z.input<typeof configFileSchema>;
 
-const defaultConfigFile = ".personal-bot/config.json";
+const defaultConfigFile = ".pi-muse/config.json";
 const defaultUserAgent =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36";
 
@@ -113,7 +113,7 @@ export const createConfig = (
   // 让本地个人助手场景可以零配置跑通。生产部署应自行在 config.json 设置 server.accessKey。
   if (!["127.0.0.1", "localhost", "::1"].includes(host) && !accessKey)
     console.warn(
-      `[personal-bot] server.host=${host} is non-loopback but server.accessKey is empty; ` +
+      `[pi-muse] server.host=${host} is non-loopback but server.accessKey is empty; ` +
         "any device on the LAN can call this server. Set server.accessKey in config.json to require a token.",
     );
 

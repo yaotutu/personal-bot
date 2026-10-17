@@ -1,4 +1,4 @@
-# AGENTS.md — Personal Bot 项目指南
+# AGENTS.md — pi-muse 项目指南
 
 基于 pi 的个人助手服务端：单模型、单用户、多 thread，每个 thread 使用独立 pi 会话；主要客户端为仓库内的自有 `web/`（Vite 15173）；不提供 OpenMuse/CopilotKit 宿主兼容接口。
 最终目标是复刻 nanobot 的个人助手能力，**不做**多 channel 对接。
@@ -12,13 +12,13 @@
 - 双参考系优先级：交互、UI、HTTP、AG-UI 报文、工具卡片与客户端行为先核对自有 `web/` 和 `src/http/contracts/`。服务端能力语义、调度、副作用、失败策略先核对 nanobot 源码，再适配 pi。两边冲突时，不修改 pi 底层，不用假数据伪装兼容，明确选择更符合当前产品边界的一侧并记录差异。
 - 工具名、参数名、结果 JSON 结构和事件顺序都是协议契约；已有专用 renderer 时必须按其 schema 返回。新增/改名工具要用自有 Web DEV 页面验收，不只看 AG-UI 事件。
 - Subagent 只承担边界明确、容易验收的小任务；架构设计、跨层改造和关键路径留在主 Agent，不为了并行而并行。
-- 测试使用隔离实例目录；未经明确要求，不修改真实 `.personal-bot/`（含 config.json）数据或 OpenMuse 仓库，不自动 commit/push，不撤销已有改动。
+- 测试使用隔离实例目录；未经明确要求，不修改真实 `.pi-muse/`（含 config.json）数据或 OpenMuse 仓库，不自动 commit/push，不撤销已有改动。
 
 ## 常用命令
 
 ```sh
-pnpm dev        # 真实模型服务端（必需 .personal-bot/config.json，0.0.0.0:17890，tsx watch 热重载；端口被占会直接报错并给出占用 PID）
-pnpm dev:mock   # 本地模拟模型（127.0.0.1:17891，不读正式 config，数据在 .personal-bot/mock）
+pnpm dev        # 真实模型服务端（必需 .pi-muse/config.json，0.0.0.0:17890，tsx watch 热重载；端口被占会直接报错并给出占用 PID）
+pnpm dev:mock   # 本地模拟模型（127.0.0.1:17891，不读正式 config，数据在 .pi-muse/mock）
 pnpm test       # unit/integration + fake provider，数量及结果以实际输出为准
 pnpm typecheck && pnpm build
 ```
@@ -75,7 +75,7 @@ pnpm typecheck && pnpm build
 
 ## 硬边界（违规即返工）
 
-- 模型 key 只驻留受保护的 `.personal-bot/config.json` 与服务端内存；不写日志、不返回客户端、不进会话文件。
+- 模型 key 只驻留受保护的 `.pi-muse/config.json` 与服务端内存；不写日志、不返回客户端、不进会话文件。
 - 文件工具只允许 `DATA_DIR/workspace`（路径 guard 强制，绝对路径/`../` 逃逸拒绝）；读始终开放。`write`/`edit` 默认开启（`tools.writable.enabled` 可关闭），但每次都需人工审批，载荷包含完整修改前后文本并绑定文件版本；写入拒绝目标及父目录符号链接，提交前再次核对路径、版本、审批期限与取消状态。文件变化须重新审批，拒绝/过期/运行取消不提交该次修改，服务重启取消遗留 pending 审批。
 - Web 工具默认只允许公网 HTTP(S)（DNS 校验/私网拒绝/IP 固定防 rebinding/重定向逐跳校验/大小超时限制；内容标记不可信）。本机联调可经 config `tools.web.allowPrivateTargets: true` 显式放宽（默认关闭，不改变其余边界）。搜索摘要和页面内容必须标记为不可信数据。
 - 工具/模型的错误信息默认脱敏（"Tool execution failed"/"Model request failed"）；仅 guard 声明的受控拒绝文案（`details.denied`）可透传。
@@ -113,7 +113,7 @@ pnpm typecheck && pnpm build
 
 测试配置对象中 `model.maxTokens` 必须 < `model.contextWindow`；不合法时 createConfig/loadConfig 抛错。harness 在初始化失败时也必须清理所有已分配资源，配置/service/login 失败已有回归测试，避免 fake provider 遗留导致测试进程 hang。
 
-## 数据目录（`.personal-bot/`，gitignore）
+## 数据目录（`.pi-muse/`，gitignore）
 
 | 路径 | 内容 |
 | --- | --- |
@@ -167,7 +167,7 @@ pnpm typecheck && pnpm build
 
 ## 已知限制（诚实声明）
 
-- `runtime.dataDir` 省略时使用配置文件所在目录；相对值也按配置文件目录解析，不按进程 cwd。绝对路径推荐但非必需；配置位于 `.personal-bot/config.json` 时填 `".personal-bot"` 会指向嵌套目录，填 `"."` 才是配置文件目录本身。
+- `runtime.dataDir` 省略时使用配置文件所在目录；相对值也按配置文件目录解析，不按进程 cwd。绝对路径推荐但非必需；配置位于 `.pi-muse/config.json` 时填 `".pi-muse"` 会指向嵌套目录，填 `"."` 才是配置文件目录本身。
 - 定时触发轮无实时 SSE 推送（用户刷新/下轮同步后可见）；客户端旧历史与触发轮冲突时收到一次 409 后自动同步。服务启动时按 nanobot 语义重算 daily 任务，已过期的一次性任务不补跑。
 - 工具副作用不回滚，最终模型失败不自动重试；停止后的半截 assistant 文本仍受 pi 的 `error/aborted` 历史过滤规则限制，不为此修改 pi。
 - 历史第一阶段 HTTP/OpenMuse Web 记录见 `docs/archive/first-stage-acceptance.md`；历史第二阶段行为对照与验收记录见 `docs/archive/second-stage-plan.md`、`docs/archive/second-stage-acceptance.md`。其中真实模型、代理故障注入及原生客户端观察仅对应当时的版本与范围，不代表当前自有 Web 已重新验收。

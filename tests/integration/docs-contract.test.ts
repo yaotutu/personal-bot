@@ -21,6 +21,7 @@ import { endpoints } from "../../src/http/contracts/endpoints.js";
 test("docs: generated OpenAPI document is structurally complete", () => {
   const doc = buildOpenApiDocument();
   assert.equal(doc.openapi, "3.1.0");
+  assert.equal(doc.info.title, "pi-muse API");
   for (const endpoint of endpoints) {
     const path = endpoint.path.replace(/:([a-zA-Z]+)/g, "{$1}");
     const operation = (doc.paths as Record<string, Record<string, { summary?: string; responses?: Record<string, unknown> }>>)[path]?.[endpoint.method];
@@ -57,11 +58,14 @@ test("docs: /openapi.json and /docs are served without auth", async (t) => {
   const service = await serviceRef;
   const spec = await service.app.request("/openapi.json");
   assert.equal(spec.status, 200);
-  const body = (await spec.json()) as { paths: Record<string, unknown> };
+  const body = (await spec.json()) as { info: { title: string }; paths: Record<string, unknown> };
+  assert.equal(body.info.title, "pi-muse API");
   assert.ok(Object.keys(body.paths).length >= 20, "spec should cover all endpoints");
   const docs = await service.app.request("/docs");
   assert.equal(docs.status, 200);
-  assert.match(await docs.text(), /scalar\.js|jsdelivr/);
+  const html = await docs.text();
+  assert.match(html, /<title>pi-muse API 文档<\/title>/);
+  assert.match(html, /scalar\.js|jsdelivr/);
   const scalar = await service.app.request("/scalar.js");
   assert.equal(scalar.status, 200);
   assert.match(await scalar.text(), /createApiReference/);

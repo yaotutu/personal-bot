@@ -46,7 +46,7 @@ try {
     },
     runtime: {
       // createConfig 的相对路径基于配置目录；此处显式绝对路径避免重复嵌套。
-      dataDir: resolve(".personal-bot/mock"),
+      dataDir: resolve(".pi-muse/mock"),
       runTimeoutMs: 15000,
       schedulerIntervalMs: 2000,
     },

@@ -85,7 +85,7 @@ export const buildOpenApiDocument = () => {
   return {
     openapi: "3.1.0",
     info: {
-      title: "Personal Bot API",
+      title: "pi-muse API",
       version: "1.0.0",
       description:
         "基于 pi 内核的单用户个人助手服务端。鉴权：POST /api/session 换取 token，" +

@@ -105,7 +105,7 @@ const docsPage = `<!doctype html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Personal Bot API 文档</title>
+    <title>pi-muse API 文档</title>
   </head>
   <body>
     <div id="app"></div>

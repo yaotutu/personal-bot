@@ -1,9 +1,9 @@
-# Personal Bot 配置
+# pi-muse 配置
 
-Personal Bot 只从一个配置文件读取启动配置：
+pi-muse 只从一个配置文件读取启动配置：
 
 ```text
-.personal-bot/config.json
+.pi-muse/config.json
 ```
 
 该文件必须存在；缺失、JSON 语法错误、未知字段、类型不合法或未知 `schemaVersion` 都会启动失败。服务端不支持旧的环境变量配置，也不支持 `${ENV_NAME}` 插值。模型 API key 直接写在 `model.apiKey`。自有 `web/` 的 `API_TARGET` 只用于 Vite 的 `/api` 代理，不是服务端配置来源。
@@ -11,9 +11,9 @@ Personal Bot 只从一个配置文件读取启动配置：
 ## 创建配置
 
 ~~~sh
-mkdir -p .personal-bot
-cp config.example.json .personal-bot/config.json
-chmod 600 .personal-bot/config.json
+mkdir -p .pi-muse
+cp config.example.json .pi-muse/config.json
+chmod 600 .pi-muse/config.json
 ~~~
 
 然后编辑：
@@ -100,9 +100,13 @@ chmod 600 .personal-bot/config.json
 | `tools.presentation.default` | `hidden` | 客户端实时流与历史投影的工具展示策略：`hidden` 隐藏工具调用，`summary` 只发送受控摘要 |
 | `tools.presentation.overrides` | `{}` | 按工具名覆盖默认策略；名称以 `src/adapters/pi/tools/index.ts` 的显式注册表为准，包括 `currentTime`、`memory`、`schedule`、`delegate_task`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`search_web`、`web_fetch`、`get_weather` |
 
-默认情况下，`.personal-bot/config.json` 所在的 `.personal-bot/` 同时也是实例数据目录。也就是说 sessions、memory、jobs、workspace 和配置文件保持在同一个实例目录内。
-`runtime.dataDir: "."` 也表示该配置文件目录，与启动进程的 cwd 无关；若在 `.personal-bot/config.json` 中填 `".personal-bot"`，则会指向其下嵌套的 `.personal-bot/`，不是项目根目录下的同名目录。
+默认情况下，`.pi-muse/config.json` 所在的 `.pi-muse/` 同时也是实例数据目录。当前默认实例目录已统一为 `.pi-muse/`，旧目录不会被自动读取或迁移。也就是说 sessions、memory、jobs、workspace 和配置文件保持在同一个实例目录内。
+`runtime.dataDir: "."` 也表示该配置文件目录，与启动进程的 cwd 无关；若在 `.pi-muse/config.json` 中填 `".pi-muse"`，则会指向其下嵌套的 `.pi-muse/`，不是项目根目录下的同名目录。
 会话按 `sessions/<threadId>/` 保存，每个 thread 有独立 pi 会话；单用户可有多个 thread，内部后台任务 `task-*` 不显示在用户会话列表中。
+
+## 实例目录改名
+
+旧 `.personal-bot/` 不会自动回退读取。迁移必须先停服务并保留受保护备份，除配置中的绝对 runtime.dataDir 外，还要离线更新pi JSONL会话头的cwd及指向实例内的parentSession路径前缀；仅移动文件会使continueRecent跳过旧会话。消息正文和会话ID不变，文件mtime需保留以免改变最近会话选择；auth.key与accessKey不变才能继续使用原token。本实例迁移记录及回退方式见 `HANDOFF.md`；`.pi-muse-backups/` 含凭据，必须保持0700目录及0600敏感文件权限，不提交或上传。
 
 ## 文件写入审批
 
@@ -145,7 +149,7 @@ chmod 600 .personal-bot/config.json
 
 `config.json` 可能同时包含模型 key 和工作区访问密钥：
 
-- 不提交到 Git；`.personal-bot/` 已在 gitignore 中。
+- 不提交到 Git；`.pi-muse/` 已在 gitignore 中。
 - 不截图、不在聊天中粘贴完整内容。
 - 建议权限保持 `0600`。
 - 服务端不会把 key 写入日志、返回客户端或写入 pi 会话文件。
@@ -153,10 +157,10 @@ chmod 600 .personal-bot/config.json
 
 ## mock 配置
 
-`pnpm dev:mock` 不读取 `.personal-bot/config.json`，也不调用真实模型。它在 `scripts/dev-mock.ts` 中显式构造隔离配置：
+`pnpm dev:mock` 不读取 `.pi-muse/config.json`，也不调用真实模型。它在 `scripts/dev-mock.ts` 中显式构造隔离配置：
 
 - 监听 `127.0.0.1:17891`
 - 使用 fake provider
-- 数据目录为 `.personal-bot/mock`
+- 数据目录为 `.pi-muse/mock`
 
 mock 的端口和目录不提供环境变量覆盖；确需调整时直接修改脚本中的显式配置对象。

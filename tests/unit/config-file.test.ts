@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -87,6 +87,44 @@ test("config defaults allow an unconfigured LAN-accessible instance", async (t) 
     },
   );
   assert.equal(config.dataDir, resolve(path, ".."));
+});
+
+test("default config uses .pi-muse and never falls back to the old directory", async (t) => {
+  for (const hasNewConfig of [true, false]) {
+    const dir = await mkdtemp(join(tmpdir(), "pi-muse-default-config-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    await mkdir(join(dir, ".personal-bot"));
+    await writeFile(
+      join(dir, ".personal-bot/config.json"),
+      JSON.stringify({ server: { host: "127.0.0.1", port: 19999 } }),
+      { mode: 0o600 },
+    );
+    if (hasNewConfig) {
+      await mkdir(join(dir, ".pi-muse"));
+      await writeFile(
+        join(dir, ".pi-muse/config.json"),
+        JSON.stringify({ server: { host: "127.0.0.1", port: 19998 } }),
+        { mode: 0o600 },
+      );
+    }
+    const cwd = process.cwd();
+    // 仅同步调用期间切换 cwd，不让异步测试或真实实例继承临时路径。
+    try {
+      process.chdir(dir);
+      if (hasNewConfig) {
+        const config = loadConfig();
+        assert.equal(config.port, 19998);
+        assert.equal(config.dataDir, join(process.cwd(), ".pi-muse"));
+      } else {
+        assert.throws(
+          () => loadConfig(),
+          /Config file not found: .*\.pi-muse\/config\.json/,
+        );
+      }
+    } finally {
+      process.chdir(cwd);
+    }
+  }
 });
 
 test("runtime.dataDir resolves relative to the config file", async (t) => {

@@ -1,6 +1,6 @@
 {
-  "name": "Personal Bot",
-  "short_name": "Personal Bot",
+  "name": "pi-muse",
+  "short_name": "pi-muse",
   "description": "基于 pi 的个人助手",
   "lang": "zh-CN",
   "start_url": "/",

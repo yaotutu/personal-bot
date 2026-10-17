@@ -21,12 +21,12 @@ const ensurePortFree = (host: string, port: number): Promise<number> =>
       const owner = lookupPortOwner(port);
       const hint = owner
         ? `Port ${port} on ${host} is held by PID ${owner}. ` +
-          `Either change server.port in .personal-bot/config.json, ` +
+          `Either change server.port in .pi-muse/config.json, ` +
           `or stop the process holding the port: kill -15 ${owner}`
         : `Port ${port} on ${host} is already in use. ` +
-          `Either change server.port in .personal-bot/config.json, ` +
+          `Either change server.port in .pi-muse/config.json, ` +
           `or stop the process that holds the port.`;
-      reject(new Error(`Personal Bot cannot start. ${hint}`));
+      reject(new Error(`pi-muse cannot start. ${hint}`));
     });
     probe.once("listening", () => {
       probe.close(() => resolve(port));
@@ -61,7 +61,7 @@ try {
     { fetch: service.app.fetch, hostname: config.host, port },
     (info) => {
       console.log(
-        "Personal Bot listening on http://" +
+        "pi-muse listening on http://" +
           config.host +
           ":" +
           info.port +
@@ -99,7 +99,7 @@ const shutdown = () => {
 };
 const onSignal = () => {
   void shutdown().catch(() => {
-    console.error("Personal Bot shutdown failed");
+    console.error("pi-muse shutdown failed");
     process.exitCode = 1;
   });
 };

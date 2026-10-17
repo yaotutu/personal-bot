@@ -1043,7 +1043,7 @@ test("P3 memory: REST CRUD, chat tool write, prompt injection and identity setti
   let agent = await h.request("/api/agent").then((x) => x.json());
   assert.equal(agent.memories.length, 1);
   assert.equal(agent.memories[0].text, "MEMORY-REST 用户每天早上跑步");
-  assert.equal(agent.identity.name, "Personal Bot");
+  assert.equal(agent.identity.name, "pi-muse");
   const edited = await h
     .request(`/api/agent/memories/${created.id}`, { text: "MEMORY-REST 用户改为晚上跑步" })
     .then((x) => x.json());
