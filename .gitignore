@@ -4,3 +4,4 @@ dist/
 .personal-bot/
 *.log
 *.tsbuildinfo
+.*

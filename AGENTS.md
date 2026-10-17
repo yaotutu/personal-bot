@@ -1,6 +1,6 @@
 # AGENTS.md — Personal Bot 项目指南
 
-基于 pi 的个人助手服务端：单模型、单用户、多 thread，每个 thread 使用独立 pi 会话；主要客户端为仓库内的自有 `web/`（Vite 5173）；不提供 OpenMuse/CopilotKit 宿主兼容接口。
+基于 pi 的个人助手服务端：单模型、单用户、多 thread，每个 thread 使用独立 pi 会话；主要客户端为仓库内的自有 `web/`（Vite 15173）；不提供 OpenMuse/CopilotKit 宿主兼容接口。
 最终目标是复刻 nanobot 的个人助手能力，**不做**多 channel 对接。
 
 ## 开发约定
@@ -17,15 +17,17 @@
 ## 常用命令
 
 ```sh
-pnpm dev        # 真实模型服务端（必需 .personal-bot/config.json，127.0.0.1:8787，tsx watch 热重载）
-pnpm dev:mock   # 本地模拟模型（8788，不读正式 config，数据在 .personal-bot/mock）
+pnpm dev        # 真实模型服务端（必需 .personal-bot/config.json，0.0.0.0:17890，tsx watch 热重载；端口被占会直接报错并给出占用 PID）
+pnpm dev:mock   # 本地模拟模型（127.0.0.1:17891，不读正式 config，数据在 .personal-bot/mock）
 pnpm test       # unit/integration + fake provider，数量及结果以实际输出为准
 pnpm typecheck && pnpm build
 ```
 
-自有 Web 客户端：`cd web && pnpm install && pnpm dev`（5173，dev 模式热更新），默认 `/api` 代理到 `http://127.0.0.1:8787`。mock 联调使用 `API_TARGET=http://127.0.0.1:8788 pnpm dev`；`API_TARGET` 只影响 Vite 代理，不是服务端配置覆盖。
+自有 Web 客户端：`cd web && pnpm install && pnpm dev`（15173，dev 模式热更新），默认 `/api` 代理到 `http://127.0.0.1:17890`。mock 联调使用 `API_TARGET=http://127.0.0.1:17891 pnpm dev`；`API_TARGET` 只影响 Vite 代理，不是服务端配置覆盖。
 
-默认 CORS 仅包含 localhost / 127.0.0.1 的 5173 两个 origin。显式 `server.allowedOrigins` 会替换默认列表。
+默认 CORS 包含 localhost / 127.0.0.1 的 15173、17890 四个 origin，便于 Web 与服务端从本机或局域网 origin 访问。显式 `server.allowedOrigins` 会替换默认列表。
+
+**端口选择**：服务端默认 17890、mock 默认 17891、Web dev 默认 15173、Web preview 默认 14173；均避开 nanobot(7890) 与 Vite(5173/4173) 的默认区间。**不会自动避让已占用端口**：被占用时启动直接失败，错误信息包含占用进程的 PID（用 `lsof` 查出，跨平台不兼容时退化为通用提示），由用户决定是改 `server.port` 还是 `kill -15 <pid>` 释放端口。
 
 ## 架构分层（自上而下）
 
@@ -79,7 +81,7 @@ pnpm typecheck && pnpm build
 - 工具/模型的错误信息默认脱敏（"Tool execution failed"/"Model request failed"）；仅 guard 声明的受控拒绝文案（`details.denied`）可透传。
 - 不在 `createAgentSession` 之外手写 agent loop；工具执行与持久化交给 pi。
 - 工具显式注册包括 `currentTime`、`memory`、`schedule`、`delegate_task`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`search_web`、`web_fetch`、`get_weather`；执行 allowlist 由实际注册结果生成，可选能力按配置启用。`bash` 永不暴露，`write`/`edit` 不得绕过逐次审批。
-- 单进程单 DATA_DIR；非回环监听必须设访问密钥。
+- 单进程单 DATA_DIR；默认 host 为 `0.0.0.0` 便于局域网访问，但启动时会打印 `server.accessKey` 缺失警告。生产部署应在 config.json 显式设置 `server.accessKey` 并保留 accessKey 鉴权中间件。
 
 ## 设计哲学（用户定论，勿违背）
 
@@ -93,7 +95,7 @@ pnpm typecheck && pnpm build
 
 测试按职责分布：`tests/unit/` 测纯规则与适配边界，`tests/integration/` 测完整链路，`tests/support/` 放 fake provider 等辅助代码。`pnpm test` 显式运行前两个目录的 `*.test.ts`，任一目录未发现测试都会失败；每项测试超时为 60 秒，support 不作为测试入口。
 
-代码改动后运行 `pnpm typecheck && pnpm test && pnpm build`，并执行 `git diff --check`。只改文档可检查差异与引用，不必重复全量测试。涉及启动/退出时补隔离 DATA_DIR 的进程检查，覆盖初始化失败清理与 SIGTERM；不能用 fake provider 结果代替真实模型 Web 验收。涉及客户端展示或工具报文时，主要在自有 Web 5173 DEV 页面验证实际 renderer、历史刷新和错误态，接口/schema 测试不能替代页面观察。
+代码改动后运行 `pnpm typecheck && pnpm test && pnpm build`，并执行 `git diff --check`。只改文档可检查差异与引用，不必重复全量测试。涉及启动/退出时补隔离 DATA_DIR 的进程检查，覆盖初始化失败清理与 SIGTERM；不能用 fake provider 结果代替真实模型 Web 验收。涉及客户端展示或工具报文时，主要在自有 Web 15173 DEV 页面验证实际 renderer、历史刷新和错误态，接口/schema 测试不能替代页面观察。
 
 集成测试走真实 HTTP + pi 链路，仅模型是模拟的。触发词表（`tests/support/fake-model.ts`）：
 
@@ -169,7 +171,7 @@ pnpm typecheck && pnpm build
 - 定时触发轮无实时 SSE 推送（用户刷新/下轮同步后可见）；客户端旧历史与触发轮冲突时收到一次 409 后自动同步。服务启动时按 nanobot 语义重算 daily 任务，已过期的一次性任务不补跑。
 - 工具副作用不回滚，最终模型失败不自动重试；停止后的半截 assistant 文本仍受 pi 的 `error/aborted` 历史过滤规则限制，不为此修改 pi。
 - 历史第一阶段 HTTP/OpenMuse Web 记录见 `docs/archive/first-stage-acceptance.md`；历史第二阶段行为对照与验收记录见 `docs/archive/second-stage-plan.md`、`docs/archive/second-stage-acceptance.md`。其中真实模型、代理故障注入及原生客户端观察仅对应当时的版本与范围，不代表当前自有 Web 已重新验收。
-- 当前主要页面验收入口是自有 Web 5173；支持单用户多 thread，不做多用户与外部 channel。OpenMuse 及原生客户端的历史验收不替代当前自有 Web 检查。
+- 当前主要页面验收入口是自有 Web 15173；支持单用户多 thread，不做多用户与外部 channel。OpenMuse 及原生客户端的历史验收不替代当前自有 Web 检查。
 
 ## 文档索引
 
@@ -178,4 +180,5 @@ pnpm typecheck && pnpm build
 - `docs/archive/`：已完成阶段的历史记录（实施计划、各阶段验收、重构记录、冒烟截图）。
 - `docs/configuration.md`：必需 JSON 配置、直接密钥、错误策略和字段对照。
 - `docs/http-api-contract.md`：客户端协议契约；`docs/pi-reuse.md`：pi 复用边界。
+- `docs/discussions/other-agent.md`：常驻专职 agent（other agent）的讨论记录，未实现，先记录。
 - `README.md`：启动与使用。

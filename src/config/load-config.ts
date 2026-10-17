@@ -21,7 +21,8 @@ const positiveInt = (max: number, fallback: number) =>
 
 const serverSchema = z.object({
   host: z.string().optional(),
-  port: positiveInt(65535, 8787),
+  // 避开 nanobot(7890) / Vite(5173) 等常见默认端口；启动时若被占用会在区间内自动 +1 找空闲。
+  port: positiveInt(65535, 17890),
   accessKey: z.string().optional(),
   allowedOrigins: z.array(z.string()).optional(),
 }).strict();
@@ -106,11 +107,15 @@ export const createConfig = (
   const configFile = resolve(options.configFile ?? defaultConfigFile);
   const file = parseConfigFile(value, configFile);
 
-  const host = text(file.server.host) || "127.0.0.1";
+  const host = text(file.server.host) || "0.0.0.0";
   const accessKey = text(file.server.accessKey) || undefined;
-  // 无访问密钥时只能绑定回环地址。CORS 不是鉴权，不能靠它保护对外监听。
+  // 默认监听全部网卡便于局域网访问；无访问密钥时打印警告而非阻断启动，
+  // 让本地个人助手场景可以零配置跑通。生产部署应自行在 config.json 设置 server.accessKey。
   if (!["127.0.0.1", "localhost", "::1"].includes(host) && !accessKey)
-    throw new Error("server.accessKey is required for a non-loopback server.host");
+    console.warn(
+      `[personal-bot] server.host=${host} is non-loopback but server.accessKey is empty; ` +
+        "any device on the LAN can call this server. Set server.accessKey in config.json to require a token.",
+    );
 
   const baseUrl = (text(file.model.baseUrl) || "").replace(/\/+$/, "");
   const modelId = text(file.model.id);
@@ -173,8 +178,11 @@ export const createConfig = (
     monitorScanIntervalMs: file.runtime.monitorScanIntervalMs,
     schedulerIntervalMs: file.runtime.schedulerIntervalMs,
     allowedOrigins: (file.server.allowedOrigins ?? [
-      "http://localhost:5173",
-      "http://127.0.0.1:5173"
+      "http://localhost:15173",
+      "http://127.0.0.1:15173",
+      // 局域网设备（手机、其他电脑）从本机 IP 访问 Web 时常见的 origin。
+      "http://localhost:17890",
+      "http://127.0.0.1:17890",
     ])
       .map((origin) => origin.trim())
       .filter(Boolean),

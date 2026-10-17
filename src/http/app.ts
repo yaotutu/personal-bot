@@ -20,10 +20,13 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     const leave = dependencies.lifecycle?.enter();
     try { await next(); } finally { leave?.(); }
   });
+  // CORS 整体放行：所有 origin 都接受，浏览器侧鉴权由 Authorization 头 + accessKey 中间件承担，
+  // 不在 origin 上做策略。origin 函数对每个请求回显具体 Origin（无 Origin 时回显 "*"），
+  // 这样浏览器拿到的是它自己发的值而不是字面量 "*"，对跨域请求兼容性更好。
   app.use(
     "*",
     cors({
-      origin: config.allowedOrigins,
+      origin: (origin) => origin ?? "*",
       allowHeaders: ["Authorization", "Content-Type"],
       allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
     }),

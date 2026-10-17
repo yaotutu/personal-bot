@@ -22,12 +22,12 @@ chmod 600 .personal-bot/config.json
 {
   "schemaVersion": 1,
   "server": {
-    "host": "127.0.0.1",
-    "port": 8787,
+    "host": "0.0.0.0",
+    "port": 17890,
     "accessKey": "",
     "allowedOrigins": [
-      "http://localhost:5173",
-      "http://127.0.0.1:5173"
+      "http://localhost:15173",
+      "http://127.0.0.1:15173"
     ]
   },
   "model": {
@@ -73,10 +73,10 @@ chmod 600 .personal-bot/config.json
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `server.host` | `127.0.0.1` | 非回环地址必须配置 `server.accessKey` |
-| `server.port` | `8787` | HTTP 监听端口 |
-| `server.accessKey` | 空 | 服务访问密钥，不是模型 key |
-| `server.allowedOrigins` | localhost / 127.0.0.1 的 5173 两个 origin | CORS origin 数组；显式配置会替换默认列表，用于自有 Web |
+| `server.host` | `0.0.0.0` | 默认监听全部网卡便于局域网访问；非回环 host 但 `server.accessKey` 为空时仅打印警告，由用户自行决定是否补上 |
+| `server.port` | `17890` | HTTP 监听端口；被占用时启动直接报错并指出占用 PID（用 `lsof` 查，跨平台不兼容时退化为通用提示），由用户决定改 port 还是 `kill -15 <pid>` 释放 |
+| `server.accessKey` | 空 | 服务访问密钥，不是模型 key；留空启动会打印非回环 host 的安全警告，但不会阻断启动 |
+| `server.allowedOrigins` | localhost / 127.0.0.1 的 15173、17890 共四个 origin | CORS origin 数组；显式配置会替换默认列表，用于自有 Web |
 | `model.baseUrl` | 空 | OpenAI-compatible API 根地址，例如 `/v1`；必须与 `model.id` 同时配置 |
 | `model.id` | 空 | 模型 ID |
 | `model.apiKey` | 空 | 模型 API key，直接写在配置文件中 |
@@ -137,7 +137,7 @@ chmod 600 .personal-bot/config.json
 - JSON 语法错误、未知字段、类型不合法、未知 `schemaVersion` 会启动失败。
 - `model.baseUrl` 与 `model.id` 必须同时为空或同时配置。
 - `model.baseUrl` 只接受无凭据、无 query、无 fragment 的 HTTP(S) URL。
-- 非回环 `server.host` 必须配置 `server.accessKey`。
+- 非回环 `server.host` 推荐配置 `server.accessKey`；当前默认行为是 host 为 `0.0.0.0` 但留空 accessKey 时仅打印警告而非阻断。
 - 服务不会自动创建或改写配置文件，避免启动路径意外覆盖用户手写配置。
 - Web 请求默认只允许公网 HTTP(S)，阻断回环、私网、链路本地和保留地址；每个重定向都会重新校验。本机联调可显式设置 `tools.web.allowPrivateTargets: true`，不改变其余请求安全约束。
 
@@ -155,7 +155,7 @@ chmod 600 .personal-bot/config.json
 
 `pnpm dev:mock` 不读取 `.personal-bot/config.json`，也不调用真实模型。它在 `scripts/dev-mock.ts` 中显式构造隔离配置：
 
-- 监听 `127.0.0.1:8788`
+- 监听 `127.0.0.1:17891`
 - 使用 fake provider
 - 数据目录为 `.personal-bot/mock`
 

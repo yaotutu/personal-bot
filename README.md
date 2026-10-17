@@ -73,8 +73,10 @@ pnpm install
 pnpm dev
 ~~~
 
-打开 http://localhost:5173。Vite 默认把 `/api` 代理到 `http://127.0.0.1:8787`；若配置访问密钥，在 Web 登录框填写该密钥。
+打开 http://localhost:15173。Vite 默认把 `/api` 代理到 `http://127.0.0.1:17890`；若配置访问密钥，在 Web 登录框填写该密钥。
 未配置模型时也可打开页面；聊天会明确报 MODEL_NOT_CONFIGURED，不自动选用其他供应商。
+
+> 端口选择：服务端默认 `17890`、mock 默认 `17891`、Web dev 默认 `15173`、Web preview 默认 `14173`，避开 nanobot(7890) 与 Vite(5173/4173) 默认区间。**不会自动避让已占用端口**：被占用时启动直接报错并指出占用 PID，由你决定是改 `server.port` 还是 `kill -15 <pid>` 释放。
 
 构建运行：
 
@@ -87,12 +89,13 @@ pnpm start
 
 ## 自研 Web 客户端（web/）
 
-Vite + React + Tailwind，契约类型直接引用 `src/http/contracts`。默认服务端为 8787；若实际配置了其他端口，可仅为 Web 开发代理设置 `API_TARGET`：
+Vite + React + Tailwind，契约类型直接引用 `src/http/contracts`。默认服务端为 `17890`；若实际配置了其他端口，可仅为 Web 开发代理设置 `API_TARGET`：
 
 ```sh
 cd web
 pnpm install
-API_TARGET=http://127.0.0.1:8790 pnpm dev   # 仅当服务端实际监听 8790 时使用
+API_TARGET=http://127.0.0.1:17891 pnpm dev   # 仅当 mock 实际监听 17891 时使用
+# 或：服务端被自动避让到了其他端口（看启动日志的实际端口）
 ```
 
 功能：多会话列表/新建、流式对话（AG-UI SSE 子集）、工具卡片、停止、历史刷新恢复。
@@ -103,7 +106,7 @@ API_TARGET=http://127.0.0.1:8790 pnpm dev   # 仅当服务端实际监听 8790 �
 小屏抽屉式会话列表 + 安全区适配）。构建产物自带 PWA：
 
 ```sh
-cd web && pnpm build && pnpm preview  # 4173，默认 API 代理到 8787
+cd web && pnpm build && pnpm preview  # 14173，默认 API 代理到 17890
 ```
 
 安装边界（诚实说明）：Android Chrome 要求 secure context，局域网 HTTP IP 不能安装
@@ -118,10 +121,10 @@ pnpm dev:mock
 # 另一终端
 cd /Users/yaotutu/Desktop/code/personal-bot/web
 pnpm install
-API_TARGET=http://127.0.0.1:8788 pnpm dev
+API_TARGET=http://127.0.0.1:17891 pnpm dev
 ~~~
 
-mock 默认监听 8788，使用真实 pi SDK + 本地模拟 OpenAI SSE endpoint，不读取正式 config.json，不调用真实供应商。
+mock 默认监听 17891，使用真实 pi SDK + 本地模拟 OpenAI SSE endpoint，不读取正式 config.json，不调用真实供应商。
 模拟回复展示收到的用户轮数；发送 slow 可测试停止；发送含「时间/几点」的消息走 currentTime 工具闭环（模拟模型先发起 tool_calls，pi 执行工具后生成回答）。
 模拟历史在 `.personal-bot/mock`，与正式历史隔离。
 mock 端口和数据目录由脚本内显式配置固定，不提供环境变量覆盖。
@@ -131,13 +134,13 @@ mock 端口和数据目录由脚本内显式配置固定，不提供环境变量
 
 默认目录 `.personal-bot`（已忽略）：`config.json` 是必需服务配置，`sessions/<threadId>/` 保存各 thread 的 pi 会话，auth.key 是随机 token 签名密钥，workspace/ 与 agent/ 是专用运行目录。
 `runtime.dataDir` 省略时使用配置文件所在目录；相对值也按配置文件目录解析，不按进程 cwd。推荐绝对路径以便部署排查，但并非必需。
-默认 CORS 仅允许 localhost 和 127.0.0.1 的 5173 两个 origin；显式 `server.allowedOrigins` 会替换默认列表。
+默认 CORS 包含 localhost/127.0.0.1 的 15173 与 17890 四个 origin，便于从本机或局域网访问；显式 `server.allowedOrigins` 会替换默认列表。
 模型 key 只驻留受保护的 `.personal-bot/config.json` 与服务端内存，不写入 pi auth.json、不返回客户端；供应商错误诊断在持久化前脱敏。
 对话本身按明文落盘，应保护或备份数据目录。登录 token 长期有效，服务重启仍有效；更换访问密钥会使旧 token 立即失效，本轮之前签发的 24h 短 token 仍按原到期时间被拒。
 
 这是可信本机、单进程、单 owner 服务，不是公开互联网生产部署。不要让两个进程共用同一个实例数据目录。
 未做速率限制、跨进程锁或数据加密；文件写入采用逐次审批，CORS 不是鉴权。
-监听非回环地址必须设置访问密钥；远程访问还需要 TLS/反向代理。手机的 localhost 不是 Mac，真机验收需单独配置地址。
+默认 host 为 `0.0.0.0` 便于局域网访问，但启动时会打印 `server.accessKey` 缺失警告；生产部署仍应在 config.json 设置 `server.accessKey`。远程访问还需要 TLS/反向代理。手机的 localhost 不是 Mac，真机验收需单独配置地址。
 
 页面 SSE 断开会取消对应客户端轮；刷新后以 pi 持久化历史为准，不保证取消时的半截文本可恢复。没有运行中续接；后台任务由独立 worker 执行，不是客户端流的断线续跑。
 pi 自动压缩已开启（参数随上下文窗口收缩），展示历史完整保留；自动重试仍关闭。
@@ -148,6 +151,7 @@ pi 自动压缩已开启（参数随上下文窗口收缩），展示历史完�
 
 - 测试入口为 `pnpm test`（unit/integration + fake provider）；测试数量和通过状态以实际运行输出为准，不将模拟模型结果当作真实模型验收。
 - 2026-10-15：252 项自动化测试、类型检查、服务端与 Web 构建通过；隔离 DEV 页面已验证工具、Stop、审批和版本冲突草稿恢复，真实模型 currentTime 与刷新恢复通过。既有 5173 正在使用，隔离验收另用 15173/15174；完整范围见 `docs/HANDOFF.md`。
+- 默认端口已迁移到 17890/17891/15173/14173（避开 nanobot/Vite 默认区间）；被占用时启动直接报错并给出占用 PID，不自动避让；详见 `docs/HANDOFF.md`。
 - 历史验收记录见 `docs/archive/first-stage-acceptance.md` 与 `docs/archive/second-stage-acceptance.md`，其中 OpenMuse 页面观察只对应当时的版本与范围。
 - 后续新增能力遵循 `feature → adapter → bootstrap` 显式装配，不把业务继续堆入 conversation 或 HTTP；不自动 commit/push。
 

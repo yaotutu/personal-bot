@@ -294,8 +294,9 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
     );
 
     await t.test(
-      "CORS allows the configured origin but does not grant other origins access",
+      "CORS allows any origin and echoes it back, but authentication is still required",
       async () => {
+        // CORS 整体放行：浏览器拿到的是它自己发的 Origin 字符串，而不是字面量 "*"。
         const allowed = await app.request("/api/health", {
           headers: { Origin: "http://localhost:8081" },
         });
@@ -304,11 +305,15 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
           allowed.headers.get("access-control-allow-origin"),
           "http://localhost:8081",
         );
-        const denied = await app.request("/api/health", {
+        // 非白名单内的 origin 也照样放行——CORS 不承担访问控制，鉴权由 Authorization 头负责。
+        const alsoAllowed = await app.request("/api/health", {
           headers: { Origin: "https://untrusted.example.test" },
         });
-        assert.equal(denied.status, 200);
-        assert.equal(denied.headers.get("access-control-allow-origin"), null);
+        assert.equal(alsoAllowed.status, 200);
+        assert.equal(
+          alsoAllowed.headers.get("access-control-allow-origin"),
+          "https://untrusted.example.test",
+        );
         const preflight = await app.request("/api/workspace", {
           method: "OPTIONS",
           headers: {
@@ -334,7 +339,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
             ?.toLowerCase() || "";
         assert.match(allowedHeaders, /authorization/);
         assert.match(allowedHeaders, /content-type/);
-        // 允许的 Origin 也必须登录，防止把 CORS 白名单误当作鉴权。
+        // 即便 origin 已通过 CORS，未带 Authorization 的请求依然 401——CORS 不是鉴权。
         await jsonError(
           await app.request("/api/workspace", {
             headers: { Origin: "http://localhost:8081" },
