@@ -28,6 +28,7 @@ const dueJob = (id = "test-job"): Job => ({
   enabled: true,
   createdAt: new Date(0).toISOString(),
   nextRunAt: new Date(0).toISOString(),
+  originThreadId: "local-main",
 });
 const schedulerConfig = createConfig({ runtime: { schedulerIntervalMs: 10 } });
 // 调度器只需三个方法；生产会话仍由组合入口创建，不为测试另造执行内核。
@@ -53,6 +54,7 @@ test("DataLayout describes every legacy path without migrating data", () => {
     soulFile: join(root, "SOUL.md"),
     userFile: join(root, "USER.md"),
     authKeyFile: join(root, "auth.key"),
+    skillsDir: join(root, "skills"),
   });
 });
 
@@ -539,7 +541,7 @@ test("service close cancels a running scheduled pi turn before draining its stat
   const main = await service.conversationHub.forThread("local-main");
   const trigger = main.trigger;
   t.mock.method(main, "trigger", (_text: string, id: string) => trigger("freeze", id));
-  const job = await service.jobs.add("test close", false, new Date(0).toISOString());
+  const job = await service.jobs.add("test close", false, new Date(0).toISOString(), "local-main");
   const waitFor = async (predicate: () => boolean) => {
     for (let i = 0; i < 200; i++) {
       if (predicate()) return;

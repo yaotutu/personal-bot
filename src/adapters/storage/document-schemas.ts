@@ -3,7 +3,7 @@ import type { Job } from "../../features/jobs/types.js";
 
 /** 固定安全文案，不在错误里附带原文、文件路径或用户资料。 */
 export class InvalidDocumentError extends Error {
-  constructor(kind: "memory" | "jobs" | "tasks" | "goals" | "actions" | "monitors") {
+  constructor(kind: "memory" | "jobs" | "tasks" | "goals" | "actions" | "monitors" | "skills-overrides") {
     super(`Invalid ${kind} document; restore a valid backup before writing`);
     this.name = "InvalidDocumentError";
   }

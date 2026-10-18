@@ -76,7 +76,7 @@ pnpm typecheck && pnpm build
 ## 硬边界（违规即返工）
 
 - 模型 key 只驻留受保护的 `.pi-muse/config.json` 与服务端内存；不写日志、不返回客户端、不进会话文件。
-- 文件工具只允许 `DATA_DIR/workspace`（路径 guard 强制，绝对路径/`../` 逃逸拒绝）；读始终开放。`write`/`edit` 默认开启（`tools.writable.enabled` 可关闭），但每次都需人工审批，载荷包含完整修改前后文本并绑定文件版本；写入拒绝目标及父目录符号链接，提交前再次核对路径、版本、审批期限与取消状态。文件变化须重新审批，拒绝/过期/运行取消不提交该次修改，服务重启取消遗留 pending 审批。
+- 文件工具默认根为 `DATA_DIR/workspace/threads/<threadId>/`，包括主会话 `local-main` 和内部 `task-*`；`workspace/`、`threads/` 只是容器，不得回退为任何会话根。`shared/...` 显式访问 `workspace/shared/`。拒绝绝对路径、`..`、根/父目录/目标符号链接，递归搜索不跟随链接；仅 read 可额外读取已启用技能的精确 `SKILL.md` 路径，不开放相邻文件或目录。`write`/`edit` 默认开启（`tools.writable.enabled` 可关闭），但每次都需人工审批，载荷包含完整修改前后文本并绑定文件版本；提交前再次核对路径、版本、审批期限与取消状态。文件变化须重新审批，拒绝/过期/运行取消不提交该次修改，服务重启取消遗留 pending 审批。会话规则不能扩大权限；可信技能 extension 是服务端代码，不是操作系统沙箱中的工具。
 - Web 工具默认只允许公网 HTTP(S)（DNS 校验/私网拒绝/IP 固定防 rebinding/重定向逐跳校验/大小超时限制；内容标记不可信）。本机联调可经 config `tools.web.allowPrivateTargets: true` 显式放宽（默认关闭，不改变其余边界）。搜索摘要和页面内容必须标记为不可信数据。
 - 工具/模型的错误信息默认脱敏（"Tool execution failed"/"Model request failed"）；仅 guard 声明的受控拒绝文案（`details.denied`）可透传。
 - 不在 `createAgentSession` 之外手写 agent loop；工具执行与持久化交给 pi。
@@ -122,11 +122,14 @@ pnpm typecheck && pnpm build
 | `memory.json` | 长期记忆条目 + identity 设置（P3 权威存储） |
 | `goals.json` `tasks.json` `actions.json` `monitors.json` | 目标 / 后台任务 / 审批 / 监控（各自裸数组） |
 | `jobs.json` | 定时任务（P4） |
-| `workspace/` | 文件工具的唯一可达范围：read/grep/find/ls，以及逐次审批的 write/edit |
+| `workspace/threads/<threadId>/` | 会话私有文件工具根，主会话也使用 `threads/local-main/` |
+| `workspace/shared/` | 全局共享区，用工具路径 `shared/...` 显式访问；写入仍逐次审批 |
+| `sessions/<threadId>/INSTRUCTIONS.md` | 会话专属指令，通过 instructions 工具或 HTTP 管理，下一轮注入 |
+| `sessions/<threadId>/skills.json` | 会话技能开关覆盖；技能资产全局一份 |
 | `config.json` | 必需服务配置；模型 key 与访问密钥直接存放于此 |
 | `agent/` `auth.key` | pi 运行目录 / token 签名密钥 |
 
-- 路径统一由 `src/adapters/storage/data-layout.ts` 声明，不在新能力里散写文件路径。
+- 路径统一由 `src/adapters/storage/data-layout.ts` 声明，不在新能力里散写文件路径。pi 历史 `continueRecent` 的 cwd 与执行 cwd 统一为该会话私有根；不自动读取旧 cwd、不迁移或删除旧 workspace 根文件，已有数据需停服后单独处理。
 - `memory.json` 保持 `{ memories: [...], identity: {...} }` 对象格式，已有文档必须包含完整 identity；`jobs.json` 保持裸数组。目前不写 `schemaVersion`，带版本字段的对象必须拒绝，等待显式版本 reader。
 - 仅文件缺失可返回初始化默认值；JSON 损坏、非法根结构、已知 identity 字段类型错误、未知版本和其他 I/O 错误必须抛错，禁止静默覆盖为空文档。条目必须满足当前 reader，不允许静默过滤坏条目后写回，缺省只在整个文件不存在时生成。
 - 写入先在内存序列化，以 `wx`、`0600` 创建同目录临时文件，再 `rename` 替换；失败清理本次临时文件并保留原始错误。底层 writer 不做 fsync、自动重试、跨进程锁或 durable execution；scheduler 的补存仅重用已经得到的运行结果和完成时间。
@@ -180,5 +183,5 @@ pnpm typecheck && pnpm build
 - `docs/archive/`：已完成阶段的历史记录（实施计划、各阶段验收、重构记录、冒烟截图）。
 - `docs/configuration.md`：必需 JSON 配置、直接密钥、错误策略和字段对照。
 - `docs/http-api-contract.md`：客户端协议契约；`docs/pi-reuse.md`：pi 复用边界。
-- `docs/discussions/other-agent.md`：常驻专职 agent（other agent）的讨论记录，未实现，先记录。
+- `docs/discussions/session-skills.md`：单 Agent 多会话的原始讨论与后续定案；当前实现以 README/architecture/HANDOFF 为准。
 - `README.md`：启动与使用。

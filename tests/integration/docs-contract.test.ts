@@ -128,7 +128,7 @@ test("docs: every served route is registered and every registration is served (n
   );
   const allRoutes = (service.app as unknown as { routes: { method: string; path: string }[] }).routes;
   const served = allRoutes
-    .filter((r) => ["GET", "POST", "PUT"].includes(r.method))
+    .filter((r) => ["GET", "POST", "PUT", "DELETE"].includes(r.method))
     .map((r) => `${r.method.toLowerCase()} ${r.path}`);
   // 文档基础设施路由：自身即文档面，不进注册表（登记会造成自引用）。
   const docsInfra = new Set(["get /openapi.json", "get /docs", "get /scalar.js"]);

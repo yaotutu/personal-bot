@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
     "typecheck": "tsc --noEmit",
     "test": "for dir in tests/unit tests/integration; do set -- \"$dir\"/*.test.ts; test -f \"$1\" || { echo \"No test files found in $dir\" >&2; exit 1; }; done; tsx --test --test-timeout=60000 tests/unit/*.test.ts tests/integration/*.test.ts",
     "dev:mock": "tsx scripts/dev-mock.ts"

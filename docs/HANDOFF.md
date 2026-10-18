@@ -1,6 +1,30 @@
 # pi-muse 当前交接
 
-更新：2026-10-17。当前为单进程、单用户、单模型、多 thread 的模块化单体，自有 `web/` 是客户端。用户已明确不保留任何历史逻辑兼容；旧接口、占位字段和隐式迁移已移除。此前交接全文归档到 `docs/archive/handoff-before-incremental-protocol.md`，不能作为当前实现约定。
+更新：2026-10-18。当前为单进程、单用户、单模型、多 thread 的模块化单体，自有 `web/` 是客户端。用户已明确不保留任何历史逻辑兼容；旧接口、占位字段和隐式迁移已移除。此前交接全文归档到 `docs/archive/handoff-before-incremental-protocol.md`，不能作为当前实现约定。
+
+## 旧数据清理与提交前整理（2026-10-18）
+
+- 经用户明确授权，停掉本项目遗留 watcher/17890 服务后，校验备份 58 个文件至 `.pi-muse-backups/before-session-workspace-reset-20261018-115852/`；备份目录0700、文件0600，含凭据，禁止提交或上传。
+- 清空旧 sessions/workspace、jobs/tasks/goals/actions/monitors、两条长期记忆、旧 mock 和嵌套 `.personal-bot/mock`，删除实例内旧 config 备份副本。原 config.json/auth.key/SOUL.md/USER.md 字节不变，memory.json 的 identity 设置保留。恢复单一 `pnpm dev` 实例，health正常、仅local-main、历史revision=empty，记忆/任务/目标/监控均0。
+- 提交前收尾：技能元数据统一使用 pi parser；坏技能配置不覆盖且返回诊断，坏会话覆盖文件报错，覆盖写入复用串行队列与wx/0600/rename；会话指令工具与HTTP共用原子writer，无content的set不再误清空；扩展同名工具从实际注册中剔除；资产复制使用Node脚本，重复构建不嵌套、运行路径不依赖cwd。
+- 本轮提交树在独立目录验证：284项测试全部通过、typecheck、服务端连续两次build、Web build通过；不把工作树同时新增的 `/api/events` 工作区通知能力混入此次提交，相关未提交改动原样保留。此前277项及真实模型范围见下方验收记录，本轮整理不冒充新增真实模型验收。
+
+## 会话工作区隔离修复完成（2026-10-18）
+
+- 所有会话（含local-main/task-*）统一使用 `workspace/threads/<threadId>/` 私有根，shared映射到 `workspace/shared/`；执行cwd、工具根与SessionManager.continueRecent的cwd一致，禁止global workspace fallback。
+- 普通文件工具拒绝绝对路径、..、根/父目录/目标符号链接；只读operations核查SDK实际路径，递归搜索不跟随链接，ls跳过链接。write/edit复用同一检查，审批版本/取消/时效与共享提交队列不变。仅read精确开放本轮启用技能的SKILL.md，不开放相邻文件或目录。
+- 277/277测试、typecheck、服务端/Web构建和diff检查通过。编译入口隔离实例health=200、SIGTERM code0；threads容器为链接时初始化明确失败code1且外部测试文件不变，无残留进程。
+- 真实DeepSeek+自有Web复测：主会话跨会话读取和文件/目录链接绕过均已拒绝；自身私有/共享读取、Web审批后的私有/共享写入、另一会话读取共享文件、会话规则保存与重启后保留均有效；三会话重启messages/revision一致。权威JSONL确认没有邮件私有标记泄漏到其他会话工具结果。完整范围见 [`archive/2026-10-18-workspace-isolation-fix-acceptance.md`](archive/2026-10-18-workspace-isolation-fix-acceptance.md)。
+- 正式数据/旧文件/旧JSONL未迁移改写或删除；新cwd不自动恢复旧cwd历史。已有真实数据需停服备份后单独处理。临时验收服务均已停止；未主动重启或停止既有17890 watcher（其可能随源码变化热重载）。无自动commit/push。
+- 本边界不等于操作系统沙箱，不限制已安装的可信extension任意服务端代码，不承诺抵御外部恶意进程路径竞争。下方初次验收的两处P1是修复前记录，不再是本轮代码的未修复项。
+
+## 会话指令与工作区真实验收（2026-10-18）
+
+- 当前未提交的会话指令/工作区改造经真实 DeepSeek 模型 + 自有 Web DEV 验收，结论为**部分通过，不可宣称工作区已彻底隔离**。完整复现与证据见 [`archive/2026-10-18-session-workspace-live-acceptance.md`](archive/2026-10-18-session-workspace-live-acceptance.md)。
+- 指令通过对话工具与 HTTP 保存、下一轮注入、热更新、跨会话不污染、正常重启后保留均有效；真实模型对“固定标记独占第一行”的遵循并非每次严格，不能视为强制格式协议。
+- 普通会话私有路径、显式 shared 读写/检索、Web 批准与拒绝、删除会话保留共享区均通过。**发现两处 P1：主会话根为整个 workspace，能读取其下其他会话私有文件；只读 guard 未校验链接实际指向，可经预置符号链接跨会话读取。**此前 269 项测试没有覆盖这两种情况，不能代替隔离验收。
+- prompt 未说明 shared 别名且仍声称无文件写权限，真实模型曾在默认根目录检索后误报共享文件不存在；明确指定 shared 路径后工具可用。当前 Web 无会话规则编辑面板，仅有对话/HTTP 入口。
+- 本轮仅测试与记录，没有修复业务代码。隔离实例使用临时数据目录，凭据仅在服务内存读取；正式数据未写入、既有 17890 服务未停止。本轮隔离后端与 15173 Web DEV 已停止，测试证据暂留在报告注明的本地目录。
 
 ## 迁移后真实运行复测（2026-10-17）
 

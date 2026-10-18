@@ -102,7 +102,7 @@ chmod 600 .pi-muse/config.json
 
 默认情况下，`.pi-muse/config.json` 所在的 `.pi-muse/` 同时也是实例数据目录。当前默认实例目录已统一为 `.pi-muse/`，旧目录不会被自动读取或迁移。也就是说 sessions、memory、jobs、workspace 和配置文件保持在同一个实例目录内。
 `runtime.dataDir: "."` 也表示该配置文件目录，与启动进程的 cwd 无关；若在 `.pi-muse/config.json` 中填 `".pi-muse"`，则会指向其下嵌套的 `.pi-muse/`，不是项目根目录下的同名目录。
-会话按 `sessions/<threadId>/` 保存，每个 thread 有独立 pi 会话；单用户可有多个 thread，内部后台任务 `task-*` 不显示在用户会话列表中。
+会话按 `sessions/<threadId>/` 保存，每个 thread 有独立 pi 会话；单用户可有多个 thread，内部后台任务 `task-*` 不显示在用户会话列表中。每个 thread 的工作目录固定为 `workspace/threads/<threadId>/`，共享区为 `workspace/shared/`；完整目录树见 README「存储与安全边界」。没有可配置的全局 workspace 回退，旧根文件和旧 cwd 历史不会自动迁移或清理。
 
 ## 实例目录改名
 
@@ -110,7 +110,7 @@ chmod 600 .pi-muse/config.json
 
 ## 文件写入审批
 
-- `write` / `edit` 只能操作 `DATA_DIR/workspace` 内的文件，拒绝绝对路径、`..` 逃逸和目标/父目录符号链接；`bash` 永不暴露。
+- `write` / `edit` 只能操作 `DATA_DIR/workspace/threads/<threadId>/` 私有区和通过 `shared/...` 显式访问的 `workspace/shared/`；主会话同样使用 `threads/local-main/`，不使用父目录。读写均拒绝绝对路径、`..` 和根/目标/父目录符号链接；`bash` 永不暴露。
 - 每次操作都需独立人工审批，审批载荷保留完整修改前后文本和文件版本；`edit` 的待替换文本必须唯一命中。
 - 提交前重新检查路径安全与文件版本。文件在等待期间变化时，旧审批不能授权覆盖，需重新发起操作和审批。
 - 拒绝、审批过期或运行取消均不会提交该次修改；服务重启会取消上一进程遗留的 pending 审批。审批有效期由登记时的 `expiresAt` 固定，提交前再次校验期限和取消状态。

@@ -1,13 +1,14 @@
 import { Hono } from "hono";
 import type { HttpDependencies } from "../../bootstrap/types.js";
+import { copyThreadSkills } from "../../adapters/storage/data-layout.js";
 import { createTaskSchema, taskControlSchema } from "../contracts/rest.js";
 import { presentAsyncTask, presentAsyncTaskDetail, presentJob, presentJobDetail } from "../job-presenters.js";
 
 /** 定时任务详情与异步任务创建/控制；控制按 target 分发 job|task。 */
 export const createTasksRoutes = (
-  dependencies: Pick<HttpDependencies, "jobs" | "tasks" | "taskWorker" | "conversationHub" | "scheduler">,
+  dependencies: Pick<HttpDependencies, "jobs" | "tasks" | "taskWorker" | "conversationHub" | "scheduler" | "layout">,
 ) => {
-  const { jobs, tasks, taskWorker, conversationHub, scheduler } = dependencies;
+  const { jobs, tasks, taskWorker, conversationHub, scheduler, layout } = dependencies;
   const app = new Hono();
   app.get("/api/agent/tasks/:id", async (c) => {
     const job = await jobs.get(c.req.param("id"));
@@ -20,6 +21,9 @@ export const createTasksRoutes = (
     const parsed = createTaskSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid task request" }, 400);
     const task = await tasks.create(parsed.data.prompt, "web", parsed.data.title, parsed.data.originThreadId);
+    if (parsed.data.originThreadId) {
+      await copyThreadSkills(layout, parsed.data.originThreadId, `task-${task.id}`);
+    }
     taskWorker.kick();
     return c.json(presentAsyncTask(task));
   });

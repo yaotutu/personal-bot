@@ -6,6 +6,7 @@ import type { TaskService, TaskControlAction } from "./task-service.js";
 export type TaskWorker = {
   kick: () => void;
   control: (id: string, action: TaskControlAction) => ReturnType<TaskService["control"]>;
+  cancelByOriginThreadId: (originThreadId: string) => Promise<number>;
   isRunning: () => boolean;
   close: () => Promise<void>;
 };
@@ -16,8 +17,8 @@ export type TaskWorker = {
  * 通知只是写入来源会话的事实，不再请求模型，主会话忙碌不会丢失结果。
  */
 export const createTaskWorker = (
-  tasks: Pick<TaskService, "list" | "markRunning" | "markFinished" | "control">,
-  hub: Pick<ConversationHub, "forThread" | "release">,
+  tasks: Pick<TaskService, "list" | "markRunning" | "markFinished" | "control" | "cancelByOriginThreadId">,
+  hub: Pick<ConversationHub, "forThread" | "release" | "hasThread">,
   mainConversation: Pick<Conversation, "notify">,
   timeoutMs = 120_000,
 ): TaskWorker => {
@@ -47,8 +48,13 @@ export const createTaskWorker = (
       if (!finished || closed) return;
       const message = `📋 [任务${finished.status === "succeeded" ? "完成" : "失败"}] ${task.title}` +
         (finished.result ? `\n结果摘要：${finished.result.slice(0, 600)}` : "");
-      const destination = task.originThreadId && task.originThreadId !== "local-main"
-        ? await hub.forThread(task.originThreadId) : mainConversation;
+      let destination = mainConversation;
+      if (task.originThreadId && task.originThreadId !== "local-main") {
+        const exists = await hub.hasThread(task.originThreadId);
+        if (exists) {
+          destination = await hub.forThread(task.originThreadId);
+        }
+      }
       // 排队投递不阻塞下一项后台任务；失败仍可在任务详情查看权威结果。
       if (!closed) void destination.notify(message, `task-notify-${attemptId}`).catch(() => undefined);
     } catch {
@@ -83,6 +89,15 @@ export const createTaskWorker = (
         kick();
       }
       return result;
+    },
+    cancelByOriginThreadId: async (originThreadId: string) => {
+      if (active) {
+        const currentTask = (await tasks.list()).find((t) => t.id === active?.id);
+        if (currentTask?.originThreadId === originThreadId) {
+          active.controller.abort();
+        }
+      }
+      return tasks.cancelByOriginThreadId(originThreadId);
     },
     isRunning: () => running,
     close: () => {

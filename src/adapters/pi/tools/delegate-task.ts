@@ -2,6 +2,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { TaskQueueFullError, type TaskService } from "../../../features/tasks/task-service.js";
 import type { TaskWorker } from "../../../features/tasks/task-worker.js";
+import { copyThreadSkills, type DataLayout } from "../../storage/data-layout.js";
 
 /**
  * 对话式异步任务工具：把“帮我在后台做 X”交给 worker 在独立会话执行。
@@ -12,6 +13,7 @@ export const delegateTaskTool = (
   tasks: Pick<TaskService, "create" | "list" | "control">,
   worker: Pick<TaskWorker, "kick" | "control">,
   originThreadId?: string,
+  layout?: DataLayout,
 ) =>
   defineTool({
     name: "delegate_task",
@@ -45,6 +47,9 @@ export const delegateTaskTool = (
         catch (error) {
           if (!(error instanceof TaskQueueFullError)) throw error;
           return { content: [{ type: "text", text: error.message }], details: { denied: true }, isError: true };
+        }
+        if (layout && originThreadId) {
+          await copyThreadSkills(layout, originThreadId, `task-${task.id}`);
         }
         worker.kick();
         return {

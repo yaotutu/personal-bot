@@ -9,7 +9,7 @@ import { sseEvents, SSE_EVENT_ORDER } from "./sse-events.js";
  * 禁止手写 OpenAPI 文件。契约测试遍历此表做防漂移校验。
  */
 export type EndpointSpec = {
-  method: "get" | "post" | "put";
+  method: "get" | "post" | "put" | "delete";
   /** 路径模板，路径参数用 :name（生成时转 {name}） */
   path: string;
   tag: string;
@@ -52,6 +52,31 @@ export const endpoints: EndpointSpec[] = [
     method: "get", path: "/api/conversation", tag: "会话", summary: "读取会话权威历史",
     hint: "刷新/恢复时同步历史用；历史只读，客户端不要回写。消息含工具投影（toolCalls 与 role=tool 消息按 toolCallId 关联）。",
     auth: true, query: conversationQuery, response: resp.conversationResponse,
+  },
+  {
+    method: "get", path: "/api/threads/:threadId/skills", tag: "会话", summary: "读取会话技能开关",
+    hint: "返回全部技能的默认状态与当前会话的生效状态。",
+    auth: true, response: resp.skillsResponse,
+  },
+  {
+    method: "put", path: "/api/threads/:threadId/skills", tag: "会话", summary: "保存会话技能开关",
+    hint: "整份替换覆盖表；未知技能名返回 400。",
+    auth: true, request: req.updateSkillsSchema, response: resp.skillsResponse,
+  },
+  {
+    method: "delete", path: "/api/threads/:threadId", tag: "会话", summary: "删除会话（不可删除主会话）",
+    hint: "不可删除 local-main（409）；级联删除该会话名下的定时任务与监控，取消其排队/运行中后台任务。",
+    auth: true, response: resp.deleteThreadResponse,
+  },
+  {
+    method: "get", path: "/api/threads/:threadId/instructions", tag: "会话", summary: "读取会话专属规则",
+    hint: "读取当前会话的 INSTRUCTIONS.md 内容；未设置时返回空串。",
+    auth: true, response: resp.instructionsResponse,
+  },
+  {
+    method: "put", path: "/api/threads/:threadId/instructions", tag: "会话", summary: "保存会话专属规则",
+    hint: "下一轮对话开始时注入生效；传空串等于清空。",
+    auth: true, request: req.saveInstructionsSchema, response: resp.instructionsResponse,
   },
   // ---- 增量聊天（AG-UI SSE 输出）----
   {
@@ -170,4 +195,4 @@ export const endpoints: EndpointSpec[] = [
       "5 分钟不决定自动 expired。只有 pending 状态可决定（重复决定 409）。",
     auth: true, request: req.actionDecisionSchema, response: resp.pendingAction,
   },
-];
+ ];

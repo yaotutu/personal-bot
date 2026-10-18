@@ -247,6 +247,19 @@ export async function createFakeModel() {
       res.end("data: [DONE]\n\n");
       return;
     }
+    // 指令路径：触发词"设定规则" + 声明了 instructions 工具。
+    if (declaresTool("instructions") && /设定规则/.test(last) && !pendingToolResult) {
+      event({ role: "assistant" });
+      event(
+        toolCall("instructions", {
+          action: "set",
+          content: "RULE-FROM-CHAT: Always be polite.",
+        }),
+      );
+      event({}, "tool_calls");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
     // 记忆工具路径：触发词"记住/忘掉" + 声明了 memory 工具。
     if (declaresTool("memory") && /记住|忘掉/.test(last) && !pendingToolResult) {
       const forget = /忘掉/.test(last);
@@ -308,6 +321,8 @@ export async function createFakeModel() {
             ? "write reply: "
           : toolName === "memory"
             ? "memory reply: "
+          : toolName === "instructions"
+            ? "instructions reply: "
             : toolName === "schedule"
               ? "schedule reply: "
               : "time reply: ";

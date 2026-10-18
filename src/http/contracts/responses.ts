@@ -31,6 +31,15 @@ export const threadSnapshot = z.object({
 export const threadsResponse = z.object({
   threads: z.array(threadSnapshot).describe("按最近活跃倒序"),
 });
+export const deleteThreadResponse = z.object({
+  ok: z.literal(true),
+  removed: z.object({
+    jobs: z.number().int().nonnegative().describe("级联删除的定时任务数"),
+    monitors: z.number().int().nonnegative().describe("级联删除的网页监控数"),
+    tasks: z.number().int().nonnegative().describe("级联取消的后台任务数"),
+  }),
+});
+export type DeleteThreadDto = z.infer<typeof deleteThreadResponse>;
 export const chatMessage = z.object({
   id: z.string(),
   role: z.enum(["user", "assistant", "tool"]),
@@ -57,6 +66,10 @@ export const profileResponse = z.object({
   soul: z.string().describe("SOUL.md 内容；空串表示未设置"),
   user: z.string().describe("USER.md 内容；空串表示未设置"),
 });
+export const instructionsResponse = z.object({
+  instructions: z.string().describe("该会话当前生效的专属指令文本（INSTRUCTIONS.md）"),
+});
+export type InstructionsDto = z.infer<typeof instructionsResponse>;
 
 // 工作区快照 -----------------------------------------------------------
 export const taskView = z.object({
@@ -170,5 +183,22 @@ export type ThreadDto = z.infer<typeof threadSnapshot>;
 export const pendingActionsResponse = z.object({ actions: z.array(pendingAction) });
 export const actionSummary = pendingAction.omit({ payload: true });
 export const actionsResponse = z.object({ actions: z.array(actionSummary) });
+
+// 技能 -----------------------------------------------------------------
+export const skillItem = z.object({
+  name: z.string().describe("技能名称（目录名）"),
+  description: z.string().describe("技能描述"),
+  defaultEnabled: z.boolean().describe("技能默认开关状态"),
+  enabled: z.boolean().describe("当前会话的生效开关状态"),
+});
+export const skillsResponse = z.object({
+  skills: z.array(skillItem),
+  diagnostics: z.array(z.object({
+    path: z.string(),
+    message: z.string(),
+  })).optional().describe("技能加载诊断信息"),
+});
+export type SkillDto = z.infer<typeof skillItem>;
+
 export type ChatMessageDto = z.infer<typeof chatMessage>;
 export type ConversationSnapshotDto = z.infer<typeof conversationResponse>;

@@ -11,7 +11,7 @@ export type Scheduler = {
 /**
  * 定时任务只依赖 JobService 和 Conversation，不依赖 HTTP。
  *
- * 固定间隔扫描、主会话忙时跳过；启动时间重算由 JobService 在组合入口完成。
+ * 固定间隔扫描、来源会话忙时跳过；启动时间重算由 JobService 在组合入口完成。
  * 扫描、执行与状态写入在进程内串行；保存失败只补写既有结果，不重试模型执行，
  * 不引入 claim、durable execution 或重试框架。
  */
@@ -19,6 +19,7 @@ export const createScheduler = (
   config: { schedulerIntervalMs: number },
   jobs: Pick<JobService, "list" | "markRun">,
   conversation: Pick<Conversation, "isRunning" | "trigger">,
+  forThread?: (threadId: string) => Promise<Pick<Conversation, "isRunning" | "trigger">>,
 ): Scheduler => {
   let timer: NodeJS.Timeout | undefined;
   let closed = false;
@@ -55,18 +56,18 @@ export const createScheduler = (
         await savePendingOutcome();
         return;
       }
-      if (conversation.isRunning()) return;
+      if (!forThread && conversation.isRunning()) return;
       const due = (await jobs.list()).filter(
         (job) => job.enabled && Date.now() >= Date.parse(job.nextRunAt),
       );
       for (const job of due) {
-        if (closed || conversation.isRunning()) break;
+        if (closed) break;
         // due 是一次扫描的快照。前一个任务执行期间，用户可能已经取消或
         // 修改了后一个任务；重新读取是为了不执行这份过期快照。
         const current = (await jobs.list()).find((item) => item.id === job.id);
         // 重读存储也是异步边界：等待期间可能已关闭服务或开始客户端轮次。
         // 必须再次检查生命周期与会话锁，不能在 close 之后发出新任务。
-        if (closed || conversation.isRunning()) break;
+        if (closed) break;
         if (
           !current ||
           !current.enabled ||
@@ -74,7 +75,13 @@ export const createScheduler = (
         )
           continue;
 
-        const outcome = await conversation.trigger(
+        const targetConversation = current.originThreadId && forThread
+          ? await forThread(current.originThreadId)
+          : conversation;
+
+        if (targetConversation.isRunning()) continue;
+
+        const outcome = await targetConversation.trigger(
           `⏰ [定时任务] ${current.prompt}`,
           `job-${current.id}-${Date.now()}`,
         );

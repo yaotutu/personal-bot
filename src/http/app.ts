@@ -9,6 +9,7 @@ import { sessionRequestSchema } from "./contracts/rest.js";
 import { buildOpenApiDocument } from "./openapi.js";
 import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
 import { saveProfileSchema } from "./contracts/rest.js";
+import { createThreadRoutes } from "./routes/threads.js";
 
 // 只挂载 HTTP/协议适配：使用已组装的服务，不创建 store，也不启动或关闭调度器。
 export async function createHttpApp(dependencies: HttpDependencies) {
@@ -28,7 +29,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     cors({
       origin: (origin) => origin ?? "*",
       allowHeaders: ["Authorization", "Content-Type"],
-      allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
+      allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     }),
   );
   app.use(
@@ -68,10 +69,6 @@ export async function createHttpApp(dependencies: HttpDependencies) {
       return c.json({ error: "Unauthorized: open a new session" }, 401);
     await next();
   });
-  // 单 owner 多会话：列出已存在的 thread（按最近活跃倒序）。
-  app.get("/api/threads", async (c) =>
-    c.json({ threads: await conversationHub.threads() }),
-  );
   // SOUL/USER 自由文本：读取与保存（下一轮 prompt 注入即生效）。
   app.get("/api/profile", async (c) => c.json(await dependencies.identity.getProfile()));
   app.put("/api/profile", async (c) => {
@@ -82,6 +79,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     return c.json(await dependencies.identity.saveProfile(parsed.data));
   });
   // 先鉴权，再挂载业务/运行协议，最后处理未知 API；顺序是现有安全边界。
+  app.route("/api/threads", createThreadRoutes(dependencies));
   app.route("/", createWorkspaceRoutes(dependencies));
   app.route("/", runtimeRoutes);
   app.all("/api/*", (c) =>

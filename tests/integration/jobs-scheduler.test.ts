@@ -171,3 +171,68 @@ test("restart rereads stored outcomes and schedules only future work", async (t)
   await restarted.close();
   assert.equal(calls, 2, "restart neither replays completed work nor catches up missed schedules");
 });
+
+test("scheduler dispatches to originThreadId and skips busy origin while letting other threads run", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "personal-bot-scheduler-multi-"));
+  const file = join(directory, "jobs.json");
+  const jobs = createJobService(createJobRepository(file));
+  const threadRuns: Record<string, number> = { "thread-a": 0, "thread-b": 0 };
+  let threadABusy = true;
+
+  const conversationMap: Record<string, Pick<Conversation, "isRunning" | "trigger">> = {
+    "thread-a": {
+      isRunning: () => threadABusy,
+      trigger: async () => { threadRuns["thread-a"]++; return { status: "completed", text: "done" }; },
+    },
+    "thread-b": {
+      isRunning: () => false,
+      trigger: async () => { threadRuns["thread-b"]++; return { status: "completed", text: "done" }; },
+    },
+  };
+
+  const defaultConv: Pick<Conversation, "isRunning" | "trigger"> = {
+    isRunning: () => false,
+    trigger: async () => ({ status: "completed", text: "done" }),
+  };
+
+  const scheduler = createScheduler(
+    { schedulerIntervalMs: 10 },
+    jobs,
+    defaultConv,
+    async (threadId) => conversationMap[threadId] ?? defaultConv,
+  );
+
+  t.after(async () => {
+    try { await scheduler.close(); }
+    finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  // 添加属于 thread-a 和 thread-b 的即刻到期任务
+  const past = new Date(0).toISOString();
+  await jobs.add("job for a", false, past, "thread-a");
+  await jobs.add("job for b", false, past, "thread-b");
+
+  scheduler.start();
+
+  // thread-b 应该顺利运行并完成，而 thread-a 正在 busy 所以被跳过
+  await waitFor(async () => {
+    const list = await jobs.list();
+    const jobB = list.find((j) => j.originThreadId === "thread-b");
+    return jobB?.lastStatus === "completed";
+  });
+
+  assert.equal(threadRuns["thread-b"], 1);
+  assert.equal(threadRuns["thread-a"], 0);
+
+  // 解除 thread-a 的 busy
+  threadABusy = false;
+
+  // 等待 thread-a 触发并完成
+  await waitFor(async () => {
+    const list = await jobs.list();
+    const jobA = list.find((j) => j.originThreadId === "thread-a");
+    return jobA?.lastStatus === "completed";
+  });
+
+  assert.equal(threadRuns["thread-a"], 1);
+});

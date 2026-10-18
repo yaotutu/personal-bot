@@ -6,8 +6,11 @@ type ThreadSnapshot = { id: string; updatedAt: string };
 export type ConversationHub = {
   forThread: (threadId: string) => Promise<Conversation>;
   threads: () => Promise<ThreadSnapshot[]>;
+  hasThread: (threadId: string) => Promise<boolean>;
   /** 内部任务结束后释放缓存；历史仍由 pi JSONL 保留。 */
   release: (threadId: string) => Promise<void>;
+  /** 取消指定会话正在运行的轮次并逐出缓存 */
+  cancelAndEvict: (threadId: string) => Promise<void>;
   closeAll: () => Promise<void>;
 };
 
@@ -30,6 +33,19 @@ export const createConversationHub = (
     if (!entry?.value || entry.value.isRunning()) return;
     cache.delete(id);
     await entry.value.close();
+  };
+  const cancelAndEvict = async (id: string) => {
+    const entry = cache.get(id);
+    if (entry) {
+      cache.delete(id);
+      try {
+        const conv = await entry.promise;
+        await conv.cancel("STOPPED");
+        await conv.close();
+      } catch {
+        // ignore
+      }
+    }
   };
   return {
     forThread(threadId) {
@@ -56,7 +72,12 @@ export const createConversationHub = (
       return entry.promise;
     },
     threads: listThreads,
+    hasThread: async (threadId: string) => {
+      const all = await listThreads();
+      return all.some((t) => t.id === threadId);
+    },
     release,
+    cancelAndEvict,
     closeAll: () => {
       if (closing) return closing;
       closed = true;

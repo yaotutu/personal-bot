@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test, { type TestContext } from "node:test";
 import type { ConversationInput } from "../../src/features/conversation/types.js";
-import { createDataLayout } from "../../src/adapters/storage/data-layout.js";
+import { createDataLayout, threadWorkspaceDir } from "../../src/adapters/storage/data-layout.js";
 import { createService } from "../../src/bootstrap/create-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { createFakeModel } from "../support/fake-model.js";
@@ -92,7 +92,7 @@ const readOptional = async (file: string) => {
 test("Stop cancels a pending write approval without changing the existing file", async (t) => {
   const h = await createFixture(t);
   const service = await h.startService();
-  const target = join(h.layout.workspaceDir, "draft.md");
+  const target = join(threadWorkspaceDir(h.layout, "local-main"), "draft.md");
   const original = "EXISTING-DRAFT must survive Stop\n";
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, original);

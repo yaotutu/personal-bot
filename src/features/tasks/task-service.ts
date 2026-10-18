@@ -91,6 +91,18 @@ export const createTaskService = (repository: TaskRepository) => {
         }
         return { items, result: { ok: true, task } };
       }),
+    cancelByOriginThreadId: (originThreadId: string): Promise<number> =>
+      repository.update((items) => {
+        let count = 0;
+        for (const task of items) {
+          if (task.originThreadId === originThreadId && (task.status === "queued" || task.status === "running")) {
+            task.status = "cancelled";
+            task.finishedAt = now();
+            count++;
+          }
+        }
+        return { items, result: count };
+      }),
     /** worker 专用状态迁移；非法迁移保持 no-op 并返回 false。 */
     markRunning: (id: string, attemptId: string = randomUUID()): Promise<boolean> =>
       repository.update((items) => {

@@ -12,10 +12,11 @@
 - Web 搜索与抓取：`search_web` 返回标题、URL 和摘要，优先 DuckDuckGo，被 challenge 时用 Bing RSS 兜底；`web_fetch` 抓取公网页面并提取 Markdown/text。二者均只读，带 DNS/SSRF 校验、重定向校验、超时和大小限制，并把外部内容标记为不可信数据。
 - 实时天气：`get_weather` 使用无密钥 Open-Meteo Geocoding + Forecast API，返回当前温度、体感、湿度、降水、风力和今日概要；可在 config 中配置默认城市。天气请求不再依赖通用搜索，网络请求复用公网 DNS/SSRF 防护。
 - 只读工具集：`currentTime`（本地时钟）+ `read`/`grep`/`find`/`ls`（复用 pi 内置只读文件工具，
-  执行前强制路径边界——解析后必须落在 `DATA_DIR/workspace` 资料目录内，绝对路径与 `../` 逃逸一律拒绝）；
+  执行前强制路径边界——普通相对路径只可达 `DATA_DIR/workspace/threads/<threadId>/`，主会话同样使用 `threads/local-main/`；
+  `shared/...` 显式访问 `workspace/shared/`。绝对路径、`..` 与目标/父目录符号链接一律拒绝；已启用技能的精确 `SKILL.md` 路径仅允许 read 读取）；
   工具调用与结果按展示策略投影为 AG-UI 四类事件（START/ARGS/END/RESULT），供客户端展示，
   历史投影包含 assistant 的 toolCalls 与 role "tool" 消息，刷新/重启后关联不变。
-  把资料放进 `.pi-muse/workspace/` 即可让助手读它回答问题。
+  主会话资料放进 `.pi-muse/workspace/threads/local-main/`，跨会话资料放进 `.pi-muse/workspace/shared/`；`workspace/` 本身只作容器。
 - 文件写入：`write`/`edit` 默认开启，但每次执行都需人工审批。审批包含完整修改前后文本并绑定文件版本；提交前复核 workspace 路径、文件版本、审批期限和取消状态。拒绝、过期或运行取消不会提交该次修改，文件变化需重新审批；`bash` 永不暴露。
 - pi JSONL 是历史权威来源；客户端每轮完成后读取历史，不再用旧快照覆盖服务端。
 - 会话压缩（P2.5）：超阈值时 pi 用摘要替换模型上下文，展示历史全量保留；压缩参数按
@@ -35,7 +36,7 @@
 - 后台任务通过 `delegate_task` 在内部独立 thread 执行；`goal` 管理目标，`monitor` 管理周期网页监控。
 
 暂不实现：shell、附件、自动记忆提取（Dream）、heartbeat、外部 channel、多用户、运行中 reconnect。
-工具注册包括：currentTime / memory / schedule / delegate_task / goal / monitor / read / grep / find / ls / write / edit / search_web / web_fetch / get_weather；可选能力按配置启用，未实现功能不伪装成功。
+工具注册包括：currentTime / instructions / memory / schedule / delegate_task / goal / monitor / read / grep / find / ls / write / edit / search_web / web_fetch / get_weather；可选能力按配置启用，未实现功能不伪装成功。
 
 ## 客户端与协议
 
@@ -126,7 +127,29 @@ mock 端口和数据目录由脚本内显式配置固定，不提供环境变量
 
 ## 存储与安全边界
 
-默认实例目录为 `.pi-muse`（已忽略）：`config.json` 是必需服务配置，`sessions/<threadId>/` 保存各 thread 的 pi 会话，auth.key 是随机 token 签名密钥，workspace/ 与 agent/ 是专用运行目录。
+默认实例目录为 `.pi-muse`（已忽略）：`config.json` 是必需服务配置，`sessions/<threadId>/` 保存各 thread 的 pi 会话、`INSTRUCTIONS.md` 与技能覆盖，auth.key 是随机 token 签名密钥。普通文件工具只可达自己的私有区与显式共享区：
+
+```text
+.pi-muse/
+├── config.json / auth.key / SOUL.md / USER.md
+├── memory.json / goals.json / jobs.json / tasks.json / actions.json / monitors.json
+├── skills/<name>/SKILL.md                # 用户技能，全局一份
+├── sessions/<threadId>/
+│   ├── *.jsonl                          # pi 权威历史
+│   ├── INSTRUCTIONS.md                  # 该会话规则，按需存在
+│   └── skills.json                      # 该会话技能开关覆盖，按需存在
+├── workspace/
+│   ├── shared/                          # 所有会话用 shared/... 访问
+│   └── threads/
+│       ├── local-main/                  # 主会话也没有父目录访问特权
+│       ├── email/
+│       └── task-<id>/
+└── agent/                               # pi 内部运行资源，不开放给文件工具
+```
+
+会话规则通过 `instructions` 工具或 `GET/PUT /api/threads/:threadId/instructions` 管理，下一轮生效；当前 Web 没有专属规则编辑面板。规则不能扩大工具权限。删除会话同时清理其 `sessions/<id>/` 和 `workspace/threads/<id>/`，不删除共享文件。
+
+新布局不自动读取、搬移或删除旧 workspace 根目录文件，也不为旧 cwd 提供历史回退；已有数据需停服后单独备份和处理。普通文件路径边界不等同于操作系统沙箱；用户安装的技能 extension 是可信服务端代码，不受这些普通文件工具约束。
 `runtime.dataDir` 省略时使用配置文件所在目录；相对值也按配置文件目录解析，不按进程 cwd。推荐绝对路径以便部署排查，但并非必需。
 默认 CORS 包含 localhost/127.0.0.1 的 15173 与 17890 四个 origin，便于从本机或局域网访问；显式 `server.allowedOrigins` 会替换默认列表。
 模型 key 只驻留受保护的 `.pi-muse/config.json` 与服务端内存，不写入 pi auth.json、不返回客户端；供应商错误诊断在持久化前脱敏。
@@ -142,6 +165,8 @@ pi 自动压缩已开启（参数随上下文窗口收缩），展示历史完�
 此前 P2 工具闭环的 Web 联调记录保留在 `docs/archive/p2-web-smoke.png` 与 `docs/archive/p2-real-web-smoke.png`；这些是历史 OpenMuse 验收记录，不代表当前自有 Web 或本轮重新验收。
 
 ## 验证状态与后续
+
+- 2026-10-18：会话私有根统一为 `workspace/threads/<id>/`，修复主会话父目录暴露和只读符号链接绕过；277项自动化测试、类型检查、前后端构建通过。真实DeepSeek+自有Web确认旧越界请求已拒绝、私有/共享审批读写与重启规则/历史有效；不自动迁移旧数据。详见 `docs/archive/2026-10-18-workspace-isolation-fix-acceptance.md`。
 
 - 2026-10-17：默认数据目录及真实实例已离线迁移为 `.pi-muse/`，绝对配置路径与pi会话头同步更新；261项测试、类型检查、前后端构建和迁移后历史/登录回归通过。受保护备份位置与回退方式见 `docs/HANDOFF.md`。
 - 2026-10-17：品牌统一为 `pi-muse`；260 项自动化测试、类型检查、服务端/Web 构建通过。隔离 DEV 已验证桌面/移动端品牌、真实模型时间工具及历史刷新；PWA 已验证旧壳刷新与离线品牌。数据目录随后已离线迁移为 `.pi-muse/`，历史协议标识和已有自定义身份仍保留，备份及完整验收范围见 `docs/HANDOFF.md`。

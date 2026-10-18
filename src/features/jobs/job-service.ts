@@ -83,10 +83,11 @@ export const createJobService = (repository: JobRepository) => ({
     };
   }),
 
-  add: (prompt: string, daily: boolean, at: string): Promise<Job> => repository.update((items) => {
+  add: (prompt: string, daily: boolean, at: string, originThreadId: string = "local-main"): Promise<Job> => repository.update((items) => {
     const job: Job = {
       id: randomUUID(), prompt: prompt.trim(), daily, at, enabled: true,
       createdAt: new Date().toISOString(), nextRunAt: nextRunAfter(daily, at, new Date()),
+      originThreadId,
     };
     return { items: [...items, job], result: job };
   }),
@@ -97,6 +98,13 @@ export const createJobService = (repository: JobRepository) => ({
     if (result.ok) return true;
     return result.code === "conflict";
   },
+
+  /** 级联删除属于指定会话的全部定时任务 */
+  removeByOriginThreadId: (originThreadId: string): Promise<number> => repository.update((items) => {
+    const remaining = items.filter((item) => item.originThreadId !== originThreadId);
+    const count = items.length - remaining.length;
+    return { items: remaining, result: count };
+  }),
 
   /**
    * 只保存本次结果。补存传回实际完成时间，不重跑模型，也不覆盖期间的 pause/cancel。

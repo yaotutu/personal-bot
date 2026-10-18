@@ -10,6 +10,7 @@ import { createGoalService } from "../features/goals/goal-service.js";
 import { createActionService } from "../features/actions/action-service.js";
 import { createMonitorService } from "../features/monitors/monitor-service.js";
 import { createMonitorScheduler } from "../features/monitors/monitor-scheduler.js";
+import { createSkillsService } from "../features/skills/service.js";
 import { createTaskWorker, type TaskWorker } from "../features/tasks/task-worker.js";
 import { createMemoryService } from "../features/memory/memory-service.js";
 import { createIdentityService } from "../features/identity/identity-service.js";
@@ -20,6 +21,7 @@ import { createGoalRepository } from "../adapters/storage/goal-repository.js";
 import { createActionRepository } from "../adapters/storage/action-repository.js";
 import { createMonitorRepository } from "../adapters/storage/monitor-repository.js";
 import { createMemoryRepository } from "../adapters/storage/memory-repository.js";
+import { createSkillRepository } from "../adapters/storage/skill-repository.js";
 import { createHttpApp } from "../http/app.js";
 import { createDataLayout, ensureThreadLayout, threadSessionsDir } from "../adapters/storage/data-layout.js";
 import { createScheduler } from "../features/jobs/scheduler.js";
@@ -80,6 +82,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const goals = createGoalService(createGoalRepository(layout.goalsFile));
   const actions = createActionService(createActionRepository(layout.actionsFile));
   const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile));
+  const skills = createSkillsService(createSkillRepository(layout));
   const workerRef: { current?: TaskWorker } = {};
 
   // 多会话：每个 thread 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
@@ -138,6 +141,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
             monitors,
             web,
             weather,
+            skills,
           }),
           manager,
         ),
@@ -154,6 +158,9 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
           return { id: entry.name, updatedAt: new Date(Math.max(0, ...times)).toISOString() };
         }),
       );
+      if (!snapshots.some((entry) => entry.id === "local-main")) {
+        snapshots.push({ id: "local-main", updatedAt: new Date(0).toISOString() });
+      }
       return snapshots.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     },
   );
@@ -168,10 +175,10 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     throw error;
   }
   const mainConversation = await conversationHub.forThread("local-main");
-  const scheduler = createScheduler(config, jobs, mainConversation);
+  const scheduler = createScheduler(config, jobs, mainConversation, (threadId) => conversationHub.forThread(threadId));
   const monitorScheduler = createMonitorScheduler(
     { monitorScanIntervalMs: config.monitorScanIntervalMs, web }, monitors,
-    mainConversation, (threadId) => conversationHub.forThread(threadId),
+    mainConversation, async (threadId) => (await conversationHub.hasThread(threadId)) ? conversationHub.forThread(threadId) : mainConversation,
   );
   const taskWorker = createTaskWorker(tasks, conversationHub, mainConversation, config.runTimeoutMs);
   workerRef.current = taskWorker;
@@ -187,7 +194,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       return () => { requests.delete(pending); release(); };
     },
   };
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, tasks, taskWorker, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle };
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, tasks, taskWorker, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。

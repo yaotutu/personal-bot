@@ -44,7 +44,7 @@ feature 只依赖业务类型与实际需要的 port；adapter 实现 port，boo
 
 ## 写文件与审批
 
-- read/grep/find/ls 仅可达 `DATA_DIR/workspace`；bash 永不暴露。启用 writable 时只注册受控 write/edit，不开放 pi 默认的无限制写工具。
+- read/grep/find/ls 默认仅可达 `DATA_DIR/workspace/threads/<threadId>/`，包括主会话；`shared/...` 仅映射到 `workspace/shared/`。绝对路径、父目录跳转、根/中间目录/目标符号链接均拒绝；只读 operations 检查 SDK 最终解析路径，递归 grep/find 不开启跟随链接，ls 跳过链接。已启用技能的精确 SKILL.md 仅允许 read 读取，不开放目录或其他文件。bash 永不暴露。启用 writable 时只注册受控 write/edit，不开放 pi 默认的无限制写工具。
 - 审批域只记录人的决定，不执行副作用。每次操作登记完整路径、内容/编辑前后文本、文件基准版本，以及 threadId/runId/expiresAt；Web 原样转义展示，不能只展示截断摘要后让人批准。
 - 截止时间登记时固定，决定时也原子检查过期；Stop/abort 撤销 pending；启动前撤销旧进程遗留 pending，批准旧卡片不能复活已取消的执行。
 - 提交前再次检查取消、有效期、路径和文件版本。不同工具实例共用逐物理路径队列；任何旧审批遇到文件变化都拒绝，必须重新申请，不覆盖他人新内容。
@@ -60,7 +60,10 @@ feature 只依赖业务类型与实际需要的 port；adapter 实现 port，boo
 
 ## 数据布局与校验
 
-- `sessions/<threadId>/*.jsonl`：pi 历史；`workspace/`：文件工具唯一范围；`SOUL.md`/`USER.md`：每轮重读。
+- `sessions/<threadId>/*.jsonl`：pi 历史；同目录 INSTRUCTIONS.md/skills.json 分别为会话规则/技能覆盖。
+- `workspace/threads/<threadId>/`：会话私有文件根；主会话没有例外。`workspace/shared/`：全局共享区，用 shared/ 别名显式访问；workspace/ 与 threads/ 仅为容器。
+- SessionManager.continueRecent 与 createAgentSession 使用同一私有 cwd；重启只恢复相同 cwd 的权威历史，不回退旧路径。规则每轮重读，instructions 工具只修改本会话规则，不能扩大文件或审批权限；全局 SOUL.md/USER.md 仍共享。
+- 路径守卫约束普通文件工具，不是操作系统沙箱；已安装的可信 extension 是服务端代码。
 - `memory.json`：`{ memories: [...], identity: {...} }`，已有文档必须包含完整 identity。
 - `jobs.json`、`tasks.json`、`goals.json`、`actions.json`、`monitors.json`：各域裸数组；记录遵守当前 reader；不加 schemaVersion，不隐式迁移数据。
 - DataLayout 集中声明路径；相对 runtime.dataDir 相对配置文件所在目录解析，绝对路径便于部署核对。

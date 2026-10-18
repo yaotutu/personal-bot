@@ -88,6 +88,12 @@ export const createMonitorService = (repository: MonitorRepository) => {
           ? { result: false }
           : { items: next, result: true };
       }),
+    removeByOriginThreadId: (originThreadId: string): Promise<number> =>
+      repository.update((items) => {
+        const next = items.filter((x) => x.originThreadId !== originThreadId);
+        const count = items.length - next.length;
+        return { items: next, result: count };
+      }),
     /**
      * 执行一次检查并落盘。body 是抓取到的正文（由 scheduler 注入，复用 web
      * 安全边界）；失败时调用方传 error。去重语义在域内：

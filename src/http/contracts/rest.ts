@@ -118,4 +118,16 @@ export const stopRequestSchema = z.strictObject({
   threadId: threadIdSchema,
   runId: z.string().min(1).max(200).describe("只停止该 run；迟到请求不会影响后续运行"),
 });
+
+// ---------------------------------------------------------------------------
+// 技能：会话级开关覆盖
+// ---------------------------------------------------------------------------
+export const updateSkillsSchema = z.object({
+  overrides: z.record(z.string(), z.boolean()).describe("技能开关覆盖表，整份替换；未知技能名返回 400"),
+});
+
+// 会话专属规则/指令：下一轮对话注入生效；空串等于清空。
+export const saveInstructionsSchema = z.object({
+  instructions: z.string().max(20000).describe("会话专属规则/提示词自由文本；空串等于清空"),
+});
 export type RunRequestDto = z.infer<typeof runRequestSchema>;

@@ -16,6 +16,7 @@ const job: Job = {
   id: "scheduled", prompt: "Reminder", daily: false, enabled: true,
   at: "2030-01-01T00:00:00.000Z", nextRunAt: "2030-01-01T00:00:00.000Z",
   createdAt: "2026-01-01T00:00:00.000Z",
+  originThreadId: "local-main",
 };
 const task: Task = {
   id: "background", prompt: "Background instruction", title: "Background", source: "web",
