@@ -37,7 +37,7 @@ const schedulerFor = (
   conversation: Pick<Conversation, "isRunning" | "trigger">,
 ) => createScheduler(schedulerConfig, jobs, conversation);
 
-test("DataLayout describes every legacy path without migrating data", () => {
+test("DataLayout describes the current paths without migrating legacy data", () => {
   const root = resolve(".personal-bot-test");
   assert.deepEqual(createDataLayout("./.personal-bot-test"), {
     root,
@@ -47,7 +47,6 @@ test("DataLayout describes every legacy path without migrating data", () => {
     piAuthFile: join(root, "agent", "auth.json"),
     memoryFile: join(root, "memory.json"),
     jobsFile: join(root, "jobs.json"),
-    tasksFile: join(root, "tasks.json"),
     goalsFile: join(root, "goals.json"),
     actionsFile: join(root, "actions.json"),
     monitorsFile: join(root, "monitors.json"),
@@ -55,6 +54,7 @@ test("DataLayout describes every legacy path without migrating data", () => {
     userFile: join(root, "USER.md"),
     authKeyFile: join(root, "auth.key"),
     skillsDir: join(root, "skills"),
+    subagentsDir: join(root, "subagents"),
   });
 });
 

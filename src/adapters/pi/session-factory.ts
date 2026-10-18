@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -5,9 +6,10 @@ import {
   createExtensionRuntime,
   discoverAndLoadExtensions,
   loadSkillsFromDir,
+  DefaultResourceLoader,
   ModelRuntime,
+  SessionManager,
   SettingsManager,
-  type SessionManager,
   type Skill,
 } from "@earendil-works/pi-coding-agent";
 import type { DataLayout } from "../storage/data-layout.js";
@@ -17,8 +19,6 @@ import { getBuiltinSkillsDir } from "../storage/builtin-skills.js";
 import type { Config } from "../../config/load-config.js";
 import type { MemoryService } from "../../features/memory/memory-service.js";
 import type { JobService } from "../../features/jobs/job-service.js";
-import type { TaskService } from "../../features/tasks/task-service.js";
-import type { TaskWorker } from "../../features/tasks/task-worker.js";
 import type { GoalService } from "../../features/goals/goal-service.js";
 import type { ActionService } from "../../features/actions/action-service.js";
 import type { MonitorService } from "../../features/monitors/monitor-service.js";
@@ -28,10 +28,13 @@ import type { SkillsService } from "../../features/skills/service.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { createResourceLoader } from "./resource-loader.js";
 import { createTools, skillToToolsMap, registeredToolNames } from "./tools/index.js";
+import { loadSubagentRoles } from "../storage/subagent-roles.js";
+import { createSubagentExtension, SUBAGENT_TOOL_NAME, type SubagentRole } from "./subagent/extension.js";
+import { projectExecutionEvent } from "./execution.js";
 
 /**
  * pi 装配的依赖集合。全部经由组合入口显式注入；可选能力（goals/actions/
- * monitors/tasks/web/weather）缺省时对应工具不声明，不留第二套装配路径。
+ * monitors/web/weather）缺省时对应工具不声明，不留第二套装配路径。
  * 单对象参数消除此前 13 个位置参数的传错序风险。
  */
 export type PiDeps = {
@@ -42,8 +45,8 @@ export type PiDeps = {
   sessionManager: SessionManager;
   memory: MemoryService;
   jobs: JobService;
-  worker?: Pick<TaskWorker, "kick" | "control">;
-  tasks?: TaskService;
+  /** 仅子会话使用：父会话技能/工具快照作为权限上限，角色只可收窄。 */
+  child?: { role: SubagentRole; enabledSkills: readonly string[]; allowedTools: readonly string[]; ownerThreadId: string; ownerRunId?: string };
   threadId: string;
   runId?: string;
   goals?: GoalService;
@@ -55,10 +58,12 @@ export type PiDeps = {
   skills?: SkillsService;
 };
 
+const subagentBlockedTools = new Set([SUBAGENT_TOOL_NAME, "schedule", "monitor", "instructions", "bash"]);
+
 /** 仅装配 pi 运行环境；agent loop 与 JSONL 持久化继续完全交给 SDK。 */
 export async function openPi(deps: PiDeps) {
-  const { config, layout, sessionManager, memory, jobs, worker, modelRuntime } = deps;
-  const { tasks, goals, actions, actionTimeoutMs, monitors, web, weather, skills } = deps;
+  const { config, layout, sessionManager, memory, jobs, modelRuntime } = deps;
+  const { goals, actions, actionTimeoutMs, monitors, web, weather, skills, child } = deps;
   if (!config.configured) throw new Error("MODEL_NOT_CONFIGURED");
   const cwd = threadWorkspaceDir(layout, deps.threadId);
   const sharedDir = sharedWorkspaceDir(layout);
@@ -66,11 +71,11 @@ export async function openPi(deps: PiDeps) {
   const agentDir = layout.agentDir;
 
   // 1. 加载技能并计算生效值
-  const effectiveSkills = skills && deps.threadId
+  const effectiveSkills = !child && skills && deps.threadId
     ? await skills.getEffectiveSkills(deps.threadId)
     : [];
   const enabledSkillNames = new Set(
-    effectiveSkills.filter(s => s.enabled).map(s => s.name)
+    child?.enabledSkills ?? effectiveSkills.filter(s => s.enabled).map(s => s.name)
   );
 
   // 2. 加载技能定义与 Extension
@@ -82,7 +87,8 @@ export async function openPi(deps: PiDeps) {
   for (const s of builtinSkills) skillMap.set(s.name, s);
   for (const s of userSkills) skillMap.set(s.name, s);
 
-  const activeSkills = Array.from(skillMap.values()).filter((s) => enabledSkillNames.has(s.name));
+  const activeSkills = Array.from(skillMap.values()).filter((s) => enabledSkillNames.has(s.name) &&
+    (!child || !["task", "cron", "monitor"].includes(s.name)));
 
   const extensionPaths: string[] = [];
   for (const skill of activeSkills) {
@@ -101,12 +107,11 @@ export async function openPi(deps: PiDeps) {
     root: cwd,
     sharedDir,
     readOnlyFiles: activeSkills.map((skill) => skill.filePath),
-    threadId: deps.threadId,
-    runId: deps.runId,
+    threadId: child?.ownerThreadId ?? deps.threadId,
+    runId: child?.ownerRunId ?? deps.runId,
+    isSubagent: Boolean(child),
     memory,
     jobs,
-    tasks,
-    worker,
     goals,
     actions,
     actionTimeoutMs,
@@ -154,13 +159,81 @@ export async function openPi(deps: PiDeps) {
     })
     .map((tool) => tool.name);
 
-  const allowedToolNames = [...builtinAllowedToolNames, ...extensionToolNames];
-  const customTools = allCustomTools.filter((tool) => builtinAllowedToolNames.includes(tool.name));
+  const allowedToolNames = [...builtinAllowedToolNames, ...extensionToolNames].filter((name) =>
+    !child || (!subagentBlockedTools.has(name) &&
+      child.allowedTools.includes(name) && (!child.role.tools || child.role.tools.includes(name)))
+  );
+  if (child) {
+    for (const extension of extensionResult.extensions) {
+      for (const name of extension.tools.keys()) {
+        if (!allowedToolNames.includes(name)) extension.tools.delete(name);
+      }
+      // 可信扩展可以执行任意服务端代码，但子会话不能借其生命周期钩子重新扩充模型工具。
+      extension.handlers.clear();
+      extension.commands.clear();
+    }
+  }
+  const customTools = allCustomTools.filter((tool) => allowedToolNames.includes(tool.name));
+
+  // 官方扩展仅替换 child runner：上下文独立，凭据/工具边界复用项目装配。
+  // 不启动 CLI，也不会从个人 ~/.pi 或可写工作区发现资源。
+  if (!child && enabledSkillNames.has("task")) {
+    const roles = await loadSubagentRoles(layout.subagentsDir);
+    const extension = createSubagentExtension(roles, async (role, task, signal, update) => {
+      signal?.throwIfAborted();
+      const childId = `subagent-${randomUUID()}`;
+      await ensureThreadWorkspace(layout, childId);
+      signal?.throwIfAborted();
+      const manager = SessionManager.inMemory(threadWorkspaceDir(layout, childId));
+      const session = await openPi({
+        ...deps, sessionManager: manager, threadId: childId,
+        child: { role, enabledSkills: [...enabledSkillNames], allowedTools: [...allowedToolNames], ownerThreadId: deps.threadId, ownerRunId: deps.runId },
+      });
+      const abort = () => { void session.abort().catch(() => undefined); };
+      signal?.addEventListener("abort", abort, { once: true });
+      let output = "";
+      let reason: string | undefined;
+      const unsubscribe = session.subscribe((event) => {
+        const projected = projectExecutionEvent(event);
+        if (projected?.type === "assistant_end") { reason = projected.reason; if (projected.text) output = projected.text; }
+        if (event.type === "tool_execution_start" || event.type === "message_end")
+          update({ agent: role.name, task, output: "Subagent is working" });
+      });
+      try {
+        signal?.throwIfAborted();
+        await session.prompt(`Task: ${task}`, { expandPromptTemplates: false });
+        await session.waitForIdle();
+        signal?.throwIfAborted();
+        const failed = !reason || reason === "error" || reason === "aborted";
+        return { agent: role.name, task, output: failed ? "Subagent execution failed" : output || "(no output)", isError: failed };
+      } catch {
+        await session.abort();
+        await session.waitForIdle();
+        signal?.throwIfAborted();
+        return { agent: role.name, task, output: "Subagent execution failed", isError: true };
+      } finally {
+        signal?.removeEventListener("abort", abort);
+        unsubscribe();
+        session.dispose();
+      }
+    });
+    const inlineLoader = new DefaultResourceLoader({
+      cwd, agentDir, settingsManager: SettingsManager.inMemory({}),
+      noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+      systemPrompt: "", extensionFactories: [extension],
+    });
+    await inlineLoader.reload();
+    const inline = inlineLoader.getExtensions();
+    if (inline.errors.length) throw new Error("Subagent extension could not be loaded");
+    extensionResult.extensions.push(...inline.extensions);
+    allowedToolNames.push(SUBAGENT_TOOL_NAME);
+  }
 
   // 4. 构建 System Prompt 并注入技能、专属会话指令与 Extension
-  const instructionsFile = deps.threadId ? threadInstructionsFile(layout, deps.threadId) : undefined;
+  const instructionsFile = !child && deps.threadId ? threadInstructionsFile(layout, deps.threadId) : undefined;
   const threadInstructions = instructionsFile ? await readThreadInstructions(instructionsFile) : undefined;
-  const systemPrompt = await buildSystemPrompt(layout, memory, web !== undefined, weather !== undefined, goals, threadInstructions);
+  const systemPrompt = await buildSystemPrompt(layout, memory, web !== undefined, weather !== undefined, goals, threadInstructions) +
+    (child ? `\n\n## Subagent role\n${child.role.systemPrompt}\nYou have an isolated context and private workspace. Return the result to the parent agent. You cannot delegate or schedule work. Use shared/... for shared materials; never assume access to the parent's private files.` : "");
   const resourceLoader = createResourceLoader(systemPrompt, activeSkills, extensionResult);
 
   // provider 与内存凭据由 bootstrap 唯一初始化；每轮仅查询模型，避免修改共享 runtime。

@@ -11,8 +11,8 @@ export const createConversationRoutes = (
   app.get("/api/conversation", async (c) => {
     const threadId = c.req.query("threadId") || "local-main";
     try {
-      const conversation = await conversationHub.forThread(threadId);
-      return c.json(conversation.snapshot());
+      const conversation = await conversationHub.findThread(threadId);
+      return c.json(conversation?.snapshot() ?? { messages: [], revision: "empty" });
     } catch (error) {
       if (error instanceof ConversationError && error.code === "UNSUPPORTED_THREAD")
         return c.json({ error: "Invalid threadId" }, 400);

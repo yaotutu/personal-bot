@@ -5,8 +5,6 @@ import type { MemoryService } from "../features/memory/memory-service.js";
 import type { IdentityService } from "../features/identity/identity-service.js";
 import type { DataLayout } from "../adapters/storage/data-layout.js";
 import type { Scheduler } from "../features/jobs/scheduler.js";
-import type { TaskService } from "../features/tasks/task-service.js";
-import type { TaskWorker } from "../features/tasks/task-worker.js";
 import type { GoalService } from "../features/goals/goal-service.js";
 import type { ActionService } from "../features/actions/action-service.js";
 import type { MonitorService } from "../features/monitors/monitor-service.js";
@@ -28,8 +26,6 @@ export type ServiceContainer = {
   jobs: JobService;
   conversationHub: ConversationHub;
   scheduler: Scheduler;
-  tasks: TaskService;
-  taskWorker: TaskWorker;
   goals: GoalService;
   actions: ActionService;
   monitors: MonitorService;
@@ -41,5 +37,5 @@ export type ServiceContainer = {
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "tasks" | "taskWorker" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents"
+  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents"
 >;

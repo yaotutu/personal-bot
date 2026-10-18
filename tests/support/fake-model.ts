@@ -65,7 +65,7 @@ export async function createFakeModel() {
         );
       return;
     }
-    if (last === "freeze") {
+    if (last === "freeze" || last === "Task: freeze") {
       res.on("close", () => {
         slowClosed++;
       });
@@ -161,24 +161,8 @@ export async function createFakeModel() {
           ((tool as { function?: { name?: string } }).function?.name === name ||
             (tool as { name?: string }).name === name),
       );
-    // 任务 thread 的执行轮。
-    if (/^后台任务测试/.test(last)) {
-      event({ role: "assistant" });
-      event({ content: "TASK-RAN " + last });
-      event({}, "stop");
-      res.end("data: [DONE]\n\n");
-      return;
-    }
-    // 任务完成通知轮（📋 前缀）。
-    if (/^📋/.test(last)) {
-      event({ role: "assistant" });
-      event({ content: "NOTIFIED " + last.slice(0, 40) });
-      event({}, "stop");
-      res.end("data: [DONE]\n\n");
-      return;
-    }
     // 写文件路径：触发词"写入" → write 工具（内容含标记串，测试在审批后断言落盘）。
-    if (declaresTool("write") && /写入/.test(last) && !pendingToolResult) {
+    if (declaresTool("write") && /写入/.test(last) && !/子代理/.test(last) && !pendingToolResult) {
       event({ role: "assistant" });
       event(
         toolCall("write", {
@@ -217,10 +201,11 @@ export async function createFakeModel() {
       res.end("data: [DONE]\n\n");
       return;
     }
-    // 异步任务路径：触发词"后台" + 声明了 delegate_task。
-    if (declaresTool("delegate_task") && /后台/.test(last) && !pendingToolResult) {
+    // 主模型自行委派；子模型没有 subagent 工具，不会递归进入此分支。
+    if (declaresTool("subagent") && /子代理/.test(last) && !pendingToolResult) {
       event({ role: "assistant" });
-      event(toolCall("delegate_task", { action: "create", prompt: "后台任务测试：回复 TASK-MARKER" }));
+      const task = /子代理写入/.test(last) ? "帮我写入草稿" : /子代理挂起/.test(last) ? "freeze" : /子代理读取/.test(last) ? "读 shared/subagent-test.md" : "Reply SUBAGENT-MARKER";
+      event(toolCall("subagent", { agent: /只读子代理/.test(last) ? "scout" : "worker", task }));
       event({}, "tool_calls");
       res.end("data: [DONE]\n\n");
       return;

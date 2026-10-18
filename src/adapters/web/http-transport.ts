@@ -66,7 +66,9 @@ const isPublicIp = (value: string) => {
 export const resolvePublicHost = async (
   hostname: string,
   allowPrivateTargets = false,
+  signal?: AbortSignal,
 ): Promise<ResolvedAddress> => {
+  signal?.throwIfAborted();
   const normalized = hostname.replace(/\.$/, "").toLowerCase();
   if (!allowPrivateTargets) {
     if (normalized === "localhost" || normalized.endsWith(".localhost"))
@@ -77,7 +79,18 @@ export const resolvePublicHost = async (
       throw new Error("Blocked private address");
     return { address: normalized, family: isIP(normalized) };
   }
-  const addresses = await dnsLookup(normalized, { all: true, verbatim: true });
+  // 系统 getaddrinfo 无取消接口；停止等待后丢弃迟到结果，绝不继续建立 HTTP 连接。
+  const lookup = dnsLookup(normalized, { all: true, verbatim: true });
+  let abortLookup: (() => void) | undefined;
+  const addresses = await (signal ? Promise.race([
+    lookup,
+    new Promise<never>((_resolve, reject) => {
+      abortLookup = () => reject(signal.reason);
+      signal.addEventListener("abort", abortLookup, { once: true });
+      if (signal.aborted) abortLookup();
+    }),
+  ]).finally(() => { if (abortLookup) signal.removeEventListener("abort", abortLookup); }) : lookup);
+  signal?.throwIfAborted();
   if (!addresses.length) throw new Error("DNS unavailable");
   // 每个解析结果都必须是公网地址；本次连接固定使用第一个已验证结果，
   // 避免校验后 DNS 再次解析被 rebinding 到内网地址。
@@ -110,9 +123,13 @@ const requestOnce = async (
   url: URL,
   config: WebHttpConfig,
   pinned: ResolvedAddress,
+  signal?: AbortSignal,
 ) => {
+  signal?.throwIfAborted();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+  // 父取消与本请求超时共用底层 request 的销毁语义，等待 headers/body 时都能中断。
+  const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
   const headers = {
     "user-agent": config.userAgent || defaultUserAgent,
     accept: "text/html,application/xhtml+xml,application/json,text/plain;q=0.9,*/*;q=0.8",
@@ -129,7 +146,7 @@ const requestOnce = async (
           path: `${url.pathname}${url.search}`,
           method: "GET",
           headers,
-          signal: controller.signal,
+          signal: requestSignal,
           lookup: (_host, options, callback) => {
             // DNS 已在上层校验并固定；这里不再让 Node 二次解析域名。
             // Node 的 Happy Eyeballs 路径会传 all=true 并要求数组；兼容两种 lookup 回调。
@@ -138,8 +155,11 @@ const requestOnce = async (
           },
         },
         (response) => {
+          // 超限/取消可能在异步迭代退出后才使 response 发出 error，仍需接住并拒绝本次请求。
+          response.on("error", reject);
           const statusCode = response.statusCode ?? 0;
-          readBody(response, config.maxResponseBytes, controller.abort.bind(controller))
+          // 超限直接销毁响应，不向已完成并可能归还连接池的 socket 再广播 AbortSignal。
+          readBody(response, config.maxResponseBytes, () => response.destroy())
             .then((body) =>
               resolve({
                 status: statusCode,
@@ -161,11 +181,15 @@ const requestOnce = async (
 export const safePublicGet = async (
   rawUrl: string,
   config: WebHttpConfig,
+  signal?: AbortSignal,
 ) => {
+  signal?.throwIfAborted();
   let url = new URL(rawUrl);
-  let pinned = await resolvePublicHost(url.hostname, config.allowPrivateTargets);
+  let pinned = await resolvePublicHost(url.hostname, config.allowPrivateTargets, signal);
   for (let redirects = 0; redirects < 6; redirects++) {
-    const response = await requestOnce(url, config, pinned);
+    signal?.throwIfAborted();
+    const response = await requestOnce(url, config, pinned, signal);
+    signal?.throwIfAborted();
     const location = response.headers.location;
     if (![301, 302, 303, 307, 308].includes(response.status)) {
       if (response.status < 200 || response.status >= 400)
@@ -182,7 +206,7 @@ export const safePublicGet = async (
     }
     if (!location) throw new Error("Redirect without location");
     url = new URL(Array.isArray(location) ? location[0]! : location, url);
-    pinned = await resolvePublicHost(url.hostname, config.allowPrivateTargets);
+    pinned = await resolvePublicHost(url.hostname, config.allowPrivateTargets, signal);
   }
   throw new Error("Too many redirects");
 };
@@ -249,23 +273,27 @@ export const parseBingRssResults = (xml: string, count: number): WebSearchResult
 
 /** 生产 transport：所有目标必须是公网 HTTP(S)，并把 DNS 固定到已校验地址。 */
 export const createHttpWebTransport = (config: WebHttpConfig): WebTransport => ({
-  search: async (query, count) => {
+  search: async (query, count, signal) => {
+    signal?.throwIfAborted();
     // 保持 nanobot 的默认 DuckDuckGo 语义；空结果或 challenge 时使用 Bing RSS 兜底。
     try {
       const url = new URL(duckDuckGoEndpoint);
       url.searchParams.set("q", query);
-      const page = await safePublicGet(url.toString(), config);
+      const page = await safePublicGet(url.toString(), config, signal);
       if (page.contentType.toLowerCase().includes("html")) {
         const results = parseDuckDuckGoResults(page.body, count);
         if (results.length) return results;
       }
     } catch {
+      // 取消必须直接收尾，不能把它当供应商失败继续请求另一个搜索站点。
+      signal?.throwIfAborted();
       // 具体供应商失败不透出；继续尝试兜底搜索。
     }
+    signal?.throwIfAborted();
     const url = new URL(bingRssEndpoint);
     url.searchParams.set("q", query);
-    const page = await safePublicGet(url.toString(), config);
+    const page = await safePublicGet(url.toString(), config, signal);
     return parseBingRssResults(page.body, count);
   },
-  fetch: async (url): Promise<FetchedWebPage> => safePublicGet(url, config),
+  fetch: async (url, signal): Promise<FetchedWebPage> => safePublicGet(url, config, signal),
 });

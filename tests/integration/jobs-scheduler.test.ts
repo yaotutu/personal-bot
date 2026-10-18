@@ -38,6 +38,31 @@ const waitFor = async (predicate: () => Promise<boolean> | boolean) => {
   assert.fail("scheduler state did not settle");
 };
 
+test("deleted job snapshot cannot execute after asynchronous destination resolution", async (t) => {
+  let executions = 0;
+  const target = { isRunning: () => false, trigger: async () => {
+    executions++; return { status: "completed" as const, text: "done" };
+  } };
+  const { jobs } = await fixture(t, new Date(2030, 0, 1, 10, 30), target);
+  await jobs.add("old job", false, new Date(0).toISOString(), "deleted");
+  let reached = false;
+  let resume!: () => void;
+  const gate = new Promise<void>((resolve) => { resume = resolve; });
+  const scheduler = createScheduler({ schedulerIntervalMs: 10 }, jobs, target, async () => {
+    reached = true;
+    await gate;
+    return target;
+  });
+  t.after(async () => { resume(); await scheduler.close(); });
+  scheduler.start();
+  await waitFor(() => reached);
+  await jobs.removeByOriginThreadId("deleted");
+  resume();
+  await waitFor(() => !scheduler.isBusy());
+  await scheduler.close();
+  assert.equal(executions, 0);
+});
+
 test("daily job crossing midnight advances from completion time", async (t) => {
   let calls = 0;
   const { jobs, scheduler } = await fixture(t, new Date(2030, 0, 1, 23, 58), {

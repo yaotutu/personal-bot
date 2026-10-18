@@ -70,7 +70,6 @@ const declaredTools = (request: ModelRequest) =>
     .sort();
 const expectedTools = [
   "currentTime",
-  "delegate_task",
   "edit",
   "find",
   "get_weather",
@@ -83,6 +82,7 @@ const expectedTools = [
   "read",
   "schedule",
   "search_web",
+  "subagent",
   "web_fetch",
   "write",
 ];
@@ -1215,7 +1215,7 @@ test("multi-thread: independent histories, thread listing and stop scoped per th
   assert.ok(!mainAfter.some((x) => String(x.content).includes("trip")));
 });
 
-test("thread lifecycle: protected local-main, DELETE cascades jobs/monitors/tasks and cleans files", {
+test("thread lifecycle: protected local-main, DELETE cascades jobs/monitors and cleans files", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
@@ -1229,7 +1229,7 @@ test("thread lifecycle: protected local-main, DELETE cascades jobs/monitors/task
   const deleteNonExistent = await h.request("/api/threads/ghost-thread", undefined, "DELETE");
   assert.equal(deleteNonExistent.status, 404);
 
-  // 3. 创建一个 thread 并关联 job、monitor、task
+  // 3. 创建一个 thread 并关联 job、monitor
   const threadId = "thread-to-delete";
   const runInput = input([user("hello from thread to delete")], "del-init");
   runInput.threadId = threadId;
@@ -1241,23 +1241,20 @@ test("thread lifecycle: protected local-main, DELETE cascades jobs/monitors/task
     condition: "change",
     originThreadId: threadId,
   });
-  const task = await h.service().tasks.create("background work", "web", "task to cancel", threadId);
 
   // 确认已建好
   assert.ok((await h.service().jobs.list()).some((j) => j.originThreadId === threadId));
   assert.ok((await h.service().monitors.list()).some((m) => m.originThreadId === threadId));
-  assert.equal((await h.service().tasks.get(task.id))?.status, "queued");
 
   // 4. 调用 DELETE /api/threads/:threadId
   const res = await h.request(`/api/threads/${threadId}`, undefined, "DELETE");
   assert.equal(res.status, 200);
-  const body = (await res.json()) as { ok: boolean; removed: { jobs: number; monitors: number; tasks: number } };
-  assert.deepEqual(body, { ok: true, removed: { jobs: 1, monitors: 1, tasks: 1 } });
+  const body = (await res.json()) as { ok: boolean; removed: { jobs: number; monitors: number } };
+  assert.deepEqual(body, { ok: true, removed: { jobs: 1, monitors: 1 } });
 
   // 5. 校验级联结果
   assert.ok(!(await h.service().jobs.list()).some((j) => j.originThreadId === threadId));
   assert.ok(!(await h.service().monitors.list()).some((m) => m.originThreadId === threadId));
-  assert.equal((await h.service().tasks.get(task.id))?.status, "cancelled");
 
   // 6. 校验 thread 目录和列表
   const threads = await h.request("/api/threads").then((x) => x.json()).then((x) => (x.threads as { id: string }[]).map((y) => y.id));
@@ -1269,7 +1266,7 @@ test("thread lifecycle: protected local-main, DELETE cascades jobs/monitors/task
   assert.equal(res2.status, 404);
 });
 
-test("session skills: GET/PUT overrides, validation and subagent snapshot inheritance", {
+test("session skills: GET/PUT overrides, validation and thread isolation", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
@@ -1309,22 +1306,6 @@ test("session skills: GET/PUT overrides, validation and subagent snapshot inheri
   const res5 = await h.request("/api/threads/@invalid/skills");
   assert.equal(res5.status, 400);
 
-  // 6. Subagent 快照继承验证：
-  // 从 thread-skills-test 创建后台任务，subagent 会话 task-<id> 应当快照复制父会话覆盖
-  const task = await h.service().tasks.create("subagent instruction", "web", "subagent test", "thread-skills-test");
-  const { copyThreadSkills } = await import("../../src/adapters/storage/data-layout.js");
-  await copyThreadSkills(h.service().layout, "thread-skills-test", `task-${task.id}`);
-
-  const subSkills = await h.request(`/api/threads/task-${task.id}/skills`).then((x) => x.json());
-  assert.equal(subSkills.skills.find((s: any) => s.name === "cron")?.enabled, false);
-  assert.equal(subSkills.skills.find((s: any) => s.name === "web")?.enabled, false);
-
-  // 改动父会话，快照不应受影响
-  await h.request("/api/threads/thread-skills-test/skills", {
-    overrides: { cron: true, web: true },
-  }, "PUT");
-  const subSkillsAfter = await h.request(`/api/threads/task-${task.id}/skills`).then((x) => x.json());
-  assert.equal(subSkillsAfter.skills.find((s: any) => s.name === "cron")?.enabled, false);
 });
 
 test("session skills: tool trimming in model call", {
@@ -1561,7 +1542,7 @@ test("thread workspace: main and other threads deny private escapes, share files
   const layout = h.service().layout;
   const mainRoot = threadWorkspaceDir(layout, "local-main");
   const mailRoot = threadWorkspaceDir(layout, "mail-isolated");
-  await h.getHistory("mail-isolated");
+  await h.service().conversationHub.forThread("mail-isolated");
   await writeFile(join(mainRoot, "private.txt"), "MAIN-ONLY-CANARY");
   await writeFile(join(mailRoot, "private.txt"), "MAIL-ONLY-CANARY");
   await writeFile(join(sharedWorkspaceDir(layout), "team.txt"), "TEAM-SHARED-CANARY");
@@ -1606,63 +1587,91 @@ test("thread workspace: main and other threads deny private escapes, share files
   assert.equal(await readFile(join(layout.workspaceDir, "old-root.txt"), "utf8"), "OLD-ROOT-UNREACHABLE");
 });
 
-test("task domain: chat-delegated background task runs in its own thread and notifies main", {
+test("subagent: parent delegates to an isolated child and receives its result without a task queue", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
   t.after(h.close);
-  // 对话创建：说"后台" → delegate_task 工具 → tasks.json 出现 queued 任务。
-  const ev = await h.events(input([user("帮我在后台跑一下")], "task-run"));
+  const ev = await h.events(input([user("请用子代理完成一次测试")], "subagent-run"));
   assert.equal(ev.at(-1)?.type, "RUN_FINISHED");
-  const delegateStart = ev.filter((x) => x.type === "TOOL_CALL_START").at(0)! as unknown as {
-    toolCallName: string;
-  };
-  assert.equal(delegateStart.toolCallName, "delegate_task");
-  // worker 串行执行：任务 thread 跑完 → 主会话收到 📋 通知轮 → 任务 succeeded。
-  let agent: { tasks: { id: string; kind: string; status: string; result?: string }[] };
-  let notified = false;
-  for (let i = 0; i < 20; i++) {
-    await sleep(500);
-    agent = await h.request("/api/agent").then((x) => x.json());
-    const task = agent.tasks.find((x) => x.kind === "task");
-    const main = await h.getHistory();
-    notified = main.some((x) => String(x.content).includes("📋"));
-    if (task?.status === "succeeded" && notified) break;
-  }
-  const task = agent!.tasks.find((x) => x.kind === "task")!;
-  assert.equal(task.status, "succeeded");
-  assert.match(task.result ?? "", /TASK-RAN/);
-  const main = await h.getHistory();
-  assert.ok(notified, "main thread should receive the 📋 notification turn");
-  // 任务执行历史独立保留，但内部 task thread 不出现在普通聊天侧栏。
-  const threads = await h
-    .request("/api/threads")
-    .then((x) => x.json())
-    .then((x) => (x.threads as { id: string }[]).map((x) => x.id));
-  assert.ok(threads.every((id) => !id.startsWith("task-")));
-  // 控制分发：对 task target 的 cancel 幂等拒绝（已 succeeded）。
-  const control = await h
-    .request(`/api/agent/tasks/${task.id}/control`, { action: "cancel", target: "task" })
-    .then((x) => x.status);
-  assert.equal(control, 409);
-  // 重启：遗留 running 任务被标记 failed（可重试）。
-  const state = JSON.parse(await readFile(join(h.dataDir, "tasks.json"), "utf8"));
-  state[0].status = "running";
-  await writeFile(join(h.dataDir, "tasks.json"), JSON.stringify(state));
+  assert.ok(ev.some((event) => event.type === "TOOL_CALL_START" && event.toolCallName === "subagent"));
+  const snapshot = await h.request("/api/agent").then((response) => response.json());
+  assert.equal(Object.hasOwn(snapshot, "worker"), false);
+  assert.ok(snapshot.tasks.every((task: { kind: string }) => task.kind === "job"));
+  const children = h.model.requests.filter((request) => request.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("Task: Reply SUBAGENT-MARKER")));
+  assert.equal(children.length, 1);
+  const childTools = (children[0].tools as { function: { name: string } }[]).map((tool) => tool.function.name);
+  for (const name of ["subagent", "delegate_task", "bash", "schedule", "monitor", "instructions"])
+    assert.ok(!childTools.includes(name), `child must not expose ${name}`);
+  assert.ok(children[0].messages.every((message) => !JSON.stringify(message.content).includes("请用子代理完成一次测试")), "parent message history must not leak into child context");
+  assert.ok((await h.getHistory()).some((message) => String(message.content).includes("SUBAGENT-MARKER")));
+  await assert.rejects(readFile(join(h.dataDir, "tasks.json")), { code: "ENOENT" });
+  const original = "legacy tasks must not be interpreted or rewritten";
+  await writeFile(join(h.dataDir, "tasks.json"), original);
   await h.restart();
-  agent = await h.request("/api/agent").then((x) => x.json());
-  assert.equal(agent.tasks.find((x) => x.kind === "task")!.status, "failed");
-  // 重试重新排队并完成。
-  const retry = await h
-    .request(`/api/agent/tasks/${task.id}/control`, { action: "retry", target: "task" })
-    .then((x) => x.status);
-  assert.equal(retry, 200);
-  for (let i = 0; i < 20; i++) {
-    await sleep(500);
-    agent = await h.request("/api/agent").then((x) => x.json());
-    if (agent.tasks.find((x) => x.kind === "task")!.status === "succeeded") break;
+  assert.equal(await readFile(join(h.dataDir, "tasks.json"), "utf8"), original);
+});
+
+test("subagent: permissions inherit parent ceilings and shared reads preserve private-root isolation", { timeout: 30000 }, async (t) => {
+  const h = await harness();
+  t.after(h.close);
+  await mkdir(join(h.dataDir, "workspace", "shared"), { recursive: true });
+  await writeFile(join(h.dataDir, "workspace", "shared", "subagent-test.md"), "SUBAGENT-SHARED-CONTENT");
+  await h.request("/api/threads/local-main/skills", { overrides: { memory: false, write: false, web: false } }, "PUT");
+  const events = await h.events(input([user("请让只读子代理读取共享文件")], "child-read"));
+  assert.equal(events.at(-1)?.type, "RUN_FINISHED");
+  const children = h.model.requests.filter((request) => request.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("Task: ")));
+  assert.ok(children.length >= 2, "child should perform a read tool round trip");
+  const tools = declaredTools(children[0]);
+  for (const name of ["memory", "write", "edit", "search_web", "web_fetch", "subagent", "schedule", "monitor", "bash"])
+    assert.ok(!tools.includes(name), name);
+  assert.ok(tools.includes("read"));
+  assert.ok(children.some((request) => JSON.stringify(request.messages).includes("SUBAGENT-SHARED-CONTENT")));
+  const directories = await readdir(join(h.dataDir, "workspace", "threads"));
+  assert.equal(directories.filter((directory) => directory.startsWith("subagent-")).length, 1);
+  const sessions = await readdir(join(h.dataDir, "sessions"));
+  assert.ok(sessions.every((directory) => !directory.startsWith("subagent-")), "child sessions are not durable");
+});
+
+test("subagent: write approval is owned by the parent run and Stop cancels child without committing", { timeout: 30000 }, async (t) => {
+  const h = await harness(15000);
+  t.after(h.close);
+  const run = input([user("请子代理写入草稿")], "child-write");
+  const pendingRun = h.events(run);
+  let action: { id: string; status: string; threadId?: string; runId?: string } | undefined;
+  for (let i = 0; i < 500; i++) {
+    const state = await h.request("/api/actions/pending").then((response) => response.json());
+    action = state.actions[0];
+    if (action) break;
+    await sleep(10);
   }
-  assert.equal(agent.tasks.find((x) => x.kind === "task")!.status, "succeeded");
+  assert.ok(action, "child should wait for approval");
+  assert.equal(action.threadId, "local-main");
+  assert.equal(action.runId, run.runId);
+  const stopped = await h.request("/api/conversation/stop", { threadId: run.threadId, runId: run.runId });
+  assert.equal((await stopped.json()).stopped, true);
+  const events = await pendingRun;
+  assert.equal(events.at(-1)?.type, "RUN_ERROR");
+  const settled = await h.request(`/api/actions/${action.id}`).then((response) => response.json());
+  assert.equal(settled.status, "cancelled");
+  for (const directory of await readdir(join(h.dataDir, "workspace", "threads"))) {
+    if (directory.startsWith("subagent-")) await assert.rejects(readFile(join(h.dataDir, "workspace", "threads", directory, "draft.md")), { code: "ENOENT" });
+  }
+  assert.equal((await h.service().conversationHub.forThread("local-main")).isRunning(), false);
+});
+
+test("subagent: Stop interrupts the child provider and releases the parent run", { timeout: 30000 }, async (t) => {
+  const h = await harness(15000);
+  t.after(h.close);
+  const run = input([user("请子代理挂起")], "child-stop");
+  const response = h.events(run);
+  await until(() => h.model.requests.length >= 2);
+  const before = h.model.slowClosed();
+  await h.request("/api/conversation/stop", { threadId: run.threadId, runId: run.runId });
+  const events = await response;
+  assert.equal(events.at(-1)?.type, "RUN_ERROR");
+  await until(() => h.model.slowClosed() > before);
+  assert.equal((await h.service().conversationHub.forThread("local-main")).isRunning(), false);
 });
 
 test("goal domain: chat tool create, REST CRUD, milestone toggle and prompt injection", {

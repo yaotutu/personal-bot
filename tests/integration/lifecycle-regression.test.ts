@@ -73,14 +73,6 @@ const readSse = async (response: Response) => {
   } finally { reader.releaseLock(); }
 };
 
-const history = async (service: Service): Promise<{ role: string; content: unknown }[]> => {
-  const response = await service.app.request("/api/conversation", {
-    headers: { Authorization: `Bearer ${service.auth.login()}` },
-  });
-  assert.equal(response.status, 200);
-  return (await response.json()).messages;
-};
-
 const readOptional = async (file: string) => {
   try { return await readFile(file, "utf8"); }
   catch (error) {
@@ -133,53 +125,13 @@ test("Stop cancels a pending write approval without changing the existing file",
   assert.equal(await readFile(target, "utf8"), original);
 });
 
-test("REST task cancellation aborts the provider, releases the worker and never notifies completion", async (t) => {
-  const h = await createFixture(t);
-  const service = await h.startService();
-  const cancelledTitle = "LIFECYCLE-CANCELLED-TASK";
-  const response = await post(service, "/api/agent/tasks", { prompt: "freeze", title: cancelledTitle });
-  assert.equal(response.status, 200);
-  const cancelledId: string = (await response.json()).id;
-  assert.equal(typeof cancelledId, "string");
-  await until(() => h.model.requests.length === 1, "background task did not reach the provider");
-  assert.equal((await service.tasks.get(cancelledId))?.status, "running");
-  assert.equal(service.taskWorker.isRunning(), true);
-  const closedBefore = h.model.slowClosed();
-  const cancelled = await post(service, `/api/agent/tasks/${cancelledId}/control`, { action: "cancel", target: "task" });
-  assert.equal(cancelled.status, 200);
-  assert.equal((await cancelled.json()).status, "cancelled");
-  // 先观察真实连接断开和 worker 退出，再投递下一项；状态字段变化本身不代表执行已停止。
-  await until(() => h.model.slowClosed() > closedBefore, "cancel did not abort the provider connection");
-  await until(() => !service.taskWorker.isRunning(), "cancel did not release the worker");
-  assert.equal((await service.tasks.get(cancelledId))?.status, "cancelled");
-
-  const nextTitle = "LIFECYCLE-NEXT-TASK";
-  const next = await post(service, "/api/agent/tasks", { prompt: "TASK-AFTER-CANCEL", title: nextTitle });
-  assert.equal(next.status, 200);
-  const nextId: string = (await next.json()).id;
-  await until(async () => (await service.tasks.get(nextId))?.status === "succeeded", "next task did not finish");
-  await until(() => !service.taskWorker.isRunning(), "worker did not become idle after the next task");
-  await until(async () => (await history(service)).some((message) => JSON.stringify(message.content).includes(nextTitle)),
-    "next task did not deliver its completion notification");
-  // close 等待通知与执行完全收尾，负向断言不依赖某个瞬间尚未通知的偶然结果。
-  const conversation = await service.conversationHub.forThread("local-main");
-  await service.close();
-  const messages = conversation.history();
-  const content = JSON.stringify(messages);
-  assert.ok(content.includes(`[任务完成] ${nextTitle}`));
-  assert.ok(!content.includes(cancelledTitle));
-  assert.equal((await service.tasks.get(cancelledId))?.status, "cancelled");
-  assert.match((await service.tasks.get(nextId))?.result ?? "", /TASK-AFTER-CANCEL/);
-  assert.equal(h.model.requests.length, 2);
-});
-
 test("closed service rejects task creation and memory writes through its original app with 503", async (t) => {
   const h = await createFixture(t);
   const service = await h.startService();
   const seed = await post(service, "/api/agent/memories", { text: "LIFECYCLE-ORIGINAL-MEMORY" });
   assert.equal(seed.status, 200);
   const memoryId: string = (await seed.json()).id;
-  const before = await Promise.all([readOptional(h.layout.tasksFile), readOptional(h.layout.memoryFile)]);
+  const before = await readOptional(h.layout.memoryFile);
   await service.close();
   const requestCount = h.model.requests.length;
   for (const [path, body] of [
@@ -191,16 +143,15 @@ test("closed service rejects task creation and memory writes through its origina
     assert.equal(response.status, 503, path);
     assert.deepEqual(await response.json(), { error: "Service is closing" });
   }
-  assert.deepEqual(await Promise.all([readOptional(h.layout.tasksFile), readOptional(h.layout.memoryFile)]), before);
-  assert.equal(service.taskWorker.isRunning(), false);
+  assert.equal(await readOptional(h.layout.memoryFile), before);
   assert.equal(h.model.requests.length, requestCount);
 });
 
-test("corrupt task or monitor documents fail initialization without keeping a child process alive", async (t) => {
-  for (const domain of ["tasks", "monitors"] as const) {
+test("corrupt monitor document fails initialization without keeping a child process alive", async (t) => {
+  for (const domain of ["monitors"] as const) {
     await t.test(domain, async (t) => {
       const h = await createFixture(t);
-      const file = domain === "tasks" ? h.layout.tasksFile : h.layout.monitorsFile;
+      const file = h.layout.monitorsFile;
       const corrupt = "{invalid-json-preserve-original";
       await writeFile(file, corrupt);
       // 在子进程调用同一真实组合入口。不调用 process.exit：遗留调度 interval、worker

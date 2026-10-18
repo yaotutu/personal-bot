@@ -15,13 +15,23 @@ const overridesSchema = z.strictObject({ overrides: z.record(z.string(), z.boole
 const configSchema = z.strictObject({ defaultEnabled: z.boolean() });
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
 
+/**
+ * 技能诊断信息里的 path 字段只描述逻辑位置（builtin/<skill> 或 user/<skill>[/子路径]），
+ * 不暴露 DATA_DIR 真实目录。SkillMeta.path 仍保留物理路径供内部使用，不做转换。
+ */
+const skillLogicalPath = (name: string, isBuiltin: boolean, sub?: string): string => {
+  const root = isBuiltin ? "builtin" : "user";
+  return sub ? `${root}/${name}/${sub}` : `${root}/${name}`;
+};
+
 /** 元数据解析只走 pi；单项加载失败可见但不阻断其他技能，坏配置不修改原件。 */
 const scanSkillsDir = async (dir: string, isBuiltin: boolean): Promise<SkillCatalog> => {
   const result: SkillCatalog = { skills: [], diagnostics: [] };
   let entries;
   try { entries = await readdir(dir, { withFileTypes: true }); }
   catch (error) {
-    if (!missing(error)) result.diagnostics.push({ path: dir, message: "Cannot read skills directory" });
+    if (!missing(error))
+      result.diagnostics.push({ path: isBuiltin ? "builtin" : "user", message: "Cannot read skills directory" });
     return result;
   }
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
@@ -31,33 +41,37 @@ const scanSkillsDir = async (dir: string, isBuiltin: boolean): Promise<SkillCata
     try {
       if ((await lstat(file)).isSymbolicLink()) throw new Error("Linked skill");
       const loaded = loadSkillsFromDir({ dir: path, source: "project" });
-      result.diagnostics.push(...loaded.diagnostics.map((diagnostic) => ({ path: diagnostic.path ?? file, message: diagnostic.message })));
+      const skillLogical = skillLogicalPath(entry.name, isBuiltin);
+      result.diagnostics.push(...loaded.diagnostics.map((diagnostic) => ({
+        path: skillLogical,
+        message: diagnostic.message,
+      })));
       const skill = loaded.skills.find((candidate) => candidate.filePath === file && candidate.name === entry.name);
       if (!skill) {
-        result.diagnostics.push({ path: file, message: "Skill name must match its directory and include a valid description" });
+        result.diagnostics.push({ path: skillLogical, message: "Skill name must match its directory and include a valid description" });
         continue;
       }
       let defaultEnabled = isBuiltin;
       if (!isBuiltin) {
-        const configFile = join(path, "config.json");
+        const configLogical = skillLogicalPath(entry.name, isBuiltin, "config.json");
         try {
           let source: string;
-          try { source = await readFile(configFile, "utf8"); }
+          try { source = await readFile(join(path, "config.json"), "utf8"); }
           catch (error) {
             if (!missing(error)) throw error;
-            await writeFile(configFile, JSON.stringify({ defaultEnabled: false }, null, 2) + "\n", { flag: "wx", mode: 0o600 });
-            source = await readFile(configFile, "utf8");
-            result.diagnostics.push({ path: configFile, message: "Missing default configuration created with defaultEnabled=false" });
+            await writeFile(join(path, "config.json"), JSON.stringify({ defaultEnabled: false }, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+            source = await readFile(join(path, "config.json"), "utf8");
+            result.diagnostics.push({ path: configLogical, message: "Missing default configuration created with defaultEnabled=false" });
           }
           defaultEnabled = configSchema.parse(JSON.parse(source)).defaultEnabled;
         } catch {
-          result.diagnostics.push({ path: configFile, message: "Invalid or unreadable skill configuration; original file preserved and skill unavailable" });
+          result.diagnostics.push({ path: configLogical, message: "Invalid or unreadable skill configuration; original file preserved and skill unavailable" });
           continue;
         }
       }
       result.skills.push({ name: skill.name, description: skill.description, defaultEnabled, path, isBuiltin });
     } catch {
-      result.diagnostics.push({ path: file, message: "Cannot load skill file" });
+      result.diagnostics.push({ path: skillLogicalPath(entry.name, isBuiltin), message: "Cannot load skill file" });
     }
   }
   return result;

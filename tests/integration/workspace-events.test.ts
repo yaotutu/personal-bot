@@ -95,7 +95,6 @@ test("workspace events require Bearer auth and replay no notifications after rec
 
 test("all workspace repositories notify every connection after commit, while reads and refusals stay silent", async (t) => {
   const { service, headers, dataDir } = await fixture(t);
-  await service.taskWorker.close();
   const a = await connect(t, service, headers);
   const b = await connect(t, service, headers);
   const received: string[] = [];
@@ -120,9 +119,6 @@ test("all workspace repositories notify every connection after commit, while rea
   await changed(() => service.jobs.add("later", false, new Date(Date.now() + 3_600_000).toISOString()), async () => {
     assert.equal((await document("jobs.json"))[0].prompt, "later");
   });
-  await changed(() => service.tasks.create("later work", "web"), async () => {
-    assert.equal((await document("tasks.json"))[0].status, "queued");
-  });
   await changed(() => service.goals.create({ title: "Learn", milestones: ["Read"] }), async () => {
     assert.equal((await document("goals.json"))[0].title, "Learn");
   });
@@ -137,7 +133,7 @@ test("all workspace repositories notify every connection after commit, while rea
   assert.equal((await service.app.request("/api/agent", { headers })).status, 200);
   await service.memory.list();
   await service.goals.edit("missing", { title: "no-op" });
-  assert.equal((await service.tasks.control("missing", "cancel")).ok, false);
+  assert.equal((await service.jobs.control("missing", "cancel")).ok, false);
   const bad = await post(service, headers, "/api/agent/memories", {});
   assert.equal(bad.status, 400);
   assert.equal(received.length, count);
@@ -151,7 +147,6 @@ test("all workspace repositories notify every connection after commit, while rea
 
 test("approval notifications cover new, approved, denied, cancelled and expired without broadcasting previews", async (t) => {
   const { service, headers } = await fixture(t);
-  await service.taskWorker.close();
   const stream = await connect(t, service, headers);
   const changed = async (write: () => Promise<unknown>) => {
     const next = stream.next();
@@ -210,26 +205,6 @@ test("model memory tools share commit notifications and disconnecting events doe
   assert.equal(conversation.isRunning(), true);
   await conversation.cancel();
   assert.match(await frozen, /RUN_ERROR/);
-});
-
-test("worker completion emits an invalidation after it becomes idle, not only when the task is saved", async (t) => {
-  const { service, headers } = await fixture(t, true);
-  const stream = await connect(t, service, headers);
-  const states: boolean[] = [];
-  const unsubscribe = service.workspaceEvents.subscribe({
-    notify: (event) => { if (event === "workspace_updated") states.push(service.taskWorker.isRunning()); }, close: () => {},
-  });
-  t.after(unsubscribe);
-  const response = await post(service, headers, "/api/agent/tasks", { prompt: "events worker job" });
-  assert.equal(response.status, 200);
-  const taskId = (await response.json()).id;
-  await until(async () => (await service.tasks.get(taskId))?.status === "succeeded" && !service.taskWorker.isRunning());
-  assert.ok(states.includes(true));
-  assert.equal(states.at(-1), false);
-  assert.equal(await stream.next(), "event: workspace_updated\ndata: {}\n\n");
-  const snapshot = await (await service.app.request("/api/agent", { headers })).json();
-  assert.equal(snapshot.worker.running, false);
-  assert.equal(snapshot.tasks.find((task: { id: string }) => task.id === taskId).status, "succeeded");
 });
 
 test("live HTTP event connections end on service close and reject new subscriptions", async (t) => {

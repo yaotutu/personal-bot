@@ -3,12 +3,13 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { serve } from "@hono/node-server";
 import { createService } from "../../src/bootstrap/create-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { createFakeModel } from "../support/fake-model.js";
 import { buildOpenApiDocument } from "../../src/http/openapi.js";
 import { endpoints } from "../../src/http/contracts/endpoints.js";
+import { serviceVersion } from "../../src/bootstrap/service-version.js";
+import { healthResponse } from "../../src/http/contracts/responses.js";
 
 /**
  * 文档防漂移契约测试：
@@ -38,6 +39,50 @@ test("docs: generated OpenAPI document is structurally complete", () => {
   }
 });
 
+test("docs: source routing, deletion, safe errors and deployed code identity are explicit", async () => {
+  const doc = buildOpenApiDocument();
+  const version = await serviceVersion;
+  assert.deepEqual(doc["x-service-version"], version);
+  assert.equal(doc.info.version, `${version.version}+${version.sourceHash.slice(0, 12)}`);
+  assert.match(doc.info.description, new RegExp(version.sourceHash));
+  assert.match(doc.info.description, /dirty=true[\s\S]*sourceHash/);
+  type Operation = { description: string };
+  const description = (path: string, method: string) => (doc.paths[path][method] as Operation).description;
+  // 后台任务创建 API 已下线，注册表中只剩监控：仅断言监控的来源/删除约定。
+  for (const path of ["/api/agent/monitors"]) {
+    const text = description(path, "post");
+    assert.match(text, /仅省略/);
+    assert.match(text, /新 ID[\s\S]*建立/);
+    assert.match(text, /409 THREAD_DELETING/);
+    assert.match(text, /不自动重试/);
+    assert.match(text, /不[\s\S]*改投主会话/);
+    assert.doesNotMatch(text, /通知进主聊天流|结果以 📡 进主聊天流/);
+  }
+  // 定时任务控制端点必须把 target 收窄到 job，并显式声明 target=task 已下线。
+  const controlText = description("/api/agent/tasks/{id}/control", "post");
+  assert.match(controlText, /job/);
+  assert.match(controlText, /pause/);
+  assert.match(controlText, /不中止正在执行的一轮/);
+  assert.match(description("/api/conversation", "get"), /已删除[\s\S]*不创建[\s\S]*列表/);
+  assert.match(description("/api/conversation", "get"), /模型上下文与历史前脱敏/);
+  assert.match(description("/api/conversation/stop", "post"), /不建立/);
+  assert.match(description("/api/threads/{threadId}", "delete"), /新同名会话[\s\S]*任务详情/);
+  assert.match(description("/api/health", "get"), /commit[\s\S]*dirty[\s\S]*sourceHash/);
+});
+
+test("docs: subagent stays inside the parent run and no background task creation remains", () => {
+  const doc = buildOpenApiDocument();
+  type Operation = { description: string; responses: Record<string, { content: Record<string, { schema: { properties: Record<string, unknown> } }> }> };
+  const chat = doc.paths["/api/conversation/run"].post as Operation;
+  for (const rule of [/subagent/, /最多8项/, /最多4个/, /结果后主模型继续/, /写入仍逐次审批/, /绑定父运行/, /取消并等待子会话清理/])
+    assert.match(chat.description, rule);
+  const snapshot = doc.paths["/api/agent"].get as Operation;
+  assert.match(snapshot.description, /kind=job/);
+  assert.match(snapshot.description, /不提供 POST \/api\/agent\/tasks/);
+  assert.equal(Object.hasOwn(snapshot.responses["200"].content["application/json"].schema.properties, "worker"), false);
+  assert.equal(Object.hasOwn(doc.paths, "/api/agent/tasks"), false);
+});
+
 test("docs: notification stream documents the client sync protocol and keeps event namespaces separate", () => {
   const document = buildOpenApiDocument();
   type StreamResponse = { description: string; "x-sse-events": Record<string, { schema: unknown }> };
@@ -51,8 +96,8 @@ test("docs: notification stream documents the client sync protocol and keeps eve
     /workspace_updated/, /actions_updated/, /刷新请求进行中[\s\S]*补刷/,
     /首次连接[\s\S]*重连/, /回到前台[\s\S]*ready/, /30 秒[\s\S]*keep-alive/,
     /不发送事件 id/, /不支持历史重放/, /忽略 Last-Event-ID/,
-    /不取消聊天或后台任务/, /服务关闭[\s\S]*结束活跃流/,
-    /HTTP 401[\s\S]*重新登录/, /HTTP 503/, /不是聊天文字增量/, /不负责后台或锁屏推送/,
+    /不取消聊天或任务/, /服务关闭[\s\S]*结束活跃流/,
+    /HTTP 401[\s\S]*重新登录/, /HTTP 503/, /不是聊天文字增量/, /不负责锁屏推送/,
     /轮询/, /合并或冗余/,
   ]) assert.match(description, rule, `Missing client protocol rule in generated docs: ${rule}`);
   assert.ok(operation.security?.length);
@@ -113,6 +158,10 @@ test("docs: /openapi.json and /docs are served without auth", async (t) => {
   assert.equal(spec.status, 200);
   const body = (await spec.json()) as { info: { title: string }; paths: Record<string, unknown> };
   assert.equal(body.info.title, "pi-muse API");
+  const health = await service.app.request("/api/health");
+  const healthBody = healthResponse.parse(await health.json());
+  assert.deepEqual(healthBody.serviceVersion, (body as unknown as { "x-service-version": unknown })["x-service-version"]);
+  assert.deepEqual(healthBody.serviceVersion, await serviceVersion);
   assert.ok(Object.keys(body.paths).length >= 20, "spec should cover all endpoints");
   const docs = await service.app.request("/docs");
   assert.equal(docs.status, 200);

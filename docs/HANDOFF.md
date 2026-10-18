@@ -8,6 +8,51 @@
 - **REQ-001：Dream 后台记忆整理**，用户已于 2026-10-18 认可方案并明确暂缓，详见 [`discussions/dream-memory.md`](discussions/dream-memory.md)。现有 pi 压缩不变，新增后台自动整理长期记忆；当前尚未实现，不提前改变现有“显式记忆写入”行为。
 - **REQ-002：重置当前会话（保留记忆与工作区）**，用户已确认核心方案、暂缓实施：用于主动清空上下文或上下文故障，不是新建另一个会话；保留规则、记忆与原工作区。历史展示、运行/审批收尾及通知衔接在实施前细化；未开工，不与 Dream 混合实施。
 
+## 提交前代码整理与验证（2026-10-18）
+
+- 本批提交范围包含 subagent 替换旧队列、Web取消修复，以及同工作树此前已验收的会话删除/来源绑定、错误脱敏、技能诊断和部署版本身份修复；不是仅提交单一工具改名。保留既有安全修复，不含正式实例配置、临时取证数据或构建产物。
+- 清理旧队列留下的技能复制函数、tasksFile声明及reader错误类型、过时命名/无用导入/测试助手、重复子工具禁止表、快照多余数组复制和不准确注释；修正AGENTS中的subagent实现路径、工具清单遗漏与pi复用文档的历史/当前版本叙述。没有改变业务执行/审批/取消语义。
+- 整理后重新运行 typecheck、全量364/364、服务端build、Web build与diff检查，全部通过。最终构建sourceHash=`ef2487ae75dc5fe241c2f9dadc10cd40f881415b5732d0b2936db22d6c80c8ba`；新增角色文件的行尾空白亦已清理。隔离编译入口启动后health/OpenAPI版本一致，旧任务创建端点不存在，持有SSE时SIGTERM自然code0。下方真实模型整轮记录对应整理前`ae86048...`版本，不冒充对新指纹重跑了真实验收。
+- 当前在`feat/auth-token-long-lived`按用户要求做本地提交，不push；既有真实实例数据不修改，历史取证目录只作本机复查，不提交。
+
+## 修复后 Subagent 全流程重新验收通过（2026-10-18）
+
+- 用户要求整轮重测，已在全新隔离目录对修复后同一代码从头验证，44次真实模型请求取证。13项脚本断言（单/并/链/隔离/批准拒绝取消/模型取消/两种Web取消及后续轮/旧入口权限）全部通过，另完成自有Web完整审批预览与批准落盘、刷新工具卡及正常重启。
+- 本轮Stop耗时：审批等待15ms、子模型在途8ms、Web等待响应头17ms、读取正文7ms；两个55秒慢fixture都socket关闭且未自然完成。同一thread取消后均能正常工具调用并RUN_FINISHED。
+- 12个thread列表、完整messages/revision、全部审批记录和共享文件哈希重启逐项相等；pending=0，无自动模型请求。自动化重新全跑364/364、typecheck、服务端/Web build和diff通过。sourceHash仍为`ae86048af40752d0fadc9863fda47289ce9eea1c3cdce21d36bef9a2f76bb7f1`，dirty=true。
+- 本轮仅验收和记录，未改业务实现/正式数据，未commit/push；临时服务/浏览器页均停止。证据与准确范围见 [`archive/2026-10-18-subagent-live-acceptance.md`](archive/2026-10-18-subagent-live-acceptance.md) 顶部全流程记录，取证目录暂留复查。下方部分通过与单项复测均为此前阶段记录。
+
+## Web 工具取消修复完成（2026-10-18）
+
+- 用户明确要求修复后，已把AbortSignal从search_web/web_fetch工具经service/transport传到Node HTTP；响应头、正文、重定向在途均销毁请求，DNS取消停止等待且不继续连接，搜索取消不发起兜底。取消不变成普通失败或伪成功；公网校验/固定DNS/超时/大小保护保持。接口载荷和事件格式未改。
+- 自动化：取消专项26/26（含普通会话和subagent真实HTTP+pi）、全量364/364、typecheck、服务端/Web build及diff检查通过。响应超限改为销毁当前response，避免向已归还socket广播abort造成未处理error。
+- 真实模型复测：同一个55秒慢fixture，子模型真实调用web_fetch后Stop **19ms**返回，目标socket关闭且`finished:false`，父SSE为STOPPED；同一会话随后currentTime正常完成，锁已释放。该证据补齐下方初次复测的唯一失败项，见 [`archive/2026-10-18-subagent-live-acceptance.md`](archive/2026-10-18-subagent-live-acceptance.md) 顶部修复后记录。临时实例自然退出code0，正式配置/数据未改，取证目录按报告暂留，未commit/push。
+
+## Subagent 真实模型复测：初次部分通过（2026-10-18，取消缺口已在上节修复）
+
+- 用户要求真实重测后，以透明代理记录真实模型工具调用/结果（非fake provider），完成单个、并行、链式、审批、取消、路径隔离及重启专项。**发现一个未修复缺口：在途web_fetch不响应父工具取消，Stop等待约47秒直到55秒慢请求完成。当前不能宣称全部真实验收通过。**
+- 已通过：子代理实际调用currentTime，两个并行请求实际重叠，链式第二子任务收到上一步真实结果；Web完整预览批准后才落盘；审批中Stop约14ms且不写文件；子模型在途Stop约7ms并断开连接；父私有文件不可读、shared可读、遍历被拒；8个thread重启messages/revision逐一相等，无tasks.json/子会话历史。
+- 根因是现有Web工具/service/transport未传递调用方AbortSignal，不是subagent模型取消本身。此次为测试请求，仅定位记录，未擅自改业务代码。证据与复现见 [`archive/2026-10-18-subagent-live-acceptance.md`](archive/2026-10-18-subagent-live-acceptance.md)。隔离服务与浏览器页已停止，正式数据未改；本地取证目录按报告暂留复查，无真实凭据，未commit/push。
+
+## 官方 subagent 示例适配与旧队列移除（2026-10-18）
+
+- 已用 pi-coding-agent 1.3.0 官方 `examples/extensions/subagent` 语义适配替换 `delegate_task`：单个/并行/链式委派，最多8项、4并发、链式失败停止，输出逐项限制50 KiB。来源、MIT许可及本地差异见 `src/adapters/pi/subagent/README.md`；不是未修改的CLI扩展，也未修改SDK或手写agent loop。
+- 官方CLI runner 改为受限SDK独立会话：继承服务模型/内存凭据与父技能/工具上限，角色只能收窄；每次使用 `workspace/threads/subagent-<uuid>/` 私有根，shared显式互通。写审批绑定父thread/run，父Stop/超时/断流会取消子会话并等待清理；不持久化子会话上下文，不自动retry/续跑。`task`技能名仍保留，但能力改为subagent；内置4角色及 `DATA_DIR/subagents/*.md` 可覆盖，不接受model/cwd/agentScope，拒绝链接。
+- 已删除旧任务service/repository/worker与工具。`POST /api/agent/tasks`下线，`target: task`拒绝，snapshot.tasks仅job且移除worker，删除会话removed仅jobs/monitors；定时任务详情/控制与retry_pending→queued不变。旧tasks.json/task-*文件不读取、不执行、不迁移或删除。测试Web移除创建后台任务入口，移动端仓库未改。
+- 自动契约同步到 `/docs`、`/openapi.json`：聊天run接口解释subagent调用、审批、取消及展示；快照说明job-only与旧入口下线。实际Scalar页面已确认run说明可见。本轮不实施活动状态/业务载荷SSE方案，不做分页/7天过滤或push。
+- 验证：typecheck、全量344/344、服务端build、Web build、diff检查通过。新增单/并行/链式/失败/取消/角色解析测试及真实HTTP+pi+fake模型验证，覆盖父结果回传、父权限上限、shared读、审批归属与Stop撤销、provider取消、旧tasks文件重启原样不动。
+- 真实模型+自有Web15173隔离验收：主模型实际调用worker子代理并收到 `SUBAGENT-LIVE-OK` 加时间的返回，随后继续回答；subagent通配摘要卡与刷新历史恢复通过，未创建后台任务记录。子工具真实执行/审批/取消的链路另由HTTP+pi+fake模型测试验证，不以模型自述代替证据。模型凭据仅内存读取，未改正式数据；临时后端18894自然退出code0、Web与浏览器页、临时数据已清理。未commit/push；共享工作区其他安全/版本修复保留。
+
+## 前端反馈四项修复（2026-10-18）
+
+- 已修复，尚未 commit/push：显式新 `originThreadId` 接纳前建立会话，只有省略来源才默认主会话；后台任务保留旧来源引用、删除与来源绑定/规则/技能保存共用短生命周期边界，删除中返回409 `THREAD_DELETING`。删除后迟到通知不改投主会话/新同名会话，任务权威结果保留在详情；jobs/monitors重查绑定防旧扫描重建会话。
+- 历史 GET 和迟到 Stop 仅查已有会话；不存在/已删除/正在删除的合法 ID 返回200空历史（revision=`empty`）或stopped=false，不创建目录/进入列表。显式新run或设置/来源绑定仍可创建同名新会话。列表扫描忽略并发删除造成的ENOENT，其他I/O错误仍失败。
+- 文件ENOENT/ENOTDIR受控为 `File not found.`；其他工具错误在pi `message_end`原对象脱敏，保护模型上下文、JSONL与历史，不仅清洗SSE。技能diagnostics用builtin/user逻辑路径。旧历史未迁移或改写。
+- 新增 `serviceVersion`（package version、commit、dirty、sourceHash、mode、builtAt）；源码启动时固定快照，build产物读取构建生成的 `dist/service-version.json`，脱离git/cwd仍可核验。health、OpenAPI扩展与Scalar首页同源；dirty=true须比sourceHash，不以commit冒充完整代码版本。关键规则已写入契约并补生成文档断言。
+- 自动化：新增真实HTTP/pi隔离回归覆盖新任务/监控来源、绑定写入与删除交错、完成后迟到通知/同ID重建、跨会话并发删除、删后GET/Stop、模型请求与JSONL安全错误；版本单测覆盖源码hash、白名单、git不可用和脱离git的build。最终 `pnpm typecheck && pnpm test && pnpm build`（344/344）、Web build、`git diff --check` 通过。首次全量暴露旧测试依赖GET建目录及单会话调度读取次数，修正后通过；版本热导入测试改独立子进程，避免模块缓存干扰。
+- 自有Web DEV 15173 + 隔离fake后端18894：实际工具卡片/安全回复、刷新历史、新来源结果展示、DELETE后GET/Stop不复活均通过。真实模型隔离实例：read缺失文件只返回 `File not found.`，工具卡片与回复刷新恢复；原始JSONL工具结果无绝对路径；新来源后台任务返回LIVE-SOURCE-OK且仅来源收到通知，主会话无误投。
+- Scalar实际页面验收：版本身份、任务来源/409/迟到通知规则及历史GET不创建语义可见；17890只读确认已热重载且health/OpenAPI身份一致，未对真实会话做创建/删除/模型测试。最终源码、构建和运行服务 `sourceHash=f978a8c87cd4d690d3c9905a1a0e02957cc7fd41159d7ed8f34b079b600bf7cc` 一致，包版本0.1.0、dirty=true（未提交）。隔离dist进程health与OpenAPI匹配构建快照、SIGTERM自然code0；真实配置仅内存读取模型凭据，未复制到临时配置。临时fake/真实后端及Web已停止、临时数据已清理。
+
 ## 工作区变更通知流（2026-10-18）
 
 - 新增 `GET /api/events`（独立命名 SSE，不复用 AG-UI 聊天事件），仅推送“重新读取”信号；`workspace_updated` 涵盖 jobs/tasks/goals/memories/monitors/identity/worker，`actions_updated` 涵盖审批集合所有状态。完整客户端契约由 `contracts/workspace-events.ts` 与端点注册表生成到 `/docs`、`/openapi.json`，[`http-api-contract.md`](http-api-contract.md) 仅作辅助说明。

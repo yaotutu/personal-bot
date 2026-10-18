@@ -7,10 +7,19 @@ import { z } from "zod";
  */
 
 // 基础形状 -------------------------------------------------------------
+export const serviceVersionSchema = z.object({
+  version: z.string().describe("服务包版本；不单独用作部署提交标识"),
+  commit: z.string().nullable().describe("启动/构建时的完整 Git commit；无法取得时为 null"),
+  dirty: z.boolean().nullable().describe("启动/构建时有未提交改动为 true；无法核验 Git 状态为 null，不能把 commit 当作精确产物"),
+  sourceHash: z.string().regex(/^[a-f0-9]{64}$/).describe("SHA-256 源码指纹：src/assets/scripts、包/锁文件及 TS 配置的有序路径与字节；不含实例数据。dirty=true 时应以此核验实际代码"),
+  mode: z.enum(["source", "build"]).describe("source=源码进程启动快照，build=构建时固定快照；均不随每次请求重新读取仓库"),
+  builtAt: z.string().nullable().describe("build 的构建时间（ISO 8601）；source 为 null"),
+}).describe("运行服务的不可变版本快照；与 OpenAPI x-service-version 和 /docs 展示一致");
 export const healthResponse = z.object({
   ok: z.literal(true),
   backend: z.literal("pi"),
   configured: z.boolean().describe("模型是否已配置（决定聊天能否运行）"),
+  serviceVersion: serviceVersionSchema,
 });
 export const sessionResponse = z.object({
   token: z.string().describe(
@@ -36,7 +45,6 @@ export const deleteThreadResponse = z.object({
   removed: z.object({
     jobs: z.number().int().nonnegative().describe("级联删除的定时任务数"),
     monitors: z.number().int().nonnegative().describe("级联删除的网页监控数"),
-    tasks: z.number().int().nonnegative().describe("级联取消的后台任务数"),
   }),
 });
 export type DeleteThreadDto = z.infer<typeof deleteThreadResponse>;
@@ -76,12 +84,13 @@ export const taskView = z.object({
   id: z.string(),
   title: z.string(),
   prompt: z.string(),
-  // 与真实业务域同名，网页监控独立使用 monitors，不再混用任务类型名称。
-  kind: z.enum(["job", "task"]).describe("job=定时任务，task=一次性后台任务"),
+  // 工作台任务仅剩定时任务（job）；保留字段与描点兼容未来扩展但当前只输出 job。
+  kind: z.enum(["job"]).describe("job=定时任务；后台任务 API 已下线"),
+  // 状态枚举未顺手收紧 queued/running，避免连带改动定时 job 的现有语义（如 retry_pending）。
   status: z.enum(["queued", "running", "scheduled", "paused", "succeeded", "failed", "cancelled"]),
   createdAt: z.string(),
   updatedAt: z.string(),
-  nextRunAt: z.string().optional().describe("定时任务下次触发时间；一次性任务完成后无此字段"),
+  nextRunAt: z.string().optional().describe("定时任务下次触发时间"),
   result: z.string().optional().describe("最近一次执行的输出文本（截断存储）"),
   error: z.string().nullable(),
 });
@@ -161,12 +170,11 @@ export const identityView = z.object({
   showChatUpdates: z.boolean().optional(),
 });
 export const agentSnapshot = z.object({
-  tasks: z.array(taskView).describe("定时+后台任务混合（kind 区分），按更新时间倒序"),
+  tasks: z.array(taskView).describe("定时任务列表（按更新时间倒序）"),
   goals: z.array(goalView),
   monitors: z.array(monitorView),
   memories: z.array(memoryItem),
   identity: identityView,
-  worker: z.object({ running: z.boolean() }),
 });
 
 /** 响应 schema 是服务端与自有 Web 共享 DTO 的唯一事实源。 */
@@ -194,7 +202,7 @@ export const skillItem = z.object({
 export const skillsResponse = z.object({
   skills: z.array(skillItem),
   diagnostics: z.array(z.object({
-    path: z.string(),
+    path: z.string().describe("诊断逻辑路径 builtin/<技能>/... 或 user/<技能>/...；不包含服务端绝对路径"),
     message: z.string(),
   })).optional().describe("技能加载诊断信息"),
 });

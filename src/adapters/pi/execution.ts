@@ -3,23 +3,36 @@ import type { ConversationExecution } from "../../features/conversation/ports.js
 import type { ExecutionEvent } from "../../features/conversation/types.js";
 import { textOf } from "./history-projection.js";
 
-/**
- * 归一化 SDK 事件并在 pi 持久化前清洗诊断。
- * message_end 的 listener 在 pi 内部 appendMessage 之前运行，必须清洗原对象，
- * 而不只是给 SSE 生成一份脱敏副本。正常模型文本不改写。
- */
+const GENERIC_TOOL_ERROR = "Tool execution failed";
+/** 默认错误在模型上下文与 JSONL 之前清洗；仅 guard 标记的受控文案可以保留。 */
+type ScrubbableToolResult = { isError?: boolean; details?: unknown; content?: unknown };
+const isControlledRejection = (result: ScrubbableToolResult | undefined) =>
+  (result?.details as { denied?: unknown } | undefined)?.denied === true;
+const scrubToolResultInPlace = (result: ScrubbableToolResult | undefined, isError = result?.isError) => {
+  if (!result || !isError || isControlledRejection(result)) return;
+  result.content = [{ type: "text", text: GENERIC_TOOL_ERROR }];
+  result.details = undefined;
+};
+
 export const projectExecutionEvent = (event: AgentSessionEvent): ExecutionEvent | undefined => {
   if (event.type === "message_end" && event.message.role === "assistant") {
     if (event.message.errorMessage)
       event.message.errorMessage = "Model request failed or was cancelled";
     return { type: "assistant_end", reason: event.message.stopReason, text: textOf(event.message.content) };
   }
+  if (event.type === "message_end" && event.message.role === "toolResult") {
+    // SDK 在 _emit 同步通知后才会 appendMessage(event.message)，
+    // 此处原地修改会被持久化并送回模型，因此必须早于 message_end 落盘。
+    scrubToolResultInPlace(event.message as unknown as ScrubbableToolResult);
+    return;
+  }
   if (event.type === "tool_execution_end") {
-    const result = event.result as { content?: unknown; details?: { denied?: boolean } } | undefined;
-    const controlled = event.isError && result?.details?.denied === true;
+    const result = event.result as ScrubbableToolResult | undefined;
+    const controlled = event.isError && isControlledRejection(result);
+    scrubToolResultInPlace(result, event.isError);
     return {
       type: "tool_result", id: event.toolCallId,
-      content: event.isError && !controlled ? "Tool execution failed" : textOf(result?.content),
+      content: event.isError && !controlled ? GENERIC_TOOL_ERROR : textOf(result?.content),
     };
   }
   if (event.type !== "message_update") return;

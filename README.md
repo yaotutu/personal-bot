@@ -2,13 +2,13 @@
 
 基于 pi 构建的开源单用户个人助手，UI 与交互参考 Muse，主要客户端为仓库内的 `web/`（Vite + React）。
 本项目为非官方项目，不代表 Muse 官方开源版本。
-支持多 thread 对话、会话压缩、身份/记忆、定时任务、后台任务、网页监控和逐次审批的文件写入；不是 nanobot 的整套功能迁移，也不使用 nanobot WebUI。
+支持多 thread 对话、会话压缩、身份/记忆、定时任务、子代理（subagent）、网页监控和逐次审批的文件写入；不是 nanobot 的整套功能迁移，也不使用 nanobot WebUI。
 
 ## 已实现
 
 - 一个 OpenAI-compatible Chat Completions endpoint/model，服务端配置凭据。
 - 自有 Web 通过 HTTP 契约与 AG-UI SSE 对接服务端；Hono 直接输出事件，不使用 CopilotKit runtime 或旧客户端兼容接口。
-- 单用户、多 thread：每个 thread 独立 pi 会话与运行协调器，支持流式回答、上下文和历史恢复；`local-main` 是默认主会话，内部后台任务 `task-*` 不出现在用户会话列表中。
+- 单用户、多 thread：每个 thread 独立 pi 会话与运行协调器，支持流式回答、上下文和历史恢复；`local-main` 是默认主会话，subagent 内部 `subagent-<uuid>` 工作区与旧 worker 遗留的 `task-*` 不出现在用户会话列表中。
 - Web 搜索与抓取：`search_web` 返回标题、URL 和摘要，优先 DuckDuckGo，被 challenge 时用 Bing RSS 兜底；`web_fetch` 抓取公网页面并提取 Markdown/text。二者均只读，带 DNS/SSRF 校验、重定向校验、超时和大小限制，并把外部内容标记为不可信数据。
 - 实时天气：`get_weather` 使用无密钥 Open-Meteo Geocoding + Forecast API，返回当前温度、体感、湿度、降水、风力和今日概要；可在 config 中配置默认城市。天气请求不再依赖通用搜索，网络请求复用公网 DNS/SSRF 防护。
 - 只读工具集：`currentTime`（本地时钟）+ `read`/`grep`/`find`/`ls`（复用 pi 内置只读文件工具，
@@ -33,10 +33,10 @@
 - 停止、HTTP 断流、超时、并发拒绝；等待 pi idle 后才释放运行锁（含工具执行轮）。
 - 增量发送一条消息与历史 revision，拒绝版本冲突和重复消息 ID；同一成功 run 可幂等重放。客户端不回传模型/工具历史。
 - 专用 pi 数据/资源目录；不加载个人 CLI 的全局配置、skills、extensions 或 MCP。
-- 后台任务通过 `delegate_task` 在内部独立 thread 执行；`goal` 管理目标，`monitor` 管理周期网页监控。
+- 子代理（subagent）通过聊天工具调用，在每个调用独立的 `subagent-<uuid>` 工作区里跑子模型 pi 轮，结果回到父工具结果；`goal` 管理目标，`monitor` 管理周期网页监控。旧 `delegate_task` / 后台任务队列已下线，遗留的 `task-*` 文件不读不删不执行。
 
 暂不实现：shell、附件、自动记忆提取（Dream）、heartbeat、外部 channel、多用户、运行中 reconnect。
-工具注册包括：currentTime / instructions / memory / schedule / delegate_task / goal / monitor / read / grep / find / ls / write / edit / search_web / web_fetch / get_weather；可选能力按配置启用，未实现功能不伪装成功。
+工具注册包括：currentTime / instructions / memory / schedule / subagent / goal / monitor / read / grep / find / ls / write / edit / search_web / web_fetch / get_weather；可选能力按配置启用，未实现功能不伪装成功。`subagent` 是官方 1.3.0 subagent 示例的 SDK child 适配，单/并行/链式三模式同进程内上下文隔离，最多 8 队列 / 4 并发，链式失败即停；子模型继承父 model/key，role 仅做收窄，不读 `~/.pi`、不接受 `cwd` / `agentScope`，不持久化子会话、不复制父历史/INSTRUCTIONS，子调用仍逐次审批、归属父 thread/run。
 
 ## 客户端与协议
 
@@ -132,7 +132,9 @@ mock 端口和数据目录由脚本内显式配置固定，不提供环境变量
 ```text
 .pi-muse/
 ├── config.json / auth.key / SOUL.md / USER.md
-├── memory.json / goals.json / jobs.json / tasks.json / actions.json / monitors.json
+├── memory.json / goals.json / jobs.json / actions.json / monitors.json
+├── tasks.json（遗留）                   # 旧 worker 队列文件；不读、不迁移、不删除、不执行
+├── assets/subagents/<role>.md           # subagent role 提示词内置；DATA_DIR/subagents/*.md 可覆盖
 ├── skills/<name>/SKILL.md                # 用户技能，全局一份
 ├── sessions/<threadId>/
 │   ├── *.jsonl                          # pi 权威历史
@@ -143,7 +145,7 @@ mock 端口和数据目录由脚本内显式配置固定，不提供环境变量
 │   └── threads/
 │       ├── local-main/                  # 主会话也没有父目录访问特权
 │       ├── email/
-│       └── task-<id>/
+│       └── subagent-<uuid>/             # subagent 每次调用的私有工作区，旧 task-<id>/ 仅遗留
 └── agent/                               # pi 内部运行资源，不开放给文件工具
 ```
 
@@ -159,7 +161,7 @@ mock 端口和数据目录由脚本内显式配置固定，不提供环境变量
 未做速率限制、跨进程锁或数据加密；文件写入采用逐次审批，CORS 不是鉴权。
 默认 host 为 `0.0.0.0` 便于局域网访问，但启动时会打印 `server.accessKey` 缺失警告；生产部署仍应在 config.json 设置 `server.accessKey`。远程访问还需要 TLS/反向代理。手机的 localhost 不是 Mac，真机验收需单独配置地址。
 
-页面 SSE 断开会取消对应客户端轮；刷新后以 pi 持久化历史为准，不保证取消时的半截文本可恢复。没有运行中续接；后台任务由独立 worker 执行，不是客户端流的断线续跑。
+页面 SSE 断开会取消对应客户端轮；刷新后以 pi 持久化历史为准，不保证取消时的半截文本可恢复。没有运行中续接；subagent 走独立 SDK child session、结果回到父工具结果，不是客户端流的断线续跑；旧的独立 worker 后台任务已下线。
 pi 自动压缩已开启（参数随上下文窗口收缩），展示历史完整保留；自动重试仍关闭。
 
 此前 P2 工具闭环的 Web 联调记录保留在 `docs/archive/p2-web-smoke.png` 与 `docs/archive/p2-real-web-smoke.png`；这些是历史 OpenMuse 验收记录，不代表当前自有 Web 或本轮重新验收。

@@ -1,6 +1,5 @@
-import { lstat, mkdir, readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { writeJsonDocument } from "./json-document.js";
+import { lstat, mkdir } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { isThreadId } from "../../features/conversation/validate-input.js";
 
 /**
@@ -16,7 +15,6 @@ export type DataLayout = {
   piAuthFile: string;
   memoryFile: string;
   jobsFile: string;
-  tasksFile: string;
   goalsFile: string;
   actionsFile: string;
   monitorsFile: string;
@@ -24,6 +22,7 @@ export type DataLayout = {
   userFile: string;
   authKeyFile: string;
   skillsDir: string;
+  subagentsDir: string;
 };
 
 export const createDataLayout = (dataDir: string): DataLayout => {
@@ -36,7 +35,6 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     piAuthFile: join(root, "agent", "auth.json"),
     memoryFile: join(root, "memory.json"),
     jobsFile: join(root, "jobs.json"),
-    tasksFile: join(root, "tasks.json"),
     goalsFile: join(root, "goals.json"),
     actionsFile: join(root, "actions.json"),
     monitorsFile: join(root, "monitors.json"),
@@ -44,6 +42,7 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     userFile: join(root, "USER.md"),
     authKeyFile: join(root, "auth.key"),
     skillsDir: join(root, "skills"),
+    subagentsDir: join(root, "subagents"),
   };
 };
 
@@ -96,22 +95,4 @@ export const ensureThreadWorkspace = async (layout: DataLayout, threadId: string
   await ensureWorkspaceDirectory(join(layout.workspaceDir, "threads"));
   await ensureWorkspaceDirectory(sharedWorkspaceDir(layout));
   await ensureWorkspaceDirectory(directory);
-};
-
-/** 快照继承：将父会话的 skills.json 复制到子会话目录中；父会话无覆盖时不复制。 */
-export const copyThreadSkills = async (layout: DataLayout, sourceThreadId: string, targetThreadId: string): Promise<void> => {
-  const source = threadSkillsFile(layout, sourceThreadId);
-  const target = threadSkillsFile(layout, targetThreadId);
-  let content: string;
-  try { content = await readFile(source, "utf8"); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-  const document = JSON.parse(content) as { overrides?: unknown };
-  if (!document || typeof document !== "object" || !document.overrides || typeof document.overrides !== "object" ||
-    Array.isArray(document.overrides) || Object.values(document.overrides).some((value) => typeof value !== "boolean"))
-    throw new Error("Invalid skill overrides snapshot");
-  await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-  await writeJsonDocument(target, document);
 };

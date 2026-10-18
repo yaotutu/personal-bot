@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { endpoints } from "./contracts/endpoints.js";
+import { serviceVersion, type ServiceVersion } from "../bootstrap/service-version.js";
+
+const defaultVersion = await serviceVersion;
 
 /**
  * OpenAPI 3.1 文档生成器：从端点注册表 + zod v4 schema 自动生成，
@@ -31,7 +34,7 @@ const queryParams = (query: z.ZodType) => {
   }));
 };
 
-export const buildOpenApiDocument = () => {
+export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) => {
   const paths: Record<string, Record<string, unknown>> = {};
   for (const endpoint of endpoints) {
     const openapiPath = endpoint.path.replace(/:([a-zA-Z]+)/g, "{$1}");
@@ -92,13 +95,18 @@ export const buildOpenApiDocument = () => {
     openapi: "3.1.0",
     info: {
       title: "pi-muse API",
-      version: "1.0.0",
+      version: `${version.version}+${version.sourceHash.slice(0, 12)}`,
       description:
-        "基于 pi 内核的单用户个人助手服务端。鉴权：POST /api/session 换取 token，" +
-        "之后所有 /api/* 请求带 Authorization: Bearer <token>（health/session/docs 除外）。" +
+        `服务版本：${version.version}；运行模式：${version.mode}；commit：${version.commit ?? "unknown"}；` +
+        `dirty：${version.dirty ?? "unknown"}；sourceHash（SHA-256）：${version.sourceHash}；构建时间：${version.builtAt ?? "源码模式，无构建时间"}。` +
+        "这是启动/构建时固定的代码快照，与 GET /api/health.serviceVersion 及 x-service-version 一致。" +
+        "dirty=true 时 commit 不代表完整代码，应比较 sourceHash；Git 信息不可用时明确为 null。" +
+        "\n\n基于 pi 内核的单用户个人助手服务端。鉴权：POST /api/session 换取 token，" +
+        "之后所有 /api/* 请求带 `Authorization: Bearer <token>`（health/session/docs 除外）。" +
         "会话（threadId）相互隔离；聊天走 AG-UI SSE；写文件类操作经人工审批。" +
         "本文档由 src/http/contracts/ 的 zod schema 自动生成，修改接口请改 schema 而非此文件。",
     },
+    "x-service-version": version,
     servers: [{ url: "/" }],
     components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer" } } },
     paths,

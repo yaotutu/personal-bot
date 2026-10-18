@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { createService } from "../../src/bootstrap/create-service.js";
 import { createAuth } from "../../src/adapters/auth/token-service.js";
+import { serviceVersion } from "../../src/bootstrap/service-version.js";
 import { createConfig, type ConfigFileInput } from "../../src/config/load-config.js";
 
 // 直接构造隔离配置对象，避免本机 config.json 或环境变量影响这些离线边界测试。
@@ -191,6 +192,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
         ok: true,
         backend: "pi",
         configured: false,
+        serviceVersion: await serviceVersion,
       });
     });
 
@@ -270,7 +272,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
           assert.deepEqual(agent[name], []);
         });
         assert.equal(agent.identity.name, "pi-muse");
-        assert.equal(agent.worker.running, false);
+        assert.equal(Object.hasOwn(agent, "worker"), false);
         const history = await authorized("/api/conversation");
         assert.equal(history.status, 200);
         assert.deepEqual(await history.json(), { messages: [], revision: "empty" });

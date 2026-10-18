@@ -77,11 +77,11 @@ pnpm typecheck && pnpm build
 ## 硬边界（违规即返工）
 
 - 模型 key 只驻留受保护的 `.pi-muse/config.json` 与服务端内存；不写日志、不返回客户端、不进会话文件。
-- 文件工具默认根为 `DATA_DIR/workspace/threads/<threadId>/`，包括主会话 `local-main` 和内部 `task-*`；`workspace/`、`threads/` 只是容器，不得回退为任何会话根。`shared/...` 显式访问 `workspace/shared/`。拒绝绝对路径、`..`、根/父目录/目标符号链接，递归搜索不跟随链接；仅 read 可额外读取已启用技能的精确 `SKILL.md` 路径，不开放相邻文件或目录。`write`/`edit` 默认开启（`tools.writable.enabled` 可关闭），但每次都需人工审批，载荷包含完整修改前后文本并绑定文件版本；提交前再次核对路径、版本、审批期限与取消状态。文件变化须重新审批，拒绝/过期/运行取消不提交该次修改，服务重启取消遗留 pending 审批。会话规则不能扩大权限；可信技能 extension 是服务端代码，不是操作系统沙箱中的工具。
+- 文件工具默认根为 `DATA_DIR/workspace/threads/<threadId>/`，主会话同样使用 `threads/local-main/`；subagent 每次调用占独立 `threads/subagent-<uuid>/`，不复制父 workspace；`workspace/`、`threads/` 只是容器，不得回退为任何会话根。`shared/...` 显式访问 `workspace/shared/`。拒绝绝对路径、`..`、根/父目录/目标符号链接，递归搜索不跟随链接；仅 read 可额外读取已启用技能的精确 `SKILL.md` 路径，不开放相邻文件或目录。`write`/`edit` 默认开启（`tools.writable.enabled` 可关闭），但每次都需人工审批，载荷包含完整修改前后文本并绑定文件版本；提交前再次核对路径、版本、审批期限与取消状态。文件变化须重新审批，拒绝/过期/运行取消不提交该次修改，服务重启取消遗留 pending 审批。会话规则不能扩大权限；可信技能 extension 是服务端代码，不是操作系统沙箱中的工具。旧 worker 遗留 `task-*` 工作区若仍存在，按内部会话隐式过滤，不出现在父文件根解析中。
 - Web 工具默认只允许公网 HTTP(S)（DNS 校验/私网拒绝/IP 固定防 rebinding/重定向逐跳校验/大小超时限制；内容标记不可信）。本机联调可经 config `tools.web.allowPrivateTargets: true` 显式放宽（默认关闭，不改变其余边界）。搜索摘要和页面内容必须标记为不可信数据。
 - 工具/模型的错误信息默认脱敏（"Tool execution failed"/"Model request failed"）；仅 guard 声明的受控拒绝文案（`details.denied`）可透传。
 - 不在 `createAgentSession` 之外手写 agent loop；工具执行与持久化交给 pi。
-- 工具显式注册包括 `currentTime`、`memory`、`schedule`、`delegate_task`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`search_web`、`web_fetch`、`get_weather`；执行 allowlist 由实际注册结果生成，可选能力按配置启用。`bash` 永不暴露，`write`/`edit` 不得绕过逐次审批。
+- 工具显式注册包括 `currentTime`、`instructions`、`memory`、`schedule`、`subagent`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`search_web`、`web_fetch`、`get_weather`；执行 allowlist 由实际注册结果生成，可选能力按配置启用。`bash` 永不暴露，`write`/`edit` 不得绕过逐次审批。
 - 单进程单 DATA_DIR；默认 host 为 `0.0.0.0` 便于局域网访问，但启动时会打印 `server.accessKey` 缺失警告。生产部署应在 config.json 显式设置 `server.accessKey` 并保留 accessKey 鉴权中间件。
 
 ## 设计哲学（用户定论，勿违背）
@@ -118,11 +118,13 @@ pnpm typecheck && pnpm build
 
 | 路径 | 内容 |
 | --- | --- |
-| `sessions/<threadId>/` | 每个 thread 的 pi 会话 JSONL（历史权威来源）；内部 `task-*` 不显示在用户会话列表中 |
+| `sessions/<threadId>/` | 每个 thread 的 pi 会话 JSONL（历史权威来源）；内部 `task-*`（旧 worker 遗留）仍从用户会话列表中过滤掉 |
 | `SOUL.md` / `USER.md` | 自由文本身份（注入 system prompt，每轮重读） |
 | `memory.json` | 长期记忆条目 + identity 设置（P3 权威存储） |
-| `goals.json` `tasks.json` `actions.json` `monitors.json` | 目标 / 后台任务 / 审批 / 监控（各自裸数组） |
+| `goals.json` `actions.json` `monitors.json` | 目标 / 审批 / 监控（各自裸数组） |
 | `jobs.json` | 定时任务（P4） |
+| `tasks.json`（遗留） | 旧 worker 队列的裸数组文件；本轮已下线任务域，旧文件不读、不迁移、不删除、不执行，亦不保留旧 reader |
+| `assets/subagents/<role>.md` `subagents/*.md` | subagent role 提示词与运行期覆盖（DATA_DIR 优先）；role 不允许另配 model |
 | `workspace/threads/<threadId>/` | 会话私有文件工具根，主会话也使用 `threads/local-main/` |
 | `workspace/shared/` | 全局共享区，用工具路径 `shared/...` 显式访问；写入仍逐次审批 |
 | `sessions/<threadId>/INSTRUCTIONS.md` | 会话专属指令，通过 instructions 工具或 HTTP 管理，下一轮注入 |
@@ -176,12 +178,15 @@ pnpm typecheck && pnpm build
 - 调度 `monitor-scheduler`（默认 60s 扫表，间隔分钟级到期的 active 才检查）；通知进入 `originThreadId` 指定的来源会话，未指定时回落主会话（📡）。
 - 入口：对话 `monitor` 工具 / `POST /api/agent/monitors`；控制 pause/resume/stop。
 
-## 异步任务域（worker）
+## 子代理域（subagent）
 
-- `src/features/tasks/`：一次性后台任务（与定时 jobs 分域），独立 thread（`task-<id>`）执行完整 pi 轮；
-  worker 进程内串行；queued + running 最多 32 项，后台工具禁止 delegate_task/schedule/monitor；完成向来源会话发 📋 事实通知，未指定来源时回落主会话；内部 task thread 不显示在用户列表中，重启遗留 running 标记 failed 可重试（崩了重跑）。
-- 入口：聊天 `delegate_task` 工具 / `POST /api/agent/tasks`；控制经 `/control` 按 `target: job|task` 分发。
-- `/api/agent` 的 tasks 数组混合两类（kind: job=定时 / task=后台）。
+- 实现路径：`src/adapters/pi/subagent/extension.ts` 与 `src/adapters/pi/session-factory.ts` 的 SDK child session 装配，依赖官方 1.3.0 subagent 示例（单/并行/链式三种模式，local fork 仅做 runner/discovery/渲染适配，独立 SDK session 在同进程内上下文隔离，不写自造 loop）。最多 8 个并行请求、同时运行 4 个；链式模式失败即停，不自动重试模型或工具。
+- 子模型继承父 session 的 model 与 key；角色仅做收窄：父技能和工具上限是上限，不开放 bash/subagent/schedule/monitor/instructions，不读取个人 `~/.pi`，不接受 `cwd` / `agentScope` 等越界参数。
+- 子会话不持久化、不复制父历史或 `INSTRUCTIONS.md`，结果作为父工具结果写回父 thread。每个子调用占独立 `workspace/threads/subagent-<uuid>/`，仅 `shared/...` 显式访问共享区；文件写/编辑仍逐次人工审批，归属父 thread/run。
+- role 提示词：`assets/subagents/<role>.md` 内置四个 role，`DATA_DIR/subagents/*.md` 可逐实例覆盖；role 文件不接受 model 字段。
+- 入口：聊天 `subagent` 工具（替换原 `delegate_task`）；原 `task` 技能名字保留以避免破坏会话技能覆盖，技能打开只装载 subagent 工具，不再装配旧 worker。
+- HTTP：`POST /api/agent/tasks` 已下线；`/api/agent` 任务列表仅含定时 `job`（kind=job），不再混入 worker；`/control` 仅分发 `target: job`；删除会话 `removed` 只统计 jobs/monitors。
+- 旧实现：`tasks.json` / `task-*` 目录 / `delegate_task` 工具 / `POST /api/agent/tasks` / `target: task` 控制路径仅作历史记录，不读、不迁移、不删除、不执行，不保留旧 reader；旧内部 `task-*` 目录隐蔽约束（不出现在用户会话列表）继续保留。
 
 ## 已知限制（诚实声明）
 

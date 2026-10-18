@@ -12,7 +12,7 @@ import { UnknownSkillError } from "../../features/skills/service.js";
  * 会话管理路由：多会话列表、会话生命周期（含级联删除）、技能覆盖与专属指令。
  */
 export const createThreadRoutes = (dependencies: HttpDependencies) => {
-  const { conversationHub, layout, jobs, monitors, taskWorker, tasks, skills } = dependencies;
+  const { conversationHub, layout, jobs, monitors, skills } = dependencies;
   const app = new Hono();
 
   // GET /api/threads - 列出所有会话（最近活跃倒序，永远包含 local-main）
@@ -42,12 +42,15 @@ export const createThreadRoutes = (dependencies: HttpDependencies) => {
       return c.json({ error: "Invalid request body" }, 400);
     }
 
-    try { await skills.updateThreadOverrides(threadId, parsed.data.overrides); }
-    catch (error) {
+    try {
+      return await conversationHub.withThread(threadId, async () => {
+        await skills.updateThreadOverrides(threadId, parsed.data.overrides);
+        return c.json(await skills.describeThread(threadId));
+      });
+    } catch (error) {
       if (error instanceof UnknownSkillError) return c.json({ error: error.message }, 400);
       throw error;
     }
-    return c.json(await skills.describeThread(threadId));
   });
 
   // GET /api/threads/:threadId/instructions - 读取会话专属规则
@@ -74,10 +77,12 @@ export const createThreadRoutes = (dependencies: HttpDependencies) => {
       return c.json({ error: "Invalid instructions request" }, 400);
     }
 
-    const file = threadInstructionsFile(layout, threadId);
-    await writeThreadInstructions(file, parsed.data.instructions);
-    const instructions = await readThreadInstructions(file);
-    return c.json({ instructions });
+    return conversationHub.withThread(threadId, async () => {
+      const file = threadInstructionsFile(layout, threadId);
+      await writeThreadInstructions(file, parsed.data.instructions);
+      const instructions = await readThreadInstructions(file);
+      return c.json({ instructions });
+    });
   });
 
   // DELETE /api/threads/:threadId - 删除会话（级联清理）
@@ -92,43 +97,20 @@ export const createThreadRoutes = (dependencies: HttpDependencies) => {
       return c.json({ error: "Invalid threadId" }, 400);
     }
 
-    // 2. 检查会话或绑定物是否存在
-    const threadDir = threadSessionsDir(layout, threadId);
-    const dirExists = existsSync(threadDir);
-    const hasJobs = (await jobs.list()).some((j) => j.originThreadId === threadId);
-    const hasMonitors = (await monitors.list()).some((m) => m.originThreadId === threadId);
-    const hasActiveTasks = (await tasks.list()).some(
-      (t) => t.originThreadId === threadId && (t.status === "queued" || t.status === "running"),
-    );
+    return conversationHub.deleteThread(threadId, async () => {
+      const threadDir = threadSessionsDir(layout, threadId);
+      const dirExists = existsSync(threadDir);
+      const hasJobs = (await jobs.list()).some((j) => j.originThreadId === threadId);
+      const hasMonitors = (await monitors.list()).some((m) => m.originThreadId === threadId);
+      if (!dirExists && !hasJobs && !hasMonitors)
+        return c.json({ error: "Thread not found" }, 404);
 
-    if (!dirExists && !hasJobs && !hasMonitors && !hasActiveTasks) {
-      return c.json({ error: "Thread not found" }, 404);
-    }
-
-    // 3. 取消正在运行的轮次并逐出 hub 缓存
-    await conversationHub.cancelAndEvict(threadId);
-
-    // 4. 级联删除关联的定时任务、监控和后台任务
-    const removedJobs = await jobs.removeByOriginThreadId(threadId);
-    const removedMonitors = await monitors.removeByOriginThreadId(threadId);
-    const removedTasks = await taskWorker.cancelByOriginThreadId(threadId);
-
-    // 5. 删除会话目录与专属工作区
-    if (dirExists) {
+      // 生命周期锁已关闭旧协调器；等待所有来源绑定提交后再级联清理。
+      const removedJobs = await jobs.removeByOriginThreadId(threadId);
+      const removedMonitors = await monitors.removeByOriginThreadId(threadId);
       await rm(threadDir, { recursive: true, force: true });
-    }
-    const workspaceDir = threadWorkspaceDir(layout, threadId);
-    if (existsSync(workspaceDir)) {
-      await rm(workspaceDir, { recursive: true, force: true });
-    }
-
-    return c.json({
-      ok: true,
-      removed: {
-        jobs: removedJobs,
-        monitors: removedMonitors,
-        tasks: removedTasks,
-      },
+      await rm(threadWorkspaceDir(layout, threadId), { recursive: true, force: true });
+      return c.json({ ok: true, removed: { jobs: removedJobs, monitors: removedMonitors } });
     });
   });
 

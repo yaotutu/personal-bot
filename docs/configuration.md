@@ -98,11 +98,11 @@ chmod 600 .pi-muse/config.json
 | `tools.weather.enabled` | `true` | 是否向模型声明 `get_weather` |
 | `tools.weather.defaultCity` | 空 | 用户未指定城市时使用的默认城市；为空时模型会追问城市 |
 | `tools.presentation.default` | `hidden` | 客户端实时流与历史投影的工具展示策略：`hidden` 隐藏工具调用，`summary` 只发送受控摘要 |
-| `tools.presentation.overrides` | `{}` | 按工具名覆盖默认策略；名称以 `src/adapters/pi/tools/index.ts` 的显式注册表为准，包括 `currentTime`、`memory`、`schedule`、`delegate_task`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`search_web`、`web_fetch`、`get_weather` |
+| `tools.presentation.overrides` | `{}` | 按工具名覆盖默认策略；名称以 `src/adapters/pi/tools/index.ts` 的显式注册表为准，包括 `currentTime`、`instructions`、`memory`、`schedule`、`subagent`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`search_web`、`web_fetch`、`get_weather` |
 
 默认情况下，`.pi-muse/config.json` 所在的 `.pi-muse/` 同时也是实例数据目录。当前默认实例目录已统一为 `.pi-muse/`，旧目录不会被自动读取或迁移。也就是说 sessions、memory、jobs、workspace 和配置文件保持在同一个实例目录内。
 `runtime.dataDir: "."` 也表示该配置文件目录，与启动进程的 cwd 无关；若在 `.pi-muse/config.json` 中填 `".pi-muse"`，则会指向其下嵌套的 `.pi-muse/`，不是项目根目录下的同名目录。
-会话按 `sessions/<threadId>/` 保存，每个 thread 有独立 pi 会话；单用户可有多个 thread，内部后台任务 `task-*` 不显示在用户会话列表中。每个 thread 的工作目录固定为 `workspace/threads/<threadId>/`，共享区为 `workspace/shared/`；完整目录树见 README「存储与安全边界」。没有可配置的全局 workspace 回退，旧根文件和旧 cwd 历史不会自动迁移或清理。
+会话按 `sessions/<threadId>/` 保存，每个 thread 有独立 pi 会话；单用户可有多个 thread，subagent 内部 `subagent-<uuid>` 工作区与旧 worker 遗留的 `task-*` 目录都不显示在用户会话列表中。每个 thread 的工作目录固定为 `workspace/threads/<threadId>/`，共享区为 `workspace/shared/`；完整目录树见 README「存储与安全边界」。没有可配置的全局 workspace 回退，旧根文件和旧 cwd 历史不会自动迁移或清理。
 
 ## 实例目录改名
 

@@ -32,26 +32,18 @@ export const saveProfileSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// 任务：异步任务创建与控制（定时任务控制共用 control 端点）
+// 任务：仅保留定时任务的控制（详情路由复用本端点的 action 语义）
 // ---------------------------------------------------------------------------
 // 来源会话会被用于通知投递，必须复用会话域的目录安全校验；未指定来源时投递主会话。
 const originThreadIdSchema = z.string().refine(isThreadId, "Invalid originThreadId")
-  .optional().describe("通知来源会话：字母数字开头，可含 _ -，最长 64；缺省主会话");
+  .optional().describe("接收结果通知的来源会话：字母数字开头，可含 _ -，最长 64；仅省略时默认 local-main。显式新 ID 在接纳前建立会话；显式来源不存在或被删除时绝不改投主会话。删除进行中返回 409，客户端刷新会话列表后由用户重新选择，不自动重试旧 ID。");
 
+// 定时任务沿用现有 control 载荷，target 只接受 job，不保留后台任务 reader 或执行兼容。
 export const taskControlSchema = z.object({
   action: z.enum(["pause", "resume", "cancel", "retry"]).describe("控制动作"),
   target: z
-    .enum(["job", "task"])
-    .describe("分发目标：job=定时任务，task=异步后台任务，必须显式指定。"),
-}).refine(
-  // 后台任务没有暂停/恢复语义；在路由分发前拒绝，避免将未支持的动作映射成取消。
-  ({ target, action }) => target !== "task" || action === "cancel" || action === "retry",
-  { path: ["action"], message: "Background tasks only support cancel or retry" },
-);
-export const createTaskSchema = z.object({
-  prompt: z.string().trim().min(1).max(12000).describe("后台执行的完整自包含指令（独立会话中运行，工具可用）"),
-  title: z.string().trim().min(1).max(160).optional().describe("展示标题，默认截取 prompt"),
-  originThreadId: originThreadIdSchema,
+    .enum(["job"])
+    .describe("控制目标：固定为 job（定时任务）；后台任务 API 已下线，target=task 返回 400。"),
 });
 
 // ---------------------------------------------------------------------------

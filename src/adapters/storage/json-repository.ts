@@ -6,12 +6,11 @@ import { writeJsonDocument } from "./json-document.js";
 /**
  * 裸数组 JSON 文档的通用 repository 工厂：读取校验、同实例串行读改写、
  * 原子替换（临时文件 + rename）与"纯查询不落盘"语义收敛在这一处，
- * 各域只提供文档校验函数。五个原模板复制品（goal/task/action/monitor/job）
- * 的不变量自此只有一份实现。
+ * 各域只提供文档校验函数，共用同一套原子写入与错误处理约束。
  */
 export const createJsonArrayRepository = <T>(
   file: string,
-  kind: "jobs" | "tasks" | "goals" | "actions" | "monitors",
+  kind: "jobs" | "goals" | "actions" | "monitors",
   validate: (value: unknown) => T[],
   onCommitted?: () => void,
 ) => {

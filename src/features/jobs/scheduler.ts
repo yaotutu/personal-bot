@@ -19,7 +19,7 @@ export const createScheduler = (
   config: { schedulerIntervalMs: number },
   jobs: Pick<JobService, "list" | "markRun">,
   conversation: Pick<Conversation, "isRunning" | "trigger">,
-  forThread?: (threadId: string) => Promise<Pick<Conversation, "isRunning" | "trigger">>,
+  forThread?: (threadId: string) => Promise<Pick<Conversation, "isRunning" | "trigger"> | undefined>,
 ): Scheduler => {
   let timer: NodeJS.Timeout | undefined;
   let closed = false;
@@ -79,6 +79,12 @@ export const createScheduler = (
           ? await forThread(current.originThreadId)
           : conversation;
 
+        if (!targetConversation || closed) continue;
+        if (forThread) {
+          const latest = (await jobs.list()).find((item) => item.id === current.id);
+          if (closed || !latest?.enabled || latest.originThreadId !== current.originThreadId ||
+            latest.nextRunAt !== current.nextRunAt) continue;
+        }
         if (targetConversation.isRunning()) continue;
 
         const outcome = await targetConversation.trigger(

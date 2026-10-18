@@ -49,6 +49,23 @@ test("skill scanning uses pi metadata, fills only absent configs and reports inv
   assert.equal(await readFile(config, "utf8"), "invalid-json");
 });
 
+test("skill diagnostics use logical builtin/ user paths while keeping the skill file path for internal use", async (t) => {
+  // diagnostics 不能泄露 DATA_DIR 真实目录（绝对路径或运行时 cwd 路径），但 SkillMeta.path
+  // 是内部使用的字段（资源加载/scan），仍然保留绝对路径，两者职责不同。
+  const { layout, repository } = await fixture(t);
+  const directory = join(layout.skillsDir, "logical-paths");
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, "SKILL.md"), '---\nname: logical-paths\ndescription: A skill used to verify diagnostic path normalization.\n---\n# Body\n');
+  const catalog = await repository.listSkills();
+  const skill = catalog.skills.find((candidate) => candidate.name === "logical-paths");
+  assert.ok(skill, "skill should be loaded");
+  // SkillMeta.path 仍为内部物理路径，供资源加载器使用，不被诊断路径信息变换影响。
+  assert.equal(skill.path, directory);
+  assert.ok(catalog.diagnostics.every((diagnostic) => !diagnostic.path.includes(layout.root)));
+  assert.ok(catalog.diagnostics.some((diagnostic) => diagnostic.path === "user/logical-paths" || diagnostic.path === "user/logical-paths/config.json"));
+  assert.ok(!catalog.diagnostics.some((diagnostic) => diagnostic.path.startsWith("/")));
+});
+
 test("overrides replace serially with private permissions and unknown names fail visibly", async (t) => {
   const { layout, repository, service } = await fixture(t);
   const writes = Array.from({ length: 12 }, (_, index) => repository.setThreadOverrides("a", { cron: index % 2 === 0 }));
