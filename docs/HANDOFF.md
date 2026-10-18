@@ -2,6 +2,22 @@
 
 更新：2026-10-18。当前为单进程、单用户、单模型、多 thread 的模块化单体，自有 `web/` 是客户端。用户已明确不保留任何历史逻辑兼容；旧接口、占位字段和隐式迁移已移除。此前交接全文归档到 `docs/archive/handoff-before-incremental-protocol.md`，不能作为当前实现约定。
 
+## 待实施需求入口
+
+- 后续讨论但暂时不做的需求，统一记录在 [`backlog.md`](backlog.md)；详细方案放 `docs/discussions/`。认可方案不等于立即开工，开始实施仍需用户明确授权。
+- **REQ-001：Dream 后台记忆整理**，用户已于 2026-10-18 认可方案并明确暂缓，详见 [`discussions/dream-memory.md`](discussions/dream-memory.md)。现有 pi 压缩不变，新增后台自动整理长期记忆；当前尚未实现，不提前改变现有“显式记忆写入”行为。
+- **REQ-002：重置当前会话（保留记忆与工作区）**，用户明确用于主动清空上下文或上下文故障，不是新建另一个会话；保留规则、记忆与原工作区，历史展示等恢复细节仍在讨论，未开工，不与 Dream 混合实施。
+
+## 工作区变更通知流（2026-10-18）
+
+- 新增 `GET /api/events`（独立命名 SSE，不复用 AG-UI 聊天事件），仅推送“重新读取”信号；`workspace_updated` 涵盖 jobs/tasks/goals/memories/monitors/identity/worker，`actions_updated` 涵盖审批集合所有状态。完整客户端契约由 `contracts/workspace-events.ts` 与端点注册表生成到 `/docs`、`/openapi.json`，[`http-api-contract.md`](http-api-contract.md) 仅作辅助说明。
+- 当前实现范围：服务端推送骨架 + 工作台/审批提交后通知触发 + 慢连接有界合并 + abort/cancel/service-close 清理。客户端协议仅约定，不替代现有轮询；移动端与浏览器后台锁屏不在本轮范围，分页与历史留存未做。
+- 验证：SSE 专项 22 项（14 unit + 8 integration）通过；`pnpm typecheck && pnpm test && pnpm build`（全套 306/306）与 `git diff --check` 通过。覆盖鉴权、提交失败不通知、多连接、审批全终态、模型工具写入、worker 归闲、慢读合并、断连不取消聊天，以及持有 SSE 时入口 SIGTERM 自然 code 0；已有初始化失败清理回归同样通过。
+- 隔离后端 + 自有 Web 15173 DEV 代理的浏览器 fetch 实测收到 `ready`、记忆保存后的 `workspace_updated`、拒绝审批后的 `actions_updated`，随后读取接口确认记忆存在且 pending 已清空。本轮没有改客户端轮询或验证自动接入，不冒充真实模型/移动端/锁屏推送验收；本轮临时服务、数据与浏览器页已清理，未改正式数据或自动 commit/push。
+- 文档收尾：完整协议写入 `WORKSPACE_SSE_DESCRIPTION`，通过端点 `hint` 生成标准 `operation.description`；事件表由同一 zod 契约生成，关键说明不再仅存在于 Markdown 或 `x-sse-events`。隔离实例实际打开 `/docs` 的“通知”分类，确认鉴权、事件表、分帧、心跳、刷新补刷、前后台重连、401/503 和断连不取消业务均可见；实际 `/openapi.json` 内容一致。
+- 收尾验证：SSE 与文档专项 28/28，全量 308/308，typecheck/build/diff 检查通过。全量首次运行暴露入口进程测试的 8 秒启动预算不足；改为启动最多 25 秒、独立保留 SIGTERM 后 8 秒退出检查后全量通过，业务实现未变。文档验收临时实例自然退出 code 0，临时数据和浏览器页均已清理。
+- 工作区通知流及契约文档已提交为 `473213f`，会话技能/指令/隔离工作区基线为 `e37e544`，均在 `feat/auth-token-long-lived`；未 push。自有 Web 的现有轮询尚未替换，前端会话适配说明见 [`frontend-session-workspace-adaptation.md`](frontend-session-workspace-adaptation.md)。
+
 ## 旧数据清理与提交前整理（2026-10-18）
 
 - 经用户明确授权，停掉本项目遗留 watcher/17890 服务后，校验备份 58 个文件至 `.pi-muse-backups/before-session-workspace-reset-20261018-115852/`；备份目录0700、文件0600，含凭据，禁止提交或上传。
