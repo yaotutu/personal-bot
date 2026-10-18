@@ -1,9 +1,9 @@
-# Personal Bot 配置
+# pi-muse 配置
 
-Personal Bot 只从一个配置文件读取启动配置：
+pi-muse 只从一个配置文件读取启动配置：
 
 ```text
-.personal-bot/config.json
+.pi-muse/config.json
 ```
 
 该文件必须存在；缺失、JSON 语法错误、未知字段、类型不合法或未知 `schemaVersion` 都会启动失败。服务端不支持旧的环境变量配置，也不支持 `${ENV_NAME}` 插值。模型 API key 直接写在 `model.apiKey`。自有 `web/` 的 `API_TARGET` 只用于 Vite 的 `/api` 代理，不是服务端配置来源。
@@ -11,9 +11,9 @@ Personal Bot 只从一个配置文件读取启动配置：
 ## 创建配置
 
 ~~~sh
-mkdir -p .personal-bot
-cp config.example.json .personal-bot/config.json
-chmod 600 .personal-bot/config.json
+mkdir -p .pi-muse
+cp config.example.json .pi-muse/config.json
+chmod 600 .pi-muse/config.json
 ~~~
 
 然后编辑：
@@ -22,12 +22,12 @@ chmod 600 .personal-bot/config.json
 {
   "schemaVersion": 1,
   "server": {
-    "host": "127.0.0.1",
-    "port": 8787,
+    "host": "0.0.0.0",
+    "port": 17890,
     "accessKey": "",
     "allowedOrigins": [
-      "http://localhost:5173",
-      "http://127.0.0.1:5173"
+      "http://localhost:15173",
+      "http://127.0.0.1:15173"
     ]
   },
   "model": {
@@ -73,10 +73,10 @@ chmod 600 .personal-bot/config.json
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `server.host` | `127.0.0.1` | 非回环地址必须配置 `server.accessKey` |
-| `server.port` | `8787` | HTTP 监听端口 |
-| `server.accessKey` | 空 | 服务访问密钥，不是模型 key |
-| `server.allowedOrigins` | localhost / 127.0.0.1 的 5173 两个 origin | CORS origin 数组；显式配置会替换默认列表，用于自有 Web |
+| `server.host` | `0.0.0.0` | 默认监听全部网卡便于局域网访问；非回环 host 但 `server.accessKey` 为空时仅打印警告，由用户自行决定是否补上 |
+| `server.port` | `17890` | HTTP 监听端口；被占用时启动直接报错并指出占用 PID（用 `lsof` 查，跨平台不兼容时退化为通用提示），由用户决定改 port 还是 `kill -15 <pid>` 释放 |
+| `server.accessKey` | 空 | 服务访问密钥，不是模型 key；留空启动会打印非回环 host 的安全警告，但不会阻断启动 |
+| `server.allowedOrigins` | localhost / 127.0.0.1 的 15173、17890 共四个 origin | CORS origin 数组；显式配置会替换默认列表，用于自有 Web |
 | `model.baseUrl` | 空 | OpenAI-compatible API 根地址，例如 `/v1`；必须与 `model.id` 同时配置 |
 | `model.id` | 空 | 模型 ID |
 | `model.apiKey` | 空 | 模型 API key，直接写在配置文件中 |
@@ -98,15 +98,19 @@ chmod 600 .personal-bot/config.json
 | `tools.weather.enabled` | `true` | 是否向模型声明 `get_weather` |
 | `tools.weather.defaultCity` | 空 | 用户未指定城市时使用的默认城市；为空时模型会追问城市 |
 | `tools.presentation.default` | `hidden` | 客户端实时流与历史投影的工具展示策略：`hidden` 隐藏工具调用，`summary` 只发送受控摘要 |
-| `tools.presentation.overrides` | `{}` | 按工具名覆盖默认策略；名称以 `src/adapters/pi/tools/index.ts` 的显式注册表为准，包括 `currentTime`、`memory`、`schedule`、`delegate_task`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`search_web`、`web_fetch`、`get_weather` |
+| `tools.presentation.overrides` | `{}` | 按工具名覆盖默认策略；名称以 `src/adapters/pi/tools/index.ts` 的显式注册表为准，包括 `currentTime`、`instructions`、`memory`、`schedule`、`subagent`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`search_web`、`web_fetch`、`get_weather` |
 
-默认情况下，`.personal-bot/config.json` 所在的 `.personal-bot/` 同时也是实例数据目录。也就是说 sessions、memory、jobs、workspace 和配置文件保持在同一个实例目录内。
-`runtime.dataDir: "."` 也表示该配置文件目录，与启动进程的 cwd 无关；若在 `.personal-bot/config.json` 中填 `".personal-bot"`，则会指向其下嵌套的 `.personal-bot/`，不是项目根目录下的同名目录。
-会话按 `sessions/<threadId>/` 保存，每个 thread 有独立 pi 会话；单用户可有多个 thread，内部后台任务 `task-*` 不显示在用户会话列表中。
+默认情况下，`.pi-muse/config.json` 所在的 `.pi-muse/` 同时也是实例数据目录。当前默认实例目录已统一为 `.pi-muse/`，旧目录不会被自动读取或迁移。也就是说 sessions、memory、jobs、workspace 和配置文件保持在同一个实例目录内。
+`runtime.dataDir: "."` 也表示该配置文件目录，与启动进程的 cwd 无关；若在 `.pi-muse/config.json` 中填 `".pi-muse"`，则会指向其下嵌套的 `.pi-muse/`，不是项目根目录下的同名目录。
+会话按 `sessions/<threadId>/` 保存，每个 thread 有独立 pi 会话；单用户可有多个 thread，subagent 内部 `subagent-<uuid>` 工作区与旧 worker 遗留的 `task-*` 目录都不显示在用户会话列表中。每个 thread 的工作目录固定为 `workspace/threads/<threadId>/`，共享区为 `workspace/shared/`；完整目录树见 README「存储与安全边界」。没有可配置的全局 workspace 回退，旧根文件和旧 cwd 历史不会自动迁移或清理。
+
+## 实例目录改名
+
+旧 `.personal-bot/` 不会自动回退读取。迁移必须先停服务并保留受保护备份，除配置中的绝对 runtime.dataDir 外，还要离线更新pi JSONL会话头的cwd及指向实例内的parentSession路径前缀；仅移动文件会使continueRecent跳过旧会话。消息正文和会话ID不变，文件mtime需保留以免改变最近会话选择；auth.key与accessKey不变才能继续使用原token。本实例迁移记录及回退方式见 `HANDOFF.md`；`.pi-muse-backups/` 含凭据，必须保持0700目录及0600敏感文件权限，不提交或上传。
 
 ## 文件写入审批
 
-- `write` / `edit` 只能操作 `DATA_DIR/workspace` 内的文件，拒绝绝对路径、`..` 逃逸和目标/父目录符号链接；`bash` 永不暴露。
+- `write` / `edit` 只能操作 `DATA_DIR/workspace/threads/<threadId>/` 私有区和通过 `shared/...` 显式访问的 `workspace/shared/`；主会话同样使用 `threads/local-main/`，不使用父目录。读写均拒绝绝对路径、`..` 和根/目标/父目录符号链接；`bash` 永不暴露。
 - 每次操作都需独立人工审批，审批载荷保留完整修改前后文本和文件版本；`edit` 的待替换文本必须唯一命中。
 - 提交前重新检查路径安全与文件版本。文件在等待期间变化时，旧审批不能授权覆盖，需重新发起操作和审批。
 - 拒绝、审批过期或运行取消均不会提交该次修改；服务重启会取消上一进程遗留的 pending 审批。审批有效期由登记时的 `expiresAt` 固定，提交前再次校验期限和取消状态。
@@ -137,7 +141,7 @@ chmod 600 .personal-bot/config.json
 - JSON 语法错误、未知字段、类型不合法、未知 `schemaVersion` 会启动失败。
 - `model.baseUrl` 与 `model.id` 必须同时为空或同时配置。
 - `model.baseUrl` 只接受无凭据、无 query、无 fragment 的 HTTP(S) URL。
-- 非回环 `server.host` 必须配置 `server.accessKey`。
+- 非回环 `server.host` 推荐配置 `server.accessKey`；当前默认行为是 host 为 `0.0.0.0` 但留空 accessKey 时仅打印警告而非阻断。
 - 服务不会自动创建或改写配置文件，避免启动路径意外覆盖用户手写配置。
 - Web 请求默认只允许公网 HTTP(S)，阻断回环、私网、链路本地和保留地址；每个重定向都会重新校验。本机联调可显式设置 `tools.web.allowPrivateTargets: true`，不改变其余请求安全约束。
 
@@ -145,7 +149,7 @@ chmod 600 .personal-bot/config.json
 
 `config.json` 可能同时包含模型 key 和工作区访问密钥：
 
-- 不提交到 Git；`.personal-bot/` 已在 gitignore 中。
+- 不提交到 Git；`.pi-muse/` 已在 gitignore 中。
 - 不截图、不在聊天中粘贴完整内容。
 - 建议权限保持 `0600`。
 - 服务端不会把 key 写入日志、返回客户端或写入 pi 会话文件。
@@ -153,10 +157,10 @@ chmod 600 .personal-bot/config.json
 
 ## mock 配置
 
-`pnpm dev:mock` 不读取 `.personal-bot/config.json`，也不调用真实模型。它在 `scripts/dev-mock.ts` 中显式构造隔离配置：
+`pnpm dev:mock` 不读取 `.pi-muse/config.json`，也不调用真实模型。它在 `scripts/dev-mock.ts` 中显式构造隔离配置：
 
-- 监听 `127.0.0.1:8788`
+- 监听 `127.0.0.1:17891`
 - 使用 fake provider
-- 数据目录为 `.personal-bot/mock`
+- 数据目录为 `.pi-muse/mock`
 
 mock 的端口和目录不提供环境变量覆盖；确需调整时直接修改脚本中的显式配置对象。

@@ -1,5 +1,5 @@
 /*
- * Personal Bot 离线壳 Service Worker（手写，零依赖）：
+ * pi-muse 离线壳 Service Worker（手写，零依赖）：
  * - 导航请求 network-first：离线时回退到缓存的 index.html（应用壳）。
  * - 静态资产（/assets/、/icons/）cache-first：构建产物带内容哈希，可安全长缓存。
  * - /api/ 一律直连不缓存：聊天与数据必须实时，离线时由 UI 显示错误。

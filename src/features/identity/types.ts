@@ -12,7 +12,7 @@ export type Identity = {
 };
 
 export const defaultIdentity: Identity = {
-  name: "Personal Bot",
+  name: "pi-muse",
   tone: "warm",
   avatar: "sky",
   showChatUpdates: true,

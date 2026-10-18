@@ -2,5 +2,8 @@ node_modules/
 dist/
 .env
 .personal-bot/
+.pi-muse/
+.pi-muse-backups/
 *.log
 *.tsbuildinfo
+.*

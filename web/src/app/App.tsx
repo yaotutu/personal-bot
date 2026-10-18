@@ -168,7 +168,7 @@ export const App = () => {
     return (
       <div className="flex h-screen items-center justify-center bg-stone-100">
         <div className="w-80 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
-          <h1 className="text-lg font-semibold text-stone-800">Personal Bot</h1>
+          <h1 className="text-lg font-semibold text-stone-800">pi-muse</h1>
           <p className="mt-1 text-sm text-stone-500">
             {error || "输入服务端访问密钥（未配置密钥时直接进入）"}
           </p>
@@ -215,7 +215,7 @@ export const App = () => {
         }`}
       >
         <div className="px-4 py-4 text-sm font-semibold tracking-wide text-stone-700">
-          Personal Bot
+          pi-muse
         </div>
         <div className="flex gap-1 px-2 pb-2">
           {navItems.map((item) => (
@@ -299,7 +299,7 @@ export const App = () => {
           >
             ☰
           </button>
-          <span className="text-sm font-semibold text-stone-700">Personal Bot</span>
+          <span className="text-sm font-semibold text-stone-700">pi-muse</span>
           <span className="ml-auto truncate text-xs text-stone-400">{active}</span>
         </header>
         <div className="min-h-0 flex-1">

@@ -1,5 +1,4 @@
 import type { Job } from "../features/jobs/types.js";
-import type { Task } from "../features/tasks/types.js";
 import type { TaskDto, TaskDetailDto, RunEventDto } from "./contracts/responses.js";
 
 const latestDate = (...values: (string | undefined)[]) =>
@@ -54,49 +53,4 @@ export const presentJobDetail = (job: Job): TaskDetailDto => {
     }] : []),
   ].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
   return { task: presentJob(job), events };
-};
-
-
-/** 异步任务投影：与定时任务共用 Task DTO，kind 区分来源。 */
-export const presentAsyncTask = (task: Task): TaskDto => ({
-  id: task.id,
-  title: task.title,
-  prompt: task.prompt,
-  kind: "task" as const,
-  status: task.status,
-  createdAt: task.createdAt,
-  updatedAt: task.finishedAt ?? task.startedAt ?? task.createdAt,
-  result: task.result,
-  error: task.error ?? null,
-});
-
-/**
- * 异步详情只展示记录中存在的创建/开始/终态事实，不虚构完整执行步骤或重试次数。
- * 事件 ID 由任务、事实类型和时间组成，重复刷新稳定；完整工具历史仍以 pi thread 为准。
- */
-export const presentAsyncTaskDetail = (task: Task): TaskDetailDto => {
-  const events: RunEventDto[] = [
-    {
-      id: `${task.id}:created`, taskId: task.id, date: task.createdAt,
-      kind: "status", title: "Task created", detail: "Background task created.",
-    },
-  ];
-  if (task.startedAt) events.push({
-    id: `${task.id}:started:${task.startedAt}`, taskId: task.id, date: task.startedAt,
-    kind: "status", title: "Task started", detail: "Latest recorded background run started.",
-  });
-  // 终态没有完成时间时不补造时间；取消时即使存在旧结果，也不把旧结果解释为成功。
-  if (task.finishedAt && ["succeeded", "failed", "cancelled"].includes(task.status)) {
-    events.push({
-      id: `${task.id}:finished:${task.finishedAt}`, taskId: task.id, date: task.finishedAt,
-      kind: task.status === "succeeded" ? "result" : task.status === "failed" ? "error" : "status",
-      title: task.status === "succeeded" ? "Latest run succeeded" : task.status === "failed" ? "Latest run failed" : "Task cancelled",
-      detail: task.status === "succeeded" ? task.result ?? "No execution result was recorded."
-        : task.status === "failed" ? task.error ?? "Task run failed" : "Background task cancelled.",
-    });
-  }
-  return {
-    task: presentAsyncTask(task),
-    events: events.sort((a, b) => Date.parse(a.date) - Date.parse(b.date)),
-  };
 };

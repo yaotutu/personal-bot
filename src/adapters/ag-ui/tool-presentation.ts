@@ -17,12 +17,15 @@ const compact = (value: string, max = 500) => {
 
 const failure = "工具执行失败";
 const finished = "工具执行已结束（详情已隐藏）";
-const controlledDenial = "Access denied: path is outside the documents directory.";
+const controlledDenials = new Set([
+  "Access denied: path is outside the documents directory.",
+  "Access denied: path is outside the documents directory or contains a symlink.",
+]);
 
 const errorText = (content: string) =>
   content === "Tool execution failed" || content === failure
     ? failure
-    : content === controlledDenial ? controlledDenial : undefined;
+    : controlledDenials.has(content) ? content : undefined;
 
 /**
  * SearchToolCard 只接受来源 URL/title。保留来源而非伪造成功的空结果；

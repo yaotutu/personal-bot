@@ -28,6 +28,7 @@ const dueJob = (id = "test-job"): Job => ({
   enabled: true,
   createdAt: new Date(0).toISOString(),
   nextRunAt: new Date(0).toISOString(),
+  originThreadId: "local-main",
 });
 const schedulerConfig = createConfig({ runtime: { schedulerIntervalMs: 10 } });
 // 调度器只需三个方法；生产会话仍由组合入口创建，不为测试另造执行内核。
@@ -36,7 +37,7 @@ const schedulerFor = (
   conversation: Pick<Conversation, "isRunning" | "trigger">,
 ) => createScheduler(schedulerConfig, jobs, conversation);
 
-test("DataLayout describes every legacy path without migrating data", () => {
+test("DataLayout describes the current paths without migrating legacy data", () => {
   const root = resolve(".personal-bot-test");
   assert.deepEqual(createDataLayout("./.personal-bot-test"), {
     root,
@@ -46,13 +47,14 @@ test("DataLayout describes every legacy path without migrating data", () => {
     piAuthFile: join(root, "agent", "auth.json"),
     memoryFile: join(root, "memory.json"),
     jobsFile: join(root, "jobs.json"),
-    tasksFile: join(root, "tasks.json"),
     goalsFile: join(root, "goals.json"),
     actionsFile: join(root, "actions.json"),
     monitorsFile: join(root, "monitors.json"),
     soulFile: join(root, "SOUL.md"),
     userFile: join(root, "USER.md"),
     authKeyFile: join(root, "auth.key"),
+    skillsDir: join(root, "skills"),
+    subagentsDir: join(root, "subagents"),
   });
 });
 
@@ -539,7 +541,7 @@ test("service close cancels a running scheduled pi turn before draining its stat
   const main = await service.conversationHub.forThread("local-main");
   const trigger = main.trigger;
   t.mock.method(main, "trigger", (_text: string, id: string) => trigger("freeze", id));
-  const job = await service.jobs.add("test close", false, new Date(0).toISOString());
+  const job = await service.jobs.add("test close", false, new Date(0).toISOString(), "local-main");
   const waitFor = async (predicate: () => boolean) => {
     for (let i = 0; i < 200; i++) {
       if (predicate()) return;

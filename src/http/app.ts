@@ -1,18 +1,21 @@
-import { TaskQueueFullError } from "../features/tasks/task-service.js";
+import { ConversationError } from "../features/conversation/errors.js";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
-import { z } from "zod";
 import type { HttpDependencies } from "../bootstrap/types.js";
 import { createWorkspaceRoutes } from "./workspace-routes.js";
 import { sessionRequestSchema } from "./contracts/rest.js";
 import { buildOpenApiDocument } from "./openapi.js";
 import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
 import { saveProfileSchema } from "./contracts/rest.js";
+import { createThreadRoutes } from "./routes/threads.js";
+import { createWorkspaceEventRoutes } from "./routes/events.js";
+import { serviceVersion } from "../bootstrap/service-version.js";
 
 // 只挂载 HTTP/协议适配：使用已组装的服务，不创建 store，也不启动或关闭调度器。
 export async function createHttpApp(dependencies: HttpDependencies) {
   const { config, auth, conversationHub } = dependencies;
+  const version = await serviceVersion;
   const runtimeRoutes = await createAgUiRoutes(conversationHub, dependencies.presentation);
   const app = new Hono();
   app.use("*", async (c, next) => {
@@ -20,12 +23,15 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     const leave = dependencies.lifecycle?.enter();
     try { await next(); } finally { leave?.(); }
   });
+  // CORS 整体放行：所有 origin 都接受，浏览器侧鉴权由 Authorization 头 + accessKey 中间件承担，
+  // 不在 origin 上做策略。origin 函数对每个请求回显具体 Origin（无 Origin 时回显 "*"），
+  // 这样浏览器拿到的是它自己发的值而不是字面量 "*"，对跨域请求兼容性更好。
   app.use(
     "*",
     cors({
-      origin: config.allowedOrigins,
+      origin: (origin) => origin ?? "*",
       allowHeaders: ["Authorization", "Content-Type"],
-      allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
+      allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     }),
   );
   app.use(
@@ -35,11 +41,13 @@ export async function createHttpApp(dependencies: HttpDependencies) {
       onError: (c) => c.json({ error: "Request body exceeds 1 MiB" }, 413),
     }),
   );
-  app.onError((error, c) => error instanceof TaskQueueFullError
-    ? c.json({ error: error.message }, 429)
-    : c.json({ error: "Internal server error" }, 500));
+  app.onError((error, c) => {
+    if (error instanceof ConversationError && error.code === "THREAD_DELETING")
+      return c.json({ error: error.message, code: error.code }, 409);
+    return c.json({ error: "Internal server error" }, 500);
+  });
   // ---- API 文档（自动生成，免鉴权）----
-  app.get("/openapi.json", (c) => c.json(buildOpenApiDocument()));
+  app.get("/openapi.json", (c) => c.json(buildOpenApiDocument(version)));
   app.get("/docs", (c) => c.html(docsPage));
   app.get("/scalar.js", async (c) => {
     const file = await readScalarStandalone();
@@ -49,7 +57,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   });
 
   app.get("/api/health", (c) =>
-    c.json({ ok: true, backend: "pi", configured: config.configured }),
+    c.json({ ok: true, backend: "pi", configured: config.configured, serviceVersion: version }),
   );
   app.post("/api/session", async (c) => {
     const input = sessionRequestSchema.safeParse(await c.req.json().catch(() => undefined));
@@ -65,10 +73,6 @@ export async function createHttpApp(dependencies: HttpDependencies) {
       return c.json({ error: "Unauthorized: open a new session" }, 401);
     await next();
   });
-  // 单 owner 多会话：列出已存在的 thread（按最近活跃倒序）。
-  app.get("/api/threads", async (c) =>
-    c.json({ threads: await conversationHub.threads() }),
-  );
   // SOUL/USER 自由文本：读取与保存（下一轮 prompt 注入即生效）。
   app.get("/api/profile", async (c) => c.json(await dependencies.identity.getProfile()));
   app.put("/api/profile", async (c) => {
@@ -79,6 +83,8 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     return c.json(await dependencies.identity.saveProfile(parsed.data));
   });
   // 先鉴权，再挂载业务/运行协议，最后处理未知 API；顺序是现有安全边界。
+  app.route("/", createWorkspaceEventRoutes(dependencies.workspaceEvents));
+  app.route("/api/threads", createThreadRoutes(dependencies));
   app.route("/", createWorkspaceRoutes(dependencies));
   app.route("/", runtimeRoutes);
   app.all("/api/*", (c) =>
@@ -102,7 +108,7 @@ const docsPage = `<!doctype html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Personal Bot API 文档</title>
+    <title>pi-muse API 文档</title>
   </head>
   <body>
     <div id="app"></div>

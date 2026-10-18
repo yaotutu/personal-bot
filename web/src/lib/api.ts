@@ -165,23 +165,15 @@ export const getAgentSnapshot = async (signal?: AbortSignal): Promise<AgentSnaps
   return response.json();
 };
 
-export const createTask = async (prompt: string, title?: string): Promise<TaskDto> => {
-  const response = await request("/api/agent/tasks", {
-    method: "POST",
-    body: JSON.stringify({ prompt, title }),
-  });
-  if (!response.ok) throw new ApiError(response.status, "创建失败");
-  return response.json();
-};
-
+// 后台任务域（task）已下线：此接口只保留定时任务（job）的控制。
+// 历史 `target: "task"` 路径不再适用，请求里 target 只能取字面量 "job"。
 export const controlTask = async (
   id: string,
   action: "pause" | "resume" | "cancel" | "retry",
-  target: "job" | "task",
 ): Promise<{ ok: boolean; error?: string }> => {
   const response = await request(`/api/agent/tasks/${id}/control`, {
     method: "POST",
-    body: JSON.stringify({ action, target }),
+    body: JSON.stringify({ action, target: "job" }),
   });
   if (!response.ok) {
     const data = (await response.json().catch(() => ({}))) as { error?: string };

@@ -5,11 +5,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createJobRepository } from "../../src/adapters/storage/job-repository.js";
 import { createJobService } from "../../src/features/jobs/job-service.js";
-import { presentAsyncTaskDetail, presentJob, presentJobDetail } from "../../src/http/job-presenters.js";
+import { presentJob, presentJobDetail } from "../../src/http/job-presenters.js";
 import { taskDetail } from "../../src/http/contracts/responses.js";
 import { readJobsDocument } from "../../src/adapters/storage/document-schemas.js";
 import type { Job } from "../../src/features/jobs/types.js";
-import type { Task } from "../../src/features/tasks/types.js";
 
 const fixture = async (t: TestContext, jobs: Job[] = []) => {
   const dir = await mkdtemp(join(tmpdir(), "personal-bot-task-detail-"));
@@ -21,7 +20,8 @@ const fixture = async (t: TestContext, jobs: Job[] = []) => {
 };
 const job = (extra: Partial<Job> = {}): Job => ({
   id: "job", prompt: "test reminder", daily: false, at: "2030-01-01T00:00:00.000Z",
-  enabled: true, createdAt: "2026-01-01T00:00:00.000Z", nextRunAt: "2030-01-01T00:00:00.000Z", ...extra,
+  enabled: true, createdAt: "2026-01-01T00:00:00.000Z", nextRunAt: "2030-01-01T00:00:00.000Z",
+  originThreadId: "local-main", ...extra,
 });
 const failed = (): Job => job({ enabled: false, at: "2026-01-02T00:00:00.000Z", nextRunAt: "2026-01-02T00:00:00.000Z", lastStatus: "failed", lastRunAt: "2026-01-02T00:00:01.000Z", lastResult: "Last attempt failed" });
 
@@ -40,50 +40,6 @@ test("task detail contains only recorded facts, latest events and stable IDs wit
   assert.ok(detail.events.every((event) => event.taskId === source.id && Object.keys(event).length === 6));
   assert.deepEqual(presentJobDetail(source), detail);
   assert.deepEqual(source, before);
-});
-
-// 两种任务复用详情协议，但异步任务只投影已记录的生命周期，不伪造工具步骤或执行日志。
-for (const status of ["queued", "running", "succeeded", "failed", "cancelled"] as const) {
-  test(`async task detail projects ${status} facts with stable IDs and no mutation`, () => {
-    const terminal = ["succeeded", "failed", "cancelled"].includes(status);
-    const source: Task = {
-      id: "async-task", title: "Background work", prompt: "Do the work", source: "web",
-      status, createdAt: "2026-01-01T00:00:00.000Z",
-      startedAt: status === "queued" ? undefined : "2026-01-01T00:01:00.000Z",
-      finishedAt: terminal ? "2026-01-01T00:02:00.000Z" : undefined,
-      result: status === "succeeded" ? "done" : undefined,
-      error: status === "failed" ? "Task run failed" : undefined,
-    };
-    const before = structuredClone(source);
-    const detail = presentAsyncTaskDetail(source);
-    assert.equal(taskDetail.safeParse(detail).success, true);
-    assert.equal(detail.task.kind, "task");
-    assert.equal(detail.task.status, status);
-    assert.equal(detail.events.length, status === "queued" ? 1 : terminal ? 3 : 2);
-    assert.deepEqual(detail.events.map((event) => event.date),
-      [source.createdAt, source.startedAt, source.finishedAt].filter(Boolean));
-    assert.ok(detail.events.every((event) => event.taskId === source.id));
-    assert.equal(new Set(detail.events.map((event) => event.id)).size, detail.events.length);
-    if (terminal) {
-      assert.equal(detail.events.at(-1)!.kind,
-        status === "succeeded" ? "result" : status === "failed" ? "error" : "status");
-      assert.equal(detail.events.at(-1)!.detail,
-        status === "succeeded" ? "done" : status === "failed" ? "Task run failed" : "Background task cancelled.");
-    }
-    assert.deepEqual(presentAsyncTaskDetail(source), detail);
-    assert.deepEqual(source, before);
-  });
-}
-
-test("async cancelled task does not infer success from a retained result or invent a missing finish time", () => {
-  const source: Task = {
-    id: "cancelled", title: "Cancelled", prompt: "work", source: "chat", status: "cancelled",
-    createdAt: "2026-01-01T00:00:00.000Z", result: "old result",
-  };
-  assert.equal(presentAsyncTaskDetail(source).events.length, 1);
-  const detail = presentAsyncTaskDetail({ ...source, finishedAt: "2026-01-01T00:02:00.000Z" });
-  assert.equal(detail.events.at(-1)!.kind, "status");
-  assert.equal(detail.events.at(-1)!.detail, "Background task cancelled.");
 });
 
 test("task detail does not infer success from a legacy result with no lastStatus", () => {

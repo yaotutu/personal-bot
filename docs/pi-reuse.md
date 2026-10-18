@@ -1,7 +1,7 @@
 # pi 复用清单与选型边界
 
-调研日期：2026-10-10；生态复查：2026-10-14（见第 8 节）。已采用版本：@earendil-works/pi-coding-agent@1.1.0。
-已安装并锁定该版本；真实 SDK + 本地模拟 OpenAI SSE 已通过自动测试和 OpenMuse Web 联调。真实目标模型尚未配置。
+当前已采用并锁定 `@earendil-works/pi-coding-agent@1.3.0`，本地安装包是 API 核对依据。2026-10-10 的初始选型和 2026-10-14 的生态复查保留在下文，均为当时的历史结论；不能据此推荐退回 1.1.0 或再次执行旧升级计划。
+真实模型子代理、工具、审批、取消和重启验收见 `archive/2026-10-18-subagent-live-acceptance.md`；当前客户端是自有 Web，不以早期 OpenMuse 联调替代本轮验收。
 
 ## 1. 优先复用什么
 
@@ -32,13 +32,13 @@
 
 ## 3. 版本与生态注意事项
 
-npm registry核实：
+2026-10-10 npm registry 核实时的历史快照（不是当前 latest 查询）：
 
-| 包 | latest标记 | 备注 |
+| 包 | 当时 latest 标记 | 备注 |
 | --- | --- | --- |
-| @earendil-works/pi-coding-agent | 1.1.0 | Node >=22.19.0；2026-10-07 UTC发布 |
-| @earendil-works/pi-agent-core | 1.1.0 | 与同一命名空间SDK配套 |
-| @mariozechner/pi-coding-agent | 0.73.1 | 旧命名空间；不能把这版API与1.1.0文档混用 |
+| @earendil-works/pi-coding-agent | 1.1.0 | 当前项目已锁定 1.3.0，见第 9 节 |
+| @earendil-works/pi-agent-core | 1.1.0 | 当前随同一命名空间 SDK 使用 1.3.0，不直接装配 agent loop |
+| @mariozechner/pi-coding-agent | 0.73.1 | 旧命名空间；不能把这版API与1.x文档混用 |
 
 新实现建议选已发布版本并提交lockfile，不跟main滚动升级，不混用新旧namespace。
 SDK最终完成按选定版本核对：v1.1.0文档区分agent_end与agent_settled；前者之后可能还有自动恢复/队列工作，不能每个agent_end都发RUN_FINISHED。
@@ -89,18 +89,21 @@ P1 已复用 createAgentSession / ModelRuntime / SessionManager / abort / waitFo
 
 选择自写薄 AG-UI adapter 和 runner，没有引入 pi-web 的完整服务栈，也没有复制其代码；社区 bridge 仍未完成源码审计，不作为当前可靠性依据。Pi 资源使用完全由宿主提供的 ResourceLoader；P2 再选择可信 skills/工具，避免自动开放执行能力。
 
-## 8. 生态复查（2026-10-14）：版本动态与包适配结论
+## 8. 生态复查（2026-10-14，历史记录）：版本动态与包适配结论
 
-复查时点：官方包全线发布 1.2.0（2026-10-12），本项目仍锁定 1.1.0。monorepo 现有包：pi-ai、pi-agent-core、pi-coding-agent、pi-durable、chord、pi-codemode、pi-mcp、pi-tui、pi-telemetry、pi-server（停在 1.1.0）。项目活跃度：~115k stars，约每周一版。
+以下状态与建议只对应复查时点，当前版本和实现以本文开头及第 9 节为准。
+
+复查时点：官方包全线发布 1.2.0（2026-10-12），当时本项目仍锁定 1.1.0。monorepo 现有包：pi-ai、pi-agent-core、pi-coding-agent、pi-durable、chord、pi-codemode、pi-mcp、pi-tui、pi-telemetry、pi-server（停在 1.1.0）。项目活跃度：~115k stars，约每周一版。
 
 ### 版本策略
 
-v1 稳定期继续锁 1.1.0；v2 动工（V0）时一次性升 1.2.x，按以下 SDK 相关变更核对：
+当时建议 v1 稳定期锁 1.1.0、v2 动工时升 1.2.x；当前已采用 1.3.0，不再执行这份旧排期。以下为曾需核对的 SDK 变更：
 
 - run 启动期间会话即计入 busy：`isIdle()` 为 false、`sendMessage()` 改为排队、abort 传递到启动中的 run（对取消链路是行为修正）。
 - `before_agent_start` 变 union 且 sendMessage 触发的 run 也会触发；确认 resource-loader 的 `createExtensionRuntime` 未注册受影响 hook。
 - `serializeConversation()`（压缩序列化）不再输出 thinking 块，修复"摘要请求大于被摘要上下文"的故障模式。
 - 1.2.0 起 coding-agent 依赖树移除 chord（仅 pi-durable 依赖它），对我们是净简化。
+- 当前 1.3.0 安装包附带官方 subagent 扩展示例，示例启动独立 pi CLI（并非内置 SDK child 功能）；本项目保留其单/并行/链式语义并适配为受限 SDK 会话。
 
 ### 包适配复查：自研功能对照 pi 生态
 
@@ -115,4 +118,19 @@ v1 稳定期继续锁 1.1.0；v2 动工（V0）时一次性升 1.2.x，按以下
 | `pi-server` | HTTP/AG-UI 服务 | 不用：仍 experimental 且未跟进 1.2.0，形状非本项目 API |
 | 社区 pi-web 的 AG-UI 桥 | `src/adapters/ag-ui/` | 不用：桥内嵌于 Astro+Go 单二进制，不可独立安装；维持自研薄适配层 |
 
-其余自研功能——memory 长期记忆、jobs 调度、goals/monitors、actions 审批、文件/web/天气工具、AG-UI 投影、鉴权——在 pi 生态没有对应物，是产品语义层，维持自研。文件工具不复用 pi 内置 read/grep/edit：结果 JSON 结构是 OpenMuse renderer 协议契约，且必须挂接本项目 workspace 边界与审批闸。
+其余自研功能——memory 长期记忆、jobs 调度、goals/monitors、actions 审批、文件/web/天气工具、AG-UI 投影、鉴权——在 pi 生态没有对应物，是产品语义层，维持自研。文件工具不复用 pi 内置 read/grep/edit：结果 JSON 结构是 OpenMuse renderer 协议契约，且必须挂接本项目 workspace 边界与审批闸。subagent 子代理改造自官方 1.3.0 示例（见第 9 节），本地 fork 仅做 runner/discovery/渲染适配与本项目上下文（model/key/workspace/审批/工具 allowlist）的收口，不复制示例的 agent loop。
+
+## 9. subagent 子代理（基于官方 1.3.0 示例）
+
+旧实现里的 `delegate_task` / `tasks.json` / 后台 worker 由官方 1.3.0 subagent 示例改造后的 SDK child session 取代，**不属于服务端后台域**，而是父模型直接调用的工具。
+
+- **复用范围**：官方示例的单/并行/链式三种模式、独立上下文、并发限制与结果汇总（最多 8 项、同时 4 个、链式失败即停、无自动重试）。官方示例的 CLI runner 由本项目改为独立 SDK 会话。
+- **本地 fork 范围**：runner 调用、role 提示词发现（`assets/subagents/<role>.md` 内置四个 role，`DATA_DIR/subagents/*.md` 可覆盖）、本项目 AG-UI 渲染与现有工具展示策略对齐；不复制示例的 agent loop、不引入第二套模型/工具管线。
+- **收口边界**（在父 session 内统一注入到子 session）：
+  - model 与 key 继承父，不接受 role 文件的 model 字段；
+  - 工具 allowlist 只收窄：父已启用技能与工具上限是上限，强制剔除 `subagent` / `schedule` / `monitor` / `instructions` / `bash`；
+  - 不读取个人 `~/.pi`，不接受 `cwd` / `agentScope` 等越界参数；
+  - 文件根为 `workspace/threads/subagent-<uuid>/`，`shared/...` 显式访问共享区，写入仍逐次审批；
+  - 子会话不持久化、不复制父历史或 `INSTRUCTIONS.md`；结果作为父工具结果写回父 thread。
+- **HTTP 边界**：`POST /api/agent/tasks` 已下线；`/api/agent` 任务列表仅含定时 `job`；`/control` 仅分发 `target: job`；删除会话 `removed` 只统计 jobs/monitors。
+- **旧数据处理**：`tasks.json` / `task-*` 工作区 / `delegate_task` 工具 / `POST /api/agent/tasks` / `target: task` 仅作历史记录，不读、不迁移、不删除、不执行，不保留旧 reader。

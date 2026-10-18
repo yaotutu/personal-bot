@@ -5,21 +5,20 @@ import type { Config } from "../config/load-config.js";
 import { createConversation } from "../features/conversation/conversation-service.js";
 import { createConversationHub } from "../features/conversation/conversation-hub.js";
 import { createJobService } from "../features/jobs/job-service.js";
-import { createTaskService } from "../features/tasks/task-service.js";
 import { createGoalService } from "../features/goals/goal-service.js";
 import { createActionService } from "../features/actions/action-service.js";
 import { createMonitorService } from "../features/monitors/monitor-service.js";
 import { createMonitorScheduler } from "../features/monitors/monitor-scheduler.js";
-import { createTaskWorker, type TaskWorker } from "../features/tasks/task-worker.js";
+import { createSkillsService } from "../features/skills/service.js";
 import { createMemoryService } from "../features/memory/memory-service.js";
 import { createIdentityService } from "../features/identity/identity-service.js";
 import { readProfileFile, writeProfileFile } from "../adapters/storage/profile-files.js";
 import { createJobRepository } from "../adapters/storage/job-repository.js";
-import { createTaskRepository } from "../adapters/storage/task-repository.js";
 import { createGoalRepository } from "../adapters/storage/goal-repository.js";
 import { createActionRepository } from "../adapters/storage/action-repository.js";
 import { createMonitorRepository } from "../adapters/storage/monitor-repository.js";
 import { createMemoryRepository } from "../adapters/storage/memory-repository.js";
+import { createSkillRepository } from "../adapters/storage/skill-repository.js";
 import { createHttpApp } from "../http/app.js";
 import { createDataLayout, ensureThreadLayout, threadSessionsDir } from "../adapters/storage/data-layout.js";
 import { createScheduler } from "../features/jobs/scheduler.js";
@@ -33,6 +32,7 @@ import { openPi } from "../adapters/pi/session-factory.js";
 import { createPiExecution } from "../adapters/pi/execution.js";
 import type { ServiceContainer } from "./types.js";
 import { createToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
+import { createWorkspaceEvents } from "../features/workspace/workspace-events.js";
 
 /**
  * 应用唯一的运行时组装入口。
@@ -48,8 +48,11 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   await mkdir(layout.root, { recursive: true, mode: 0o700 });
 
   const auth = await createAuth(config, layout);
+  const workspaceEvents = createWorkspaceEvents();
+  const workspaceChanged = () => workspaceEvents.invalidate("workspace_updated");
   // identity 与 memory 共享同一文档和读改写队列；业务入口分开不等于写入者分开。
-  const memoryRepository = createMemoryRepository(layout.memoryFile);
+  // 提交回调位于共享 repository，覆盖对话工具、HTTP 和后台执行，不依赖哪个入口调用。
+  const memoryRepository = createMemoryRepository(layout.memoryFile, workspaceChanged);
   const memory = createMemoryService(memoryRepository);
   const identity = createIdentityService(memoryRepository, {
     // SOUL/USER 文件实现放 storage adapter；空内容写空文件（等于清空人设）。
@@ -57,7 +60,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     write: (which, content) =>
       writeProfileFile(which === "soul" ? layout.soulFile : layout.userFile, content),
   });
-  const jobs = createJobService(createJobRepository(layout.jobsFile));
+  const jobs = createJobService(createJobRepository(layout.jobsFile, workspaceChanged));
   await jobs.reconcileOnStart();
   const presentation = createToolPresentation(config.presentation);
   await ensureThreadLayout(layout);
@@ -74,13 +77,10 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
         maxContentChars: config.web.maxContentChars,
       })
     : undefined;
-  // 异步任务域先建 service；worker 依赖 hub，hub 的工具装配又需要 worker，
-  // 用可变引用解开循环（worker 在 hub 就绪后立即补上，首个请求前必然完成）。
-  const tasks = createTaskService(createTaskRepository(layout.tasksFile));
-  const goals = createGoalService(createGoalRepository(layout.goalsFile));
-  const actions = createActionService(createActionRepository(layout.actionsFile));
-  const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile));
-  const workerRef: { current?: TaskWorker } = {};
+  const goals = createGoalService(createGoalRepository(layout.goalsFile, workspaceChanged));
+  const actions = createActionService(createActionRepository(layout.actionsFile, () => workspaceEvents.invalidate("actions_updated")));
+  const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile, workspaceChanged));
+  const skills = createSkillsService(createSkillRepository(layout));
 
   // 多会话：每个 thread 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
   // pi runtime 全进程一份：provider 与 runtime key 注册一次，所有线程共用；
@@ -130,14 +130,13 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
             sessionManager: manager,
             memory,
             jobs,
-            tasks,
-            worker: workerRef.current,
             goals,
             actions: config.writable.enabled ? actions : undefined,
             actionTimeoutMs: config.writable.actionTimeoutMs,
             monitors,
             web,
             weather,
+            skills,
           }),
           manager,
         ),
@@ -145,15 +144,24 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     },
     async () => {
       const entries = await readdir(layout.sessionsDir, { withFileTypes: true });
-      const snapshots = await Promise.all(
+      const snapshots = (await Promise.all(
         entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith("task-")).map(async (entry) => {
-          const directory = threadSessionsDir(layout, entry.name);
-          const files = (await readdir(directory)).filter((name) => name.endsWith(".jsonl"));
-          // JSONL 的追加不会更新目录 mtime，必须读取会话文件的实际活动时间。
-          const times = await Promise.all(files.map(async (name) => (await stat(join(directory, name))).mtimeMs));
-          return { id: entry.name, updatedAt: new Date(Math.max(0, ...times)).toISOString() };
+          try {
+            const directory = threadSessionsDir(layout, entry.name);
+            const files = (await readdir(directory)).filter((name) => name.endsWith(".jsonl"));
+            // JSONL 的追加不会更新目录 mtime，必须读取会话文件的实际活动时间。
+            const times = await Promise.all(files.map(async (name) => (await stat(join(directory, name))).mtimeMs));
+            return [{ id: entry.name, updatedAt: new Date(Math.max(0, ...times)).toISOString() }];
+          } catch (error) {
+            // 列表扫描与另一会话删除可以交错；只忽略已消失目录，其余 I/O 错误仍需暴露为失败。
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+            throw error;
+          }
         }),
-      );
+      )).flat();
+      if (!snapshots.some((entry) => entry.id === "local-main")) {
+        snapshots.push({ id: "local-main", updatedAt: new Date(0).toISOString() });
+      }
       return snapshots.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     },
   );
@@ -161,20 +169,16 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   try {
     await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list()]);
     await actions.cancelPending();
-    const leftovers = (await tasks.list()).filter((task) => task.status === "running");
-    for (const task of leftovers) await tasks.markFinished(task.id, "failed");
   } catch (error) {
     await conversationHub.closeAll();
     throw error;
   }
   const mainConversation = await conversationHub.forThread("local-main");
-  const scheduler = createScheduler(config, jobs, mainConversation);
+  const scheduler = createScheduler(config, jobs, mainConversation, (threadId) => conversationHub.findThread(threadId));
   const monitorScheduler = createMonitorScheduler(
     { monitorScanIntervalMs: config.monitorScanIntervalMs, web }, monitors,
-    mainConversation, (threadId) => conversationHub.forThread(threadId),
+    mainConversation, (threadId) => conversationHub.findThread(threadId),
   );
-  const taskWorker = createTaskWorker(tasks, conversationHub, mainConversation, config.runTimeoutMs);
-  workerRef.current = taskWorker;
   let closed = false;
   let closing: Promise<void> | undefined;
   const requests = new Set<Promise<void>>();
@@ -187,12 +191,14 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       return () => { requests.delete(pending); release(); };
     },
   };
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, tasks, taskWorker, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle };
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
     closed = true;
-    const stopped = [scheduler.close(), monitorScheduler.close(), taskWorker.close(), conversationHub.closeAll()];
+    // 全局通知没有执行取消语义；先结束长连接，避免 HTTP server 等待它们而无法退出。
+    workspaceEvents.close();
+    const stopped = [scheduler.close(), monitorScheduler.close(), conversationHub.closeAll()];
     closing = (async () => {
       const results = await Promise.allSettled(stopped);
       await Promise.all([...requests]);
@@ -205,7 +211,6 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     const app = await createHttpApp(dependencies);
     scheduler.start();
     monitorScheduler.start();
-    taskWorker.kick();
     return { ...dependencies, app, close };
   } catch (error) {
     await close();

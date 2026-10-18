@@ -15,8 +15,8 @@ export type FetchedWebPage = {
 
 /** feature 只依赖业务 port；后续替换搜索供应商或增加代理时不影响工具层。 */
 export type WebTransport = {
-  search: (query: string, count: number) => Promise<WebSearchResult[]>;
-  fetch: (url: string) => Promise<FetchedWebPage>;
+  search: (query: string, count: number, signal?: AbortSignal) => Promise<WebSearchResult[]>;
+  fetch: (url: string, signal?: AbortSignal) => Promise<FetchedWebPage>;
 };
 
 /** 受控失败与成功结果通过 error 字段区分，不向调用方泄漏 transport 异常。 */
@@ -39,10 +39,11 @@ export type WebFetchResponse = {
 
 /** 业务调用方直接消费结构化结果；JSON 文本编码只由工具协议适配层负责。 */
 export type WebService = {
-  search: (query: string, count?: number) => Promise<WebSearchResponse | WebFailure>;
+  search: (query: string, count?: number, signal?: AbortSignal) => Promise<WebSearchResponse | WebFailure>;
   fetch: (
     url: string,
     extractMode?: "markdown" | "text",
     maxChars?: number,
+    signal?: AbortSignal,
   ) => Promise<WebFetchResponse | WebFailure>;
 };

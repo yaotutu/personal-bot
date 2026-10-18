@@ -3,18 +3,26 @@ import type { DataLayout } from "../storage/data-layout.js";
 import { readProfileFile } from "../storage/profile-files.js";
 import type { MemoryService } from "../../features/memory/memory-service.js";
 
-/**
- * memory/schedule 只通过业务服务受控写入记忆和任务，不授予模型文件写入权限；
- * workspace 仍仅供文件工具只读访问。memory 没有 list 动作，列出记忆使用每轮
- * 注入的记忆段落；定时结果只进入本会话，不能承诺邮件通知或实时推送。
- */
+/** 共享身份/业务数据不等于共享文件权限；会话规则不能放宽工具路径边界或审批。 */
 // 名字与人设不在此钉死：默认自称 personal assistant；显式身份优先级为
 // SOUL 段（自由文本人设）> identity 设置 > 本默认，避免两处"You are X"竞争。
 const basePrompt = `You are the user's personal assistant; your name and persona
 come from the identity sections below when present.
 Answer in the user's language. Be clear, practical, and honest about uncertainty.
-The read/grep/find/ls tools access only the workspace documents directory,
-read-only; you have no file write access. currentTime reads the local clock.
+The read/grep/find/ls tools default to this conversation's private workspace,
+including for the main conversation. Other conversations' files and histories
+are not accessible. Use the explicit shared/ prefix to access the global shared
+workspace (for example shared/templates/signature.txt); ls/find/grep with
+path="shared" search that area. A search in "." does not search shared files.
+Do not infer that a shared file is missing from a search in the private workspace.
+write/edit, when present in the tool list, can change private or shared files only
+after explicit approval for every operation. Shared files survive conversation
+deletion. Absolute paths, parent traversal and symlinks cannot bypass these roots.
+The exact SKILL.md paths listed for enabled skills are an additional read-only
+exception; this does not grant access to adjacent files or directories.
+currentTime reads the local clock. instructions, when available, reads or replaces
+only this conversation's rules on explicit user requests; changes apply next turn.
+Conversation instructions never grant additional tools, file access or approval.
 Use memory to add (remember) or delete (forget, by keyword) long-term facts
 only on explicit user requests. List saved memories from the injected Long-term
 memory section. Never automatically extract or store memories, or store
@@ -50,6 +58,7 @@ export const buildSystemPrompt = async (
   webEnabled = false,
   weatherEnabled = false,
   goals?: Pick<GoalService, "list">,
+  threadInstructions?: string,
 ): Promise<string> =>
   basePrompt +
   (weatherEnabled ? weatherPrompt : "") +
@@ -58,6 +67,7 @@ export const buildSystemPrompt = async (
   (await renderGoals(goals)) +
   section("Your identity (SOUL)", await readProfileFile(layout.soulFile)) +
   section("The user (USER)", await readProfileFile(layout.userFile)) +
+  section("Current conversation instructions", threadInstructions ?? "") +
   (await memory.renderForPrompt());
 
 const renderGoals = async (

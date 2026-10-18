@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWebService, UNTRUSTED_CONTENT_BANNER } from "../../src/features/web/web-service.js";
 import { parseBingRssResults, parseDuckDuckGoResults, resolvePublicHost } from "../../src/adapters/web/http-transport.js";
-import type { FetchedWebPage, WebTransport } from "../../src/features/web/types.js";
+import type { FetchedWebPage, WebSearchResult, WebTransport } from "../../src/features/web/types.js";
 
 const service = (transport: Partial<WebTransport>) =>
   createWebService(
@@ -99,4 +99,222 @@ test("public HTTP transport blocks local and private DNS targets before connecti
   for (const host of ["localhost", "127.0.0.1", "::1", "10.0.0.1", "172.16.0.1", "192.168.1.2"]) {
     await assert.rejects(() => resolvePublicHost(host), /Blocked|DNS unavailable/);
   }
+});
+
+// ---- AbortSignal 透传与取消语义 ----
+// 取消与普通失败路径不同：取消直接 reject signal.reason，transport 不被调用或在途被监听；
+// 仅 transport 自身异常（非取消）仍按受控失败脱敏。
+
+/** 可控 promise：resolve/reject 由测试驱动，不依赖 sleep。 */
+const deferred = <T>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
+/** 用真实 AbortController 监听 signal，在 abort 时把 transport 的 promise reject 为 signal.reason。 */
+const signalAwareTransport = (
+  transport: Partial<WebTransport>,
+): { transport: WebTransport; pending: { search: { signal: AbortSignal; reason?: unknown } | null; fetch: { signal: AbortSignal; reason?: unknown } | null } } => {
+  const pending = {
+    search: null as { signal: AbortSignal; reason?: unknown } | null,
+    fetch: null as { signal: AbortSignal; reason?: unknown } | null,
+  };
+  const searchImpl = async (query: string, count: number, signal?: AbortSignal) => {
+    if (!signal) {
+      // 没有 signal 时直接走兜底 transport，不模拟取消监听
+      return transport.search ? transport.search(query, count) : [];
+    }
+    if (signal.aborted) throw signal.reason;
+    const d = deferred<WebSearchResult[]>();
+    pending.search = { signal };
+    const onAbort = () => {
+      const current = pending.search;
+      if (current && current.signal === signal) {
+        current.reason = signal.reason;
+        d.reject(signal.reason);
+      }
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    if (transport.search) {
+      transport.search(query, count).then(d.resolve, d.reject);
+    }
+    return d.promise;
+  };
+  const fetchImpl = async (url: string, signal?: AbortSignal) => {
+    if (!signal) {
+      return transport.fetch
+        ? transport.fetch(url)
+        : ({ finalUrl: url, status: 200, contentType: "text/html", body: "" });
+    }
+    if (signal.aborted) throw signal.reason;
+    const d = deferred<FetchedWebPage>();
+    pending.fetch = { signal };
+    const onAbort = () => {
+      const current = pending.fetch;
+      if (current && current.signal === signal) {
+        current.reason = signal.reason;
+        d.reject(signal.reason);
+      }
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    if (transport.fetch) {
+      transport.fetch(url).then(d.resolve, d.reject);
+    }
+    return d.promise;
+  };
+  return {
+    pending,
+    transport: {
+      search: searchImpl,
+      fetch: fetchImpl,
+    },
+  };
+};
+
+test("search rejects pre-aborted signal without invoking transport", async () => {
+  const transport = {
+    search: async () => assert.fail("transport.search must not run"),
+    fetch: async () => ({}) as FetchedWebPage,
+  };
+  const web = createWebService(
+    transport as WebTransport,
+    { searchResults: 5, maxSearchResults: 10, maxContentChars: 1000 },
+  );
+  const reason = new Error("pre-cancel-search");
+  const controller = new AbortController();
+  controller.abort(reason);
+  await assert.rejects(
+    () => web.search("query", 2, controller.signal),
+    (error: unknown) => error === reason,
+  );
+});
+
+test("fetch rejects pre-aborted signal without invoking transport", async () => {
+  const transport = {
+    search: async () => [],
+    fetch: async () => assert.fail("transport.fetch must not run"),
+  };
+  const web = createWebService(
+    transport as WebTransport,
+    { searchResults: 5, maxSearchResults: 10, maxContentChars: 1000 },
+  );
+  const reason = new Error("pre-cancel-fetch");
+  const controller = new AbortController();
+  controller.abort(reason);
+  await assert.rejects(
+    () => web.fetch("https://example.test", "markdown", 200, controller.signal),
+    (error: unknown) => error === reason,
+  );
+});
+
+test("in-flight abort on search rejects with signal.reason, not generic WebFailure", async () => {
+  const { transport, pending } = signalAwareTransport({});
+  const web = createWebService(transport, { searchResults: 5, maxSearchResults: 10, maxContentChars: 1000 });
+  const controller = new AbortController();
+  const reason = new Error("aborted-mid-search");
+  const promise = web.search("query", 3, controller.signal);
+  // 确保 transport.search 已被调用且挂起
+  await Promise.resolve();
+  assert.ok(pending.search, "transport.search should have started");
+  controller.abort(reason);
+  await assert.rejects(promise, (error: unknown) => error === reason);
+});
+
+test("in-flight abort on fetch rejects with signal.reason, not generic WebFailure", async () => {
+  const { transport, pending } = signalAwareTransport({});
+  const web = createWebService(transport, { searchResults: 5, maxSearchResults: 10, maxContentChars: 1000 });
+  const controller = new AbortController();
+  const reason = new Error("aborted-mid-fetch");
+  const promise = web.fetch("https://example.test", "markdown", 1000, controller.signal);
+  await Promise.resolve();
+  assert.ok(pending.fetch, "transport.fetch should have started");
+  controller.abort(reason);
+  await assert.rejects(promise, (error: unknown) => error === reason);
+});
+
+test("abort immediately before returning a successful transport does not turn the result into success", async () => {
+  // transport 模拟"在 await 期间 abort 已经发生并完成"的窗口：transport 收到 abort 后
+  // 仍然按成功路径返回（resolve with [] / 页面对象），service 必须在 await 之后再次
+  // throwIfAborted，确保取消仍 wins 而不会返回伪成功对象。
+  const searchController = new AbortController();
+  const searchReason = new Error("aborted-before-return-search");
+  let searchAbortSeen = false;
+  const searchTransport: WebTransport = {
+    search: async (_q, _c, signal) =>
+      new Promise<WebSearchResult[]>((resolve) => {
+        signal?.addEventListener("abort", () => {
+          searchAbortSeen = true;
+          // 模拟 transport 自身完成了 fetch 但 signal 已被 abort；
+          // resolve 一个会令 service 误判成功的数据。
+          resolve([]);
+        }, { once: true });
+      }),
+    fetch: async () => ({ finalUrl: "", status: 0, contentType: "", body: "" }),
+  };
+  const searchWeb = createWebService(searchTransport, { searchResults: 5, maxSearchResults: 10, maxContentChars: 1000 });
+  const searchPromise = searchWeb.search("query", 2, searchController.signal);
+  searchController.abort(searchReason);
+  const searchOutcome: { kind: "resolved"; value: unknown } | { kind: "rejected"; error: unknown } =
+    await searchPromise.then(
+      (value) => ({ kind: "resolved", value }),
+      (error: unknown) => ({ kind: "rejected", error }),
+    );
+  assert.equal(searchAbortSeen, true, "abort listener should have fired");
+  assert.equal(searchOutcome.kind, "rejected", "search must reject, not resolve");
+  assert.equal((searchOutcome as { kind: "rejected"; error: unknown }).error, searchReason,
+    "search must reject with abort reason");
+
+  const fetchController = new AbortController();
+  const fetchReason = new Error("aborted-before-return-fetch");
+  let fetchAbortSeen = false;
+  const fetchTransport: WebTransport = {
+    search: async () => [],
+    fetch: async (url, signal) =>
+      new Promise<FetchedWebPage>((resolve) => {
+        signal?.addEventListener("abort", () => {
+          fetchAbortSeen = true;
+          resolve({
+            finalUrl: url,
+            status: 200,
+            contentType: "text/html; charset=utf-8",
+            body: "<title>x</title><p>body</p>",
+          });
+        }, { once: true });
+      }),
+  };
+  const fetchWeb = createWebService(fetchTransport, { searchResults: 5, maxSearchResults: 10, maxContentChars: 1000 });
+  const fetchPromise = fetchWeb.fetch("https://example.test", "markdown", 1000, fetchController.signal);
+  fetchController.abort(fetchReason);
+  const fetchOutcome: { kind: "resolved"; value: unknown } | { kind: "rejected"; error: unknown } =
+    await fetchPromise.then(
+      (value) => ({ kind: "resolved", value }),
+      (error: unknown) => ({ kind: "rejected", error }),
+    );
+  assert.equal(fetchAbortSeen, true, "fetch abort listener should have fired");
+  assert.equal(fetchOutcome.kind, "rejected", "fetch must reject, not resolve");
+  assert.equal((fetchOutcome as { kind: "rejected"; error: unknown }).error, fetchReason,
+    "fetch must reject with abort reason");
+});
+
+test("non-cancellation transport failures still surface as generic WebFailure", async () => {
+  // 现有脱敏语义：transport 抛非 abort 错误时，service 返回受控 failure 对象，
+  // 不向上抛出原始错误，也不暴露 transport 内部细节。
+  const transport = {
+    search: async () => { throw new Error("secret search reason"); },
+    fetch: async () => { throw new Error("secret fetch reason"); },
+  } as WebTransport;
+  const web = createWebService(transport, { searchResults: 5, maxSearchResults: 10, maxContentChars: 1000 });
+  // 没有 signal / 未 abort 时仍走原通用失败路径
+  assert.deepEqual(await web.search("query"), { error: "Web search failed" });
+  assert.deepEqual(await web.fetch("https://example.test"), {
+    error: "Web fetch failed",
+    url: "https://example.test/",
+  });
 });

@@ -4,9 +4,6 @@ import { createConversation } from "../../src/features/conversation/conversation
 import type { ConversationHistoryPort, ConversationExecution } from "../../src/features/conversation/ports.js";
 import type { ConversationNotification, ExecutionEvent } from "../../src/features/conversation/types.js";
 import { createConversationHub } from "../../src/features/conversation/conversation-hub.js";
-import { createTaskService } from "../../src/features/tasks/task-service.js";
-import { createTaskWorker } from "../../src/features/tasks/task-worker.js";
-import type { TaskRepository } from "../../src/features/tasks/types.js";
 import { createMonitorService } from "../../src/features/monitors/monitor-service.js";
 import { createMonitorScheduler } from "../../src/features/monitors/monitor-scheduler.js";
 import type { MonitorRepository } from "../../src/features/monitors/types.js";
@@ -73,6 +70,25 @@ test("hub permanently closes, drains successful creations even if another reject
   assert.equal(hub.closeAll(), closing);
 });
 
+test("retained task source survives idle cache eviction but deletion closes its old generation", async () => {
+  const instances = new Map<string, ReturnType<typeof conversationFixture>>();
+  const hub = createConversationHub(async (id) => {
+    const fixture = conversationFixture(); instances.set(id, fixture); return fixture.conversation;
+  }, async () => [...instances.keys()].map((id) => ({ id, updatedAt: new Date(0).toISOString() })));
+  await hub.forThread("source");
+  const retained = await hub.retainThread("source");
+  assert.ok(retained);
+  await hub.release("source");
+  assert.equal(await hub.findThread("source"), retained.conversation);
+  await retained.conversation.notify("kept", "fact");
+  await hub.deleteThread("source", async () => { instances.delete("source"); });
+  await assert.rejects(retained.conversation.notify("late", "late"), /closed/);
+  const fresh = await hub.forThread("source");
+  assert.notEqual(fresh, retained.conversation);
+  retained.release(); retained.release();
+  await hub.closeAll();
+});
+
 test("trigger cancelled while session opens never starts prompt; closed coordinator rejects new runs", async () => {
   const fixture = conversationFixture();
   const opened = deferred<ConversationExecution>();
@@ -99,46 +115,6 @@ test("busy conversation queues factual notification without another model turn a
   await conversation.notify("monitor changed", "notification-1");
   assert.deepEqual(facts, [{ id: "notification-1", text: "monitor changed" }]);
   assert.equal(calls.filter((call) => call === "prompt").length, 1);
-});
-
-test("worker cancellation aborts real coordinator and does not announce cancelled attempt as completed", async () => {
-  const tasks = createTaskService(repository() as TaskRepository);
-  const fixture = conversationFixture();
-  const hub = createConversationHub(async () => fixture.conversation, async () => []);
-  const notifications: string[] = [];
-  const worker = createTaskWorker(tasks, hub, { notify: async (text) => { notifications.push(text); } });
-  const task = await tasks.create("freeze", "web");
-  worker.kick();
-  await until(() => fixture.calls.includes("prompt"));
-  assert.equal((await worker.control(task.id, "cancel")).ok, true);
-  await until(() => !worker.isRunning());
-  assert.equal((await tasks.get(task.id))?.status, "cancelled");
-  assert.ok(fixture.calls.includes("abort"));
-  assert.equal(notifications.length, 0);
-  await worker.close();
-  await hub.closeAll();
-});
-
-test("task attempt token prevents late completion after cancel and retry", async () => {
-  const tasks = createTaskService(repository() as TaskRepository);
-  const task = await tasks.create("work", "web");
-  await tasks.markRunning(task.id, "old");
-  await tasks.control(task.id, "cancel");
-  await tasks.control(task.id, "retry");
-  await tasks.markRunning(task.id, "new");
-  assert.equal(await tasks.markFinished(task.id, "succeeded", "stale", "old"), undefined);
-  assert.equal((await tasks.get(task.id))?.status, "running");
-  assert.equal((await tasks.markFinished(task.id, "succeeded", "fresh", "new"))?.result, "fresh");
-});
-
-test("task-specific timeout stops stalled pi execution without changing job trigger defaults", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  const { conversation, calls } = conversationFixture();
-  const pending = conversation.trigger("freeze", "task", { timeoutMs: 50 });
-  await until(() => calls.includes("prompt"));
-  t.mock.timers.tick(50);
-  assert.equal((await pending).status, "failed");
-  assert.ok(calls.includes("abort"));
 });
 
 test("monitor close after an in-flight fetch never records a new check or dispatches", async (t) => {

@@ -233,15 +233,13 @@ test("denied or expired approvals never create files", async (t) => {
 // 两个工厂先读同一基线、全部获批后同时提交，确保测试真实覆盖共享队列而非单实例互斥。
 for (const name of ["write", "edit"] as const) {
   test(`${name} approvals from separate tools share a canonical workspace path commit queue`, async (t) => {
-    const { directory, root, actions } = await fixture(t);
+    const { root, actions } = await fixture(t);
     await writeFile(join(root, "file"), "original");
-    const alias = join(directory, "alias");
-    await symlink(root, alias);
     const ready = deferred<void>();
     let count = 0;
     const wrapped = approving(actions, async () => { if (++count === 2) ready.resolve(); await ready.promise; });
     const first = createWritableFileTools(root, wrapped, 5_000);
-    const second = createWritableFileTools(alias, wrapped, 5_000);
+    const second = createWritableFileTools(root, wrapped, 5_000);
     const params = (content: string): Params => name === "write"
       ? { path: "file", content }
       : { path: "file", oldText: "original", newText: content };
@@ -386,15 +384,16 @@ test("write and edit approvals for the same baseline share a commit queue", asyn
   assert.match(await readFile(join(root, "file"), "utf8"), /^(written|edited)$/);
 });
 
-test("approval rechecks workspace root alias instead of following a retargeted root", async (t) => {
+test("write rejects a workspace root alias before asking for approval", async (t) => {
   const { directory, root, actions } = await fixture(t);
   const alias = join(directory, "alias");
   const outside = join(directory, "outside");
   await mkdir(outside);
   await symlink(root, alias);
-  const wrapped = approving(actions, async () => { await rm(alias); await symlink(outside, alias); });
-  const result = await execute(createWritableFileTools(alias, wrapped, 5_000), "write", { path: "file", content: "mine" });
+  const tools = createWritableFileTools(alias, approving(actions), 5_000);
+  const result = await execute(tools, "write", { path: "file", content: "mine" });
   assert.equal(result.isError, true);
+  assert.deepEqual(await actions.list(), []);
   assert.deepEqual(await readdir(root), []);
   assert.deepEqual(await readdir(outside), []);
 });

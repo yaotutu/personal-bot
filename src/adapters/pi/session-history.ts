@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
-import { threadSessionsDir, type DataLayout } from "../storage/data-layout.js";
+import { ensureThreadLayout, ensureThreadWorkspace, threadSessionsDir, threadWorkspaceDir, type DataLayout } from "../storage/data-layout.js";
 import type { ConversationHistoryPort } from "../../features/conversation/ports.js";
 import { RESULT_ENTRY_TYPE, TURN_ENTRY_TYPE, type ConversationTurn } from "../../features/conversation/types.js";
 import { createNotificationMessage, notificationIdOf } from "./notification-message.js";
@@ -23,12 +23,16 @@ export const createSessionHistory = async (
   presentation?: ToolPresentation,
 ) => {
   const sessionsDir = threadSessionsDir(layout, threadId);
+  const cwd = threadWorkspaceDir(layout, threadId);
+  await ensureThreadLayout(layout);
+  await ensureThreadWorkspace(layout, threadId);
   await Promise.all(
-    [layout.workspaceDir, sessionsDir, layout.agentDir].map((path) =>
+    [sessionsDir, layout.agentDir].map((path) =>
       mkdir(path, { recursive: true, mode: 0o700 }),
     ),
   );
-  const manager = SessionManager.continueRecent(layout.workspaceDir, sessionsDir);
+  // continueRecent 按 cwd 选择 JSONL，必须与执行会话一致；不读取旧 cwd 或自动迁移历史。
+  const manager = SessionManager.continueRecent(cwd, sessionsDir);
   const history: ConversationHistoryPort = {
     history: () => {
       const projected = projectConversationHistory(manager.getBranch());

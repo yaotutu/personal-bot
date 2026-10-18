@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { createService } from "../../src/bootstrap/create-service.js";
 import { createAuth } from "../../src/adapters/auth/token-service.js";
+import { serviceVersion } from "../../src/bootstrap/service-version.js";
 import { createConfig, type ConfigFileInput } from "../../src/config/load-config.js";
 
 // 直接构造隔离配置对象，避免本机 config.json 或环境变量影响这些离线边界测试。
@@ -142,6 +143,37 @@ test("auth: rotating the access key invalidates existing tokens in the same data
   assert.equal(restarted.authorized(`Bearer ${newToken}`), true);
 });
 
+test("auth: newly issued tokens carry a far-future exp and stay valid across many calls", async (t) => {
+  // 验收 #2：login() 不再写 +24h 过期；新 token 的 payload.exp 必须远超原 24h（一年以上），
+  // 并且同一 token 多次 authorized() 都返回 true，确保 authorized() 没有把"过期"语义写死。
+  // 不引入时间冻结：仓库无 sinon/fake timers，伪造 Date.now() 容易绕过分支；改为断言 payload 结构和重复调用。
+  const config = await temporaryConfig(t, {
+    server: { accessKey: "workspace-key" },
+    model: { apiKey: "model-key" },
+  });
+  const auth = await createAuth(config);
+  const token = auth.login("workspace-key");
+  assert.ok(token);
+  const [payload, signature] = token.split(".");
+  assert.ok(payload);
+  assert.ok(signature);
+  const decoded = JSON.parse(
+    Buffer.from(payload, "base64url").toString(),
+  ) as { owner?: string; exp?: number };
+  assert.equal(decoded.owner, "local-user");
+  assert.equal(typeof decoded.exp, "number");
+  // 原 24h = 86_400_000；这里要求至少 1 年 (365d) 作为"远超 24h"的硬指标，
+  // 实际上线后实现为 Number.MAX_SAFE_INTEGER，这个上界会远大于 1 年。
+  assert.ok(
+    decoded.exp! > Date.now() + 365 * 86_400_000,
+    `expected exp > now + 365d, got exp=${decoded.exp} now=${Date.now()}`,
+  );
+  // 同一 token 多次 authorized() 必须稳定为 true，避免有人偷偷加 TTL/cache 之类的过期路径。
+  assert.equal(auth.authorized(`Bearer ${token}`), true);
+  assert.equal(auth.authorized(`Bearer ${token}`), true);
+  assert.equal(auth.authorized(`Bearer ${token}`), true);
+});
+
 test("app: offline health, authentication and text-only HTTP boundaries", async (t) => {
   const config = await temporaryConfig(t, {
     server: {
@@ -160,6 +192,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
         ok: true,
         backend: "pi",
         configured: false,
+        serviceVersion: await serviceVersion,
       });
     });
 
@@ -238,8 +271,8 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
         ].forEach((name) => {
           assert.deepEqual(agent[name], []);
         });
-        assert.equal(agent.identity.name, "Personal Bot");
-        assert.equal(agent.worker.running, false);
+        assert.equal(agent.identity.name, "pi-muse");
+        assert.equal(Object.hasOwn(agent, "worker"), false);
         const history = await authorized("/api/conversation");
         assert.equal(history.status, 200);
         assert.deepEqual(await history.json(), { messages: [], revision: "empty" });
@@ -263,8 +296,9 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
     );
 
     await t.test(
-      "CORS allows the configured origin but does not grant other origins access",
+      "CORS allows any origin and echoes it back, but authentication is still required",
       async () => {
+        // CORS 整体放行：浏览器拿到的是它自己发的 Origin 字符串，而不是字面量 "*"。
         const allowed = await app.request("/api/health", {
           headers: { Origin: "http://localhost:8081" },
         });
@@ -273,11 +307,15 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
           allowed.headers.get("access-control-allow-origin"),
           "http://localhost:8081",
         );
-        const denied = await app.request("/api/health", {
+        // 非白名单内的 origin 也照样放行——CORS 不承担访问控制，鉴权由 Authorization 头负责。
+        const alsoAllowed = await app.request("/api/health", {
           headers: { Origin: "https://untrusted.example.test" },
         });
-        assert.equal(denied.status, 200);
-        assert.equal(denied.headers.get("access-control-allow-origin"), null);
+        assert.equal(alsoAllowed.status, 200);
+        assert.equal(
+          alsoAllowed.headers.get("access-control-allow-origin"),
+          "https://untrusted.example.test",
+        );
         const preflight = await app.request("/api/workspace", {
           method: "OPTIONS",
           headers: {
@@ -303,7 +341,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
             ?.toLowerCase() || "";
         assert.match(allowedHeaders, /authorization/);
         assert.match(allowedHeaders, /content-type/);
-        // 允许的 Origin 也必须登录，防止把 CORS 白名单误当作鉴权。
+        // 即便 origin 已通过 CORS，未带 Authorization 的请求依然 401——CORS 不是鉴权。
         await jsonError(
           await app.request("/api/workspace", {
             headers: { Origin: "http://localhost:8081" },

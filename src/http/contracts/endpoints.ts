@@ -2,19 +2,30 @@ import { z } from "zod";
 import * as req from "./rest.js";
 import * as resp from "./responses.js";
 import { sseEvents, SSE_EVENT_ORDER } from "./sse-events.js";
+import { workspaceEvents, WORKSPACE_SSE_DESCRIPTION } from "./workspace-events.js";
 
 /**
  * 端点注册表：所有对外 HTTP 接口的唯一清单。新增/修改端点必须在这里登记，
  * OpenAPI 文档（/openapi.json）与 Scalar 页面（/docs）由此自动生成——
  * 禁止手写 OpenAPI 文件。契约测试遍历此表做防漂移校验。
  */
+export type SseSpec = {
+  /** 流描述（写入 OpenAPI 200 描述） */
+  description: string;
+  /**
+   * 事件名 → 数据 schema。每端点显式绑定，不复用全表。
+   * 与聊天 SSE 不同的命名空间必须各自一份 events map，避免事件契约混入。
+   */
+  events: Readonly<Record<string, z.ZodType>>;
+};
+
 export type EndpointSpec = {
-  method: "get" | "post" | "put";
+  method: "get" | "post" | "put" | "delete";
   /** 路径模板，路径参数用 :name（生成时转 {name}） */
   path: string;
   tag: string;
   summary: string;
-  /** 给 agent 的一句话使用提示（生成 x-agent-hint） */
+  /** 客户端正确接入所需的行为说明，同时生成 operation.description 与 x-agent-hint。 */
   hint?: string;
   auth: boolean;
   /** 请求体 schema（生成 io=input 的 JSON Schema） */
@@ -23,19 +34,23 @@ export type EndpointSpec = {
   query?: z.ZodType;
   /** 200 响应 schema（生成 io=output；契约测试对真实响应 safeParse） */
   response: z.ZodType;
-  /** 响应为 SSE 流时不生成 JSON schema，改挂 x-sse-events 事件契约 */
-  sse?: boolean;
+  /**
+   * 响应为 SSE 流时不生成 JSON schema，改挂 x-sse-events 事件契约。
+   * 每端点显式提供 events map：聊天 SSE 绑定 sseEvents；工作区通知流绑定 workspaceEvents；
+   * 互不复用，确保 OpenAPI 文档与生成器按各自命名空间渲染。
+   */
+  sse?: SseSpec;
 };
 
 const conversationQuery = z.object({
-  threadId: z.string().describe("会话标识；缺省 local-main"),
+  threadId: z.string().optional().describe("会话标识；缺省 local-main"),
 });
 
 export const endpoints: EndpointSpec[] = [
   // ---- 基础 ----
   {
     method: "get", path: "/api/health", tag: "基础", summary: "健康检查",
-    hint: "无需鉴权；探测服务是否存活与模型配置状态。",
+    hint: "无需鉴权；探测服务是否存活与模型配置状态。serviceVersion 为启动/构建时固定快照：version、commit、dirty、sourceHash、mode、builtAt；与 /openapi.json 的 x-service-version 及 /docs 一致。dirty=true 时不能只比较 commit，须核对 sourceHash；commit/dirty 无法核验时为 null。",
     auth: false, request: undefined, response: resp.healthResponse,
   },
   {
@@ -45,23 +60,56 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     method: "get", path: "/api/threads", tag: "会话", summary: "列出会话（按活跃倒序）",
-    hint: "多会话入口：先取列表再选 threadId 聊天；新会话无需显式创建（run 时任意合法 id 即建）。",
+    hint: "多会话入口：先取列表再选 threadId 聊天；新会话无需显式创建（run、规则/技能保存或显式来源绑定时建立）。历史 GET 和迟到 Stop 不会建立会话。",
     auth: true, response: resp.threadsResponse,
   },
   {
     method: "get", path: "/api/conversation", tag: "会话", summary: "读取会话权威历史",
-    hint: "刷新/恢复时同步历史用；历史只读，客户端不要回写。消息含工具投影（toolCalls 与 role=tool 消息按 toolCallId 关联）。",
+    hint: "刷新/恢复时同步历史用；历史只读，客户端不要回写。合法但不存在、已删除或正在删除的 ID 返回 200 {messages:[], revision:'empty'}，不创建会话或工作区，不使其出现在列表；非法 ID 返回 400。空历史不代表会话存在，存在性以 GET /api/threads 为准。消息含工具投影（toolCalls 与 role=tool 消息按 toolCallId 关联）。文件/模型原始错误在进入模型上下文与历史前脱敏，文件缺失使用受控提示，不返回服务端绝对路径。",
     auth: true, query: conversationQuery, response: resp.conversationResponse,
+  },
+  {
+    method: "get", path: "/api/threads/:threadId/skills", tag: "会话", summary: "读取会话技能开关",
+    hint: "返回全部技能的默认状态与当前会话的生效状态。",
+    auth: true, response: resp.skillsResponse,
+  },
+  {
+    method: "put", path: "/api/threads/:threadId/skills", tag: "会话", summary: "保存会话技能开关",
+    hint: "整份替换覆盖表；未知技能名返回 400。显式保存可建立新会话；删除进行中返回 409 THREAD_DELETING，刷新列表后由用户重新选择，不自动重试旧 ID。",
+    auth: true, request: req.updateSkillsSchema, response: resp.skillsResponse,
+  },
+  {
+    method: "delete", path: "/api/threads/:threadId", tag: "会话", summary: "删除会话（不可删除主会话）",
+    hint: "不可删除 local-main（409）；关闭旧会话并取消其当前轮，级联删除该会话名下的定时任务与监控，取消其排队/运行中后台任务。删除等待已接纳的来源绑定与规则/技能写入完成后清理，期间同 ID 的写操作/来源绑定返回 409 THREAD_DELETING，不自动重试。迟到历史 GET/Stop 不重建会话；已完成任务的迟到通知不改投主会话或新同名会话，结果仍可读任务详情。成功后客户端取消本地请求、屏蔽迟到结果并刷新 threads/agent/actions/pending。删除非事务，失败不承诺回滚；404 表示不存在且无活跃绑定。删除成功后显式 run/规则/技能保存或来源绑定可建立全新同名会话，不恢复旧历史。",
+    auth: true, response: resp.deleteThreadResponse,
+  },
+  {
+    method: "get", path: "/api/threads/:threadId/instructions", tag: "会话", summary: "读取会话专属规则",
+    hint: "读取当前会话的 INSTRUCTIONS.md 内容；未设置时返回空串。",
+    auth: true, response: resp.instructionsResponse,
+  },
+  {
+    method: "put", path: "/api/threads/:threadId/instructions", tag: "会话", summary: "保存会话专属规则",
+    hint: "下一轮对话开始时注入生效；传空串等于清空。显式保存可建立新会话；删除进行中返回 409 THREAD_DELETING，刷新列表后由用户重新选择，不自动重试旧 ID。",
+    auth: true, request: req.saveInstructionsSchema, response: resp.instructionsResponse,
   },
   // ---- 增量聊天（AG-UI SSE 输出）----
   {
     method: "post", path: "/api/conversation/run", tag: "会话", summary: "提交一条用户消息（SSE 流）",
-    hint: `提交 message 和 expectedRevision；版本冲突 409 后重新读取历史。事件顺序：${SSE_EVENT_ORDER}。`,
-    auth: true, request: req.runRequestSchema, response: z.object({}).describe("SSE 流"), sse: true,
+    hint: `提交 message 和 expectedRevision；版本冲突 409 后重新读取历史。首次合法 ID 建立新会话；删除进行中返回 409 THREAD_DELETING，客户端不自动重试旧 ID。事件顺序：${SSE_EVENT_ORDER}。` +
+      "主模型可在本轮调用 subagent 工具（官方 pi 1.3.0 示例适配），子会话返回结果后主模型继续；这不是独立后台任务队列，不提供创建子任务的 HTTP 接口。" +
+      "工具参数为单个 {agent,task}、并行 {tasks:[{agent,task}]} 或链式 {chain:[{agent,task}]} 三选一；最多8项，最多4个子会话并发，链式用 {previous} 引用上一步结果，失败即停止。" +
+      "subagent 的客户端卡片按 tools.presentation 的 hidden/summary 策略显示，参数正文不透出；父 SSE 不直接嵌套子会话聊天流或暴露原始工具详情。" +
+      "子会话上下文与私有目录独立，通过 shared/... 显式共享；写入仍逐次审批，审批 threadId/runId 绑定父运行。Stop、父超时、删除会话和聊天流断开会同时取消并等待子会话清理；不会在服务重启后自动续跑。",
+    auth: true, request: req.runRequestSchema, response: z.object({}).describe("SSE 流"),
+    sse: {
+      description: "AG-UI 事件流（text/event-stream，每帧 data: <JSON>）",
+      events: sseEvents,
+    },
   },
   {
     method: "post", path: "/api/conversation/stop", tag: "会话", summary: "停止指定运行",
-    hint: "threadId/runId 必须同时匹配当前轮；迟到 Stop 返回 false，不影响下一轮。",
+    hint: "threadId/runId 必须同时匹配当前轮；迟到 Stop 返回 false，不影响下一轮。不存在或正在删除的会话返回 {stopped:false}，不建立会话或工作区。",
     auth: true, request: req.stopRequestSchema, response: z.object({ stopped: z.boolean() }),
   },
   // ---- 人设 ----
@@ -78,25 +126,21 @@ export const endpoints: EndpointSpec[] = [
   {
     method: "get", path: "/api/agent", tag: "快照", summary: "全量工作区快照",
     hint:
-      "工作台首屏读取任务/目标/监控/记忆/身份；不包含审批正文。" +
+      "工作台首屏读取定时任务/目标/监控/记忆/身份；tasks 数组仅包含 kind=job 的定时任务，不再返回后台任务或 worker 字段。不提供 POST /api/agent/tasks 创建入口；旧调用按未知 API 返回501。" +
+      "subagent 是主模型的一次工具调用，不会产生此处的任务记录，结果回到来源聊天；旧 tasks.json 不读取或执行。快照目前仍全量返回定时任务，不做7天过滤或分页。" +
       "审批横幅独立读取 GET /api/actions/pending。",
     auth: true, response: resp.agentSnapshot,
   },
-  // ---- 后台/定时任务 ----
+  // ---- 定时任务 ----
+  // 仅保留定时任务（job）域：详情读取与控制（pause/resume/cancel/retry）。
   {
-    method: "post", path: "/api/agent/tasks", tag: "任务", summary: "创建后台任务（立即排队执行）",
-    hint: "异步干活的入口：任务在独立会话执行（工具可用），完成后 📋 通知进主聊天流。",
-    auth: true, request: req.createTaskSchema, response: resp.taskView,
-  },
-  {
-    method: "get", path: "/api/agent/tasks/:id", tag: "任务", summary: "任务详情（含时间线）",
+    method: "get", path: "/api/agent/tasks/:id", tag: "任务", summary: "定时任务详情（含时间线）",
     auth: true, response: resp.taskDetail,
   },
   {
-    method: "post", path: "/api/agent/tasks/:id/control", tag: "任务", summary: "控制任务（pause/resume/cancel/retry）",
+    method: "post", path: "/api/agent/tasks/:id/control", tag: "任务", summary: "控制定时任务（pause/resume/cancel/retry）",
     hint:
-      "同一端点管两类：必须指定 target=job（定时）或 task（后台）。" +
-      "job 的 pause 只影响后续调度，不中止正在执行的一轮。",
+      "target 必须为 job（定时任务）；pause 只影响后续调度，不中止正在执行的一轮。",
     auth: true, request: req.taskControlSchema, response: resp.taskView,
   },
   // ---- 记忆与身份 ----
@@ -143,7 +187,7 @@ export const endpoints: EndpointSpec[] = [
   // ---- 监控 ----
   {
     method: "post", path: "/api/agent/monitors", tag: "监控", summary: "创建网页监控",
-    hint: "change=页面变化通知（首检建基线不通知）；contains=关键词命中通知。结果以 📡 进主聊天流。",
+    hint: "change=页面变化通知（首检建基线不通知）；contains=关键词命中通知。📡 结果投递 originThreadId 指定来源，仅省略时投递 local-main。显式新 ID 在接纳前建立；删除中返回 409 THREAD_DELETING，客户端刷新列表后由用户重新选择，不自动重试。删除来源会话会删除绑定监控，旧扫描不重建会话或改投主会话。",
     auth: true, request: req.createMonitorSchema, response: resp.monitorView,
   },
   {
@@ -169,5 +213,18 @@ export const endpoints: EndpointSpec[] = [
       "模型调用 write/edit 时工具挂起等此决定：approve 才落盘，deny 返回受控拒绝。" +
       "5 分钟不决定自动 expired。只有 pending 状态可决定（重复决定 409）。",
     auth: true, request: req.actionDecisionSchema, response: resp.pendingAction,
+  },
+  // ---- 工作区变更通知（独立命名 SSE，不与聊天流共用事件）----
+  {
+    method: "get", path: "/api/events", tag: "通知", summary: "工作区变更通知流（SSE）",
+    hint: WORKSPACE_SSE_DESCRIPTION,
+    auth: true, response: z.object({}).describe("SSE 流"),
+    sse: {
+      description:
+        "命名 SSE：event: ready / workspace_updated / actions_updated，data: {}，每帧以空行结束。" +
+        "首帧 ready 后读取 /api/agent 与 /api/actions/pending；刷新期间收到新通知须在当前请求完成后补刷；重连后再次同步。" +
+        "每30秒注释 : keep-alive 为心跳，无事件ID或重放；断开通知连接不取消聊天或后台任务。完整接入规则见本接口描述。",
+      events: workspaceEvents,
+    },
   },
 ];

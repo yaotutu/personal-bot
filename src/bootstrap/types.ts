@@ -5,14 +5,14 @@ import type { MemoryService } from "../features/memory/memory-service.js";
 import type { IdentityService } from "../features/identity/identity-service.js";
 import type { DataLayout } from "../adapters/storage/data-layout.js";
 import type { Scheduler } from "../features/jobs/scheduler.js";
-import type { TaskService } from "../features/tasks/task-service.js";
-import type { TaskWorker } from "../features/tasks/task-worker.js";
 import type { GoalService } from "../features/goals/goal-service.js";
 import type { ActionService } from "../features/actions/action-service.js";
 import type { MonitorService } from "../features/monitors/monitor-service.js";
 import type { MonitorScheduler } from "../features/monitors/monitor-scheduler.js";
+import type { SkillsService } from "../features/skills/service.js";
 import type { createAuth } from "../adapters/auth/token-service.js";
 import type { ToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
+import type { WorkspaceEvents } from "../features/workspace/workspace-events.js";
 
 type Auth = Awaited<ReturnType<typeof createAuth>>;
 
@@ -26,16 +26,16 @@ export type ServiceContainer = {
   jobs: JobService;
   conversationHub: ConversationHub;
   scheduler: Scheduler;
-  tasks: TaskService;
-  taskWorker: TaskWorker;
   goals: GoalService;
   actions: ActionService;
   monitors: MonitorService;
   monitorScheduler: MonitorScheduler;
+  skills: SkillsService;
   presentation: ToolPresentation;
+  workspaceEvents: WorkspaceEvents;
 };
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "lifecycle" | "config" | "auth" | "memory" | "identity" | "jobs" | "goals" | "tasks" | "taskWorker" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler"
+  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents"
 >;

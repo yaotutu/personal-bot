@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { endpoints } from "./contracts/endpoints.js";
-import { sseEvents } from "./contracts/sse-events.js";
+import { serviceVersion, type ServiceVersion } from "../bootstrap/service-version.js";
+
+const defaultVersion = await serviceVersion;
 
 /**
  * OpenAPI 3.1 文档生成器：从端点注册表 + zod v4 schema 自动生成，
@@ -32,7 +34,7 @@ const queryParams = (query: z.ZodType) => {
   }));
 };
 
-export const buildOpenApiDocument = () => {
+export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) => {
   const paths: Record<string, Record<string, unknown>> = {};
   for (const endpoint of endpoints) {
     const openapiPath = endpoint.path.replace(/:([a-zA-Z]+)/g, "{$1}");
@@ -55,16 +57,23 @@ export const buildOpenApiDocument = () => {
     if (endpoint.sse) {
       operation.responses = {
         200: {
-          description: "AG-UI 事件流（text/event-stream，每帧 data: <JSON>）",
+          description: endpoint.sse.description,
           content: {
             "text/event-stream": { schema: { type: "object" } },
           },
+          // 各端点自带 events map：聊天 SSE 用 sseEvents，工作区通知流用 workspaceEvents；
+          // 事件契约按各自命名空间渲染，互不混入。
           "x-sse-events": Object.fromEntries(
-            Object.entries(sseEvents).map(([name, schema]) => [
+            Object.entries(endpoint.sse.events).map(([name, schema]) => [
               name,
               { description: schema.description ?? "", schema: toSchema(schema, "output") },
             ]),
           ),
+        },
+        // SSE 端点同样可能返回鉴权/参数错误（握手阶段）；只补通用错误形状，不引入业务细节。
+        "4xx": {
+          description: "客户端错误（401 未鉴权、400 参数非法、404 资源不存在）",
+          content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } }, required: ["error"] } } },
         },
       };
     } else {
@@ -85,14 +94,19 @@ export const buildOpenApiDocument = () => {
   return {
     openapi: "3.1.0",
     info: {
-      title: "Personal Bot API",
-      version: "1.0.0",
+      title: "pi-muse API",
+      version: `${version.version}+${version.sourceHash.slice(0, 12)}`,
       description:
-        "基于 pi 内核的单用户个人助手服务端。鉴权：POST /api/session 换取 token，" +
-        "之后所有 /api/* 请求带 Authorization: Bearer <token>（health/session/docs 除外）。" +
+        `服务版本：${version.version}；运行模式：${version.mode}；commit：${version.commit ?? "unknown"}；` +
+        `dirty：${version.dirty ?? "unknown"}；sourceHash（SHA-256）：${version.sourceHash}；构建时间：${version.builtAt ?? "源码模式，无构建时间"}。` +
+        "这是启动/构建时固定的代码快照，与 GET /api/health.serviceVersion 及 x-service-version 一致。" +
+        "dirty=true 时 commit 不代表完整代码，应比较 sourceHash；Git 信息不可用时明确为 null。" +
+        "\n\n基于 pi 内核的单用户个人助手服务端。鉴权：POST /api/session 换取 token，" +
+        "之后所有 /api/* 请求带 `Authorization: Bearer <token>`（health/session/docs 除外）。" +
         "会话（threadId）相互隔离；聊天走 AG-UI SSE；写文件类操作经人工审批。" +
         "本文档由 src/http/contracts/ 的 zod schema 自动生成，修改接口请改 schema 而非此文件。",
     },
+    "x-service-version": version,
     servers: [{ url: "/" }],
     components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer" } } },
     paths,

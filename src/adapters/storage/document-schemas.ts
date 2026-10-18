@@ -3,7 +3,7 @@ import type { Job } from "../../features/jobs/types.js";
 
 /** 固定安全文案，不在错误里附带原文、文件路径或用户资料。 */
 export class InvalidDocumentError extends Error {
-  constructor(kind: "memory" | "jobs" | "tasks" | "goals" | "actions" | "monitors") {
+  constructor(kind: "memory" | "jobs" | "goals" | "actions" | "monitors" | "skills-overrides") {
     super(`Invalid ${kind} document; restore a valid backup before writing`);
     this.name = "InvalidDocumentError";
   }
@@ -34,19 +34,6 @@ export const readMemoryDocument = (value: unknown): MemoryState => {
     typeof item.source === "string" && isDate(item.createdAt) && isDate(item.updatedAt)))
     throw new InvalidDocumentError("memory");
   return value as unknown as MemoryState;
-};
-
-/** tasks 使用当前完整状态结构；可选字段仅允许缺失或符合其声明类型。 */
-export const readTasksDocument = (value: unknown): import("../../features/tasks/types.js").Task[] => {
-  if (!Array.isArray(value) || !value.every((item) =>
-    isObject(item) && typeof item.id === "string" && typeof item.title === "string" &&
-    typeof item.prompt === "string" &&
-    typeof item.status === "string" && ["queued", "running", "succeeded", "failed", "cancelled"].includes(item.status) &&
-    typeof item.source === "string" && ["chat", "web"].includes(item.source) && isDate(item.createdAt) &&
-    optionalDate(item.startedAt) && optionalDate(item.finishedAt) &&
-    [item.originThreadId, item.attemptId, item.result, item.error].every(optionalString)))
-    throw new InvalidDocumentError("tasks");
-  return value;
 };
 
 /** jobs 保持裸数组；不接纳缺字段记录，避免调度器读到非法时间或控制状态。 */

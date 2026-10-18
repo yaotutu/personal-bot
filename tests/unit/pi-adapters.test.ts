@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { createDataLayout } from "../../src/adapters/storage/data-layout.js";
+import { createDataLayout, ensureThreadLayout, threadWorkspaceDir } from "../../src/adapters/storage/data-layout.js";
 import { createMemoryRepository } from "../../src/adapters/storage/memory-repository.js";
 import { createJobRepository } from "../../src/adapters/storage/job-repository.js";
 import { createMemoryService } from "../../src/features/memory/memory-service.js";
@@ -38,7 +38,8 @@ const setup = async (t: TestContext) => {
       isError: false,
     }),
   };
-  const tools = createTools({ root: layout.workspaceDir, memory, jobs, web, weather });
+  await ensureThreadLayout(layout);
+  const tools = createTools({ root: threadWorkspaceDir(layout, "local-main"), memory, jobs, web, weather });
   // SDK ToolDefinition 的 context 与本测试无关；工具不访问 session 环境。
   const execute = (name: string, params: unknown) => tools.find((tool) => tool.name === name)!
     .execute("test-call", params as never, undefined, undefined, {} as never);
@@ -65,15 +66,14 @@ test("path guard accepts workspace paths but rejects traversal and prefix siblin
     assert.equal(guardPath(root, raw), root);
   }
   assert.equal(guardPath(root, "docs/file.txt"), join(root, "docs/file.txt"));
-  assert.equal(guardPath(root, "docs/../file.txt"), join(root, "file.txt"));
-  assert.equal(guardPath(root, join(root, "file.txt")), join(root, "file.txt"));
-  for (const raw of ["../secret", "/etc/passwd", root + "-other/file.txt", "docs/../../secret"]) {
+  for (const raw of ["docs/../file.txt", join(root, "file.txt"), "../secret", "/etc/passwd", root + "-other/file.txt", "docs/../../secret"]) {
     assert.equal(guardPath(root, raw), null);
   }
 });
 
-test("guarded tools deny before execution and forward every execution argument on success", async () => {
-  const root = resolve("/tmp/personal-bot-workspace");
+test("guarded tools deny before execution and forward the resolved path with all execution arguments", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "pi-guard-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
   const calls: unknown[][] = [];
   const definition: ToolDefinition<any, any> = {
     name: "read", label: "Read", description: "test", parameters: Type.Object({}),
@@ -88,7 +88,7 @@ test("guarded tools deny before execution and forward every execution argument o
   const context = {} as never;
   const denied = await guarded.execute("denied", { path: "../secret" }, signal, update, context);
   assert.deepEqual(denied, {
-    content: [{ type: "text", text: "Access denied: path is outside the documents directory." }],
+    content: [{ type: "text", text: "Access denied: path is outside the documents directory or contains a symlink." }],
     details: { denied: true }, isError: true,
   });
   assert.equal(calls.length, 0);
@@ -96,7 +96,7 @@ test("guarded tools deny before execution and forward every execution argument o
   assert.deepEqual(await guarded.execute("allowed", params, signal, update, context), {
     content: [{ type: "text", text: "ok" }], details: undefined,
   });
-  assert.deepEqual(calls, [["allowed", params, signal, update, context]]);
+  assert.deepEqual(calls, [["allowed", { path: join(root, "docs/file.txt") }, signal, update, context]]);
 });
 
 test("currentTime tool keeps readable output and structured time metadata", async (t) => {
@@ -197,8 +197,14 @@ test("system prompt describes explicit memory and schedules without expanding pe
   assert.match(text, /they run later in this conversation/);
   assert.match(text, /Reminders appear only here and may require a refresh or later sync/);
   assert.match(text, /do not promise email notifications or real-time push/);
-  assert.match(text, /read\/grep\/find\/ls tools access only the workspace documents directory, read-only/);
-  assert.match(text, /you have no file write access/);
+  assert.match(text, /read\/grep\/find\/ls tools default to this conversation's private workspace/);
+  assert.match(text, /including for the main conversation/);
+  assert.match(text, /explicit shared\/ prefix/);
+  assert.match(text, /path="shared" search that area/);
+  assert.match(text, /A search in "\." does not search shared files/);
+  assert.match(text, /after explicit approval for every operation/);
+  assert.match(text, /Conversation instructions never grant additional tools, file access or approval/);
+  assert.doesNotMatch(text, /you have no file write access/);
   assert.match(text, /currentTime reads the local clock/);
   assert.match(text, /No shell, browser, email, or calendar tools are available/);
   assert.match(text, /Never claim to have performed an action you cannot do/);

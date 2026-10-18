@@ -1,70 +1,64 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTaskRepository } from "../../src/adapters/storage/task-repository.js";
-import { createMemoryRepository } from "../../src/adapters/storage/memory-repository.js";
+import { tmpdir } from "node:os";
 import { createJobRepository } from "../../src/adapters/storage/job-repository.js";
+import { createActionRepository } from "../../src/adapters/storage/action-repository.js";
+import { createMemoryRepository } from "../../src/adapters/storage/memory-repository.js";
 import { createMemoryService } from "../../src/features/memory/memory-service.js";
 import { createJobService } from "../../src/features/jobs/job-service.js";
-import { createTaskService, TaskQueueFullError } from "../../src/features/tasks/task-service.js";
+import { createActionService } from "../../src/features/actions/action-service.js";
 import { createTools } from "../../src/adapters/pi/tools/index.js";
 import type { MonitorService } from "../../src/features/monitors/monitor-service.js";
 
-// 使用真实隔离 repository 验证并发准入；不能用无锁内存假实现掩盖检查位置错误。
-test("concurrent task creation admits at most 32 queued/running tasks and frees terminal slots", async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), "personal-bot-capacity-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const tasks = createTaskService(createTaskRepository(join(dir, "tasks.json")));
-  const results = await Promise.allSettled(Array.from({ length: 35 }, () => tasks.create("work", "web")));
-  assert.equal(results.filter((result) => result.status === "fulfilled").length, 32);
-  for (const result of results)
-    if (result.status === "rejected") assert.ok(result.reason instanceof TaskQueueFullError);
-  const first = (await tasks.list())[0];
-  await tasks.markRunning(first.id);
-  await assert.rejects(tasks.create("overflow", "chat"), TaskQueueFullError);
-  await tasks.markFinished(first.id, "succeeded", "done");
-  await tasks.create("replacement", "chat");
-  assert.equal((await tasks.list()).length, 33);
-});
+/**
+ * 子代理（subagent）边界单测：createTools 在 isSubagent=true 下裁剪掉会扩张副作用面、
+ * 再起子任务、或读取会话专属指令的能力；写文件审批与读工具保持不变。
+ *
+ * 工具注册表的合法全集由 src/adapters/pi/tools/index.ts 单一权威声明；
+ * 本测试只断言裁剪与不可逆集合，不依赖 schedule/monitor 服务的具体行为。
+ */
 
-test("retry checks capacity atomically and leaves rejected failed task unchanged", async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), "personal-bot-retry-capacity-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const tasks = createTaskService(createTaskRepository(join(dir, "tasks.json")));
-  const failed = await tasks.create("fail", "chat");
-  await tasks.markRunning(failed.id);
-  await tasks.markFinished(failed.id, "failed");
-  await Promise.all(Array.from({ length: 31 }, () => tasks.create("work", "web")));
-  // 最后一个空位由 create 和 retry 争用，只有其中之一可以成功。
-  const results = await Promise.allSettled([tasks.create("last slot", "web"), tasks.control(failed.id, "retry")]);
-  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
-  const rejection = results.find((result) => result.status === "rejected");
-  assert.ok(rejection?.status === "rejected" && rejection.reason instanceof TaskQueueFullError);
-  assert.equal((await tasks.get(failed.id))?.status, "failed");
-  const queued = (await tasks.list()).find((task) => task.status === "queued")!;
-  await tasks.control(queued.id, "cancel");
-  assert.equal((await tasks.control(failed.id, "retry")).ok, true);
-});
-
-test("background tool assembly removes work spawning capabilities while keeping foreground tools", async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), "personal-bot-background-tools-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const tasks = createTaskService(createTaskRepository(join(dir, "tasks.json")));
-  const deps = {
+const depsWith = (dir: string, extra: Partial<Parameters<typeof createTools>[0]> = {}) => {
+  const memoryFile = join(dir, "memory.json");
+  const jobsFile = join(dir, "jobs.json");
+  const actionsFile = join(dir, "actions.json");
+  return {
     root: dir,
-    memory: createMemoryService(createMemoryRepository(join(dir, "memory.json"))),
-    jobs: createJobService(createJobRepository(join(dir, "jobs.json"))),
-    tasks,
-    worker: { kick: () => {}, control: tasks.control },
-    // 此测试只验证装配；工具 factory 不执行监控服务方法。
+    memory: createMemoryService(createMemoryRepository(memoryFile)),
+    jobs: createJobService(createJobRepository(jobsFile)),
+    actions: createActionService(createActionRepository(actionsFile)),
+    // 此处只需进入装配；后续测试只比对工具名称，不调用它们。
     monitors: {} as MonitorService,
+    ...extra,
   };
-  const foreground = createTools({ ...deps, threadId: "local-main" }).map((tool) => tool.name);
-  const background = createTools({ ...deps, threadId: "task-server-owned-id" }).map((tool) => tool.name);
-  const restricted = ["schedule", "delegate_task", "monitor"];
-  assert.ok(restricted.every((name) => foreground.includes(name)));
-  assert.deepEqual(background, foreground.filter((name) => !restricted.includes(name)));
-  assert.deepEqual(createTools(deps).map((tool) => tool.name), foreground);
+};
+
+test("subagent assembly excludes subagent/schedule/monitor/instructions and exposes no bash", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "personal-bot-subagent-tools-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  // 主代理父线程：拥有全部可裁剪能力，可与子代理注册结果做差集。
+  const foreground = createTools(depsWith(dir)).map((tool) => tool.name);
+  // 子代理装配：isSubagent=true 将 instructions/schedule/monitor 一并裁掉；
+  // 写文件仍依赖 actions 形成的人工审批闸门（不能借此推断写路径扩大权限）。
+  const subagent = createTools(depsWith(dir, { isSubagent: true })).map((tool) => tool.name);
+  // 子代理不暴露任何扩张副作用或会话专属能力；bash 从未进入注册表。
+  for (const blocked of ["subagent", "schedule", "monitor", "instructions", "bash"]) {
+    assert.ok(!subagent.includes(blocked), `subagent must not expose ${blocked}`);
+    if (blocked === "bash") {
+      assert.ok(!foreground.includes("bash"), "mainline must never expose bash");
+    }
+  }
+  // 子代理可见集合等价于 mainline 减去被裁剪的能力：
+  // `subagent` 工具由 session factory 的扩展单独挂载，不进入 createTools。
+  assert.deepEqual(
+    subagent,
+    foreground.filter((name) => !["schedule", "monitor", "instructions"].includes(name)),
+  );
+  // 写工具与读工具都保留：写仍受 actions 审批控制。
+  assert.ok(subagent.includes("write") && subagent.includes("edit"));
+  for (const reader of ["read", "grep", "find", "ls", "memory", "currentTime"]) {
+    assert.ok(subagent.includes(reader), `subagent must keep ${reader}`);
+  }
 });

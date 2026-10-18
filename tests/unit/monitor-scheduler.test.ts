@@ -103,6 +103,48 @@ test("one monitor check write failure does not stop the remaining scan", async (
   await scheduler.close();
 });
 
+test("deleted monitor snapshots never notify a recreated source or fall back to main", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const { monitors, first, second } = await fixture();
+  await monitors.remove(second.id);
+  await monitors.check(first.id, { body: "yes" });
+  let resolving = false;
+  let resume!: () => void;
+  const gate = new Promise<void>((resolve) => { resume = resolve; });
+  const notifications: string[] = [];
+  const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10 }, monitors,
+    { notify: async () => { notifications.push("main"); } }, async () => {
+      resolving = true;
+      await gate;
+      return { notify: async () => { notifications.push("new source"); } };
+    });
+  t.after(() => resume());
+  scheduler.start();
+  t.mock.timers.tick(10);
+  await until(() => resolving);
+  await monitors.removeByOriginThreadId("first");
+  resume();
+  await scheduler.close();
+  assert.deepEqual(notifications, []);
+});
+
+test("missing explicit monitor source preserves pending notification without using main", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const { monitors, first, second } = await fixture();
+  await monitors.remove(second.id);
+  await monitors.check(first.id, { body: "yes" });
+  let resolutions = 0;
+  let notifications = 0;
+  const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10 }, monitors,
+    { notify: async () => { notifications++; } }, async () => { resolutions++; return undefined; });
+  scheduler.start();
+  t.mock.timers.tick(10);
+  await until(() => resolutions > 0 && !scheduler.isBusy());
+  await scheduler.close();
+  assert.equal(notifications, 0);
+  assert.ok((await monitors.get(first.id))?.pendingNotification);
+});
+
 /** 结构化业务抓取结果；调度测试无需模拟工具层的 JSON 文本编码。 */
 const fetchedPage = (text: string) => ({
   url: "https://example.com/", finalUrl: "https://example.com/", status: 200,

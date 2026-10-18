@@ -53,3 +53,49 @@ test("pi execution exposes only controlled denied tool errors and otherwise gene
   assert.deepEqual(projectExecutionEvent(event(true, true)), { type: "tool_result", id: "call", content: "Path denied" });
   assert.deepEqual(projectExecutionEvent(event(false)), { type: "tool_result", id: "call", content: "provider secret" });
 });
+
+test("pi execution scrubs raw toolResult error on the persisted message object before SDK appendMessage", () => {
+  // message_end 先于 SDK appendMessage，projectExecutionEvent 必须原地修改 event.message，
+  // 否则绝对路径/堆栈/原始 details 会落进 JSONL 并在下一轮送回模型。
+  const toolResultMessage = {
+    role: "toolResult",
+    toolCallId: "call",
+    content: [{ type: "text", text: "Error: ENOENT /Users/secret/.ssh/id_rsa" }],
+    details: { stderr: "ENOENT /Users/secret/.ssh/id_rsa", provider: "https://example/secret" },
+    isError: true,
+  };
+  const event = { type: "message_end", message: toolResultMessage } as unknown as AgentSessionEvent;
+  projectExecutionEvent(event);
+  assert.equal(toolResultMessage.isError, true);
+  assert.deepEqual(toolResultMessage.content, [{ type: "text", text: "Tool execution failed" }]);
+  assert.equal(toolResultMessage.details, undefined);
+});
+
+test("pi execution keeps the controlled denied tool error text on the persisted message", () => {
+  // 受控拒绝保留：原文与 denied 标记都进入 JSONL，让下一次模型仍能基于明确文案重试/修正。
+  const toolResultMessage = {
+    role: "toolResult",
+    toolCallId: "call",
+    content: [{ type: "text", text: "Access denied: path is outside the documents directory or contains a symlink." }],
+    details: { denied: true },
+    isError: true,
+  };
+  const event = { type: "message_end", message: toolResultMessage } as unknown as AgentSessionEvent;
+  projectExecutionEvent(event);
+  assert.deepEqual(toolResultMessage.content, [{ type: "text", text: "Access denied: path is outside the documents directory or contains a symlink." }]);
+  assert.deepEqual(toolResultMessage.details, { denied: true });
+});
+
+test("pi execution does not touch a successful toolResult message", () => {
+  const toolResultMessage = {
+    role: "toolResult",
+    toolCallId: "call",
+    content: [{ type: "text", text: "literal file contents" }],
+    details: { foo: "bar" },
+    isError: false,
+  };
+  const event = { type: "message_end", message: toolResultMessage } as unknown as AgentSessionEvent;
+  projectExecutionEvent(event);
+  assert.deepEqual(toolResultMessage.content, [{ type: "text", text: "literal file contents" }]);
+  assert.deepEqual(toolResultMessage.details, { foo: "bar" });
+});

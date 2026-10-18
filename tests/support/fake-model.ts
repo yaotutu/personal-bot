@@ -14,6 +14,7 @@ export type ModelRequest = {
 };
 export async function createFakeModel() {
   const requests: ModelRequest[] = [];
+  const requestTimings: { startedAt: number; endedAt?: number }[] = [];
   let slowClosed = 0;
   let failCount = 0;
   // 真实供应商的 tool call id 每次唯一；固定 id 会让多轮工具的历史关联错乱。
@@ -43,6 +44,9 @@ export async function createFakeModel() {
     for await (const chunk of req) body += chunk;
     const input = JSON.parse(body) as ModelRequest;
     requests.push(input);
+    const timing = { startedAt: Date.now(), endedAt: undefined as number | undefined };
+    requestTimings.push(timing);
+    res.once("close", () => { timing.endedAt = Date.now(); });
     const content = input.messages
       .filter((x) => x.role === "user")
       .at(-1)?.content;
@@ -65,7 +69,7 @@ export async function createFakeModel() {
         );
       return;
     }
-    if (last === "freeze") {
+    if (last === "freeze" || last === "Task: freeze") {
       res.on("close", () => {
         slowClosed++;
       });
@@ -161,24 +165,42 @@ export async function createFakeModel() {
           ((tool as { function?: { name?: string } }).function?.name === name ||
             (tool as { name?: string }).name === name),
       );
-    // 任务 thread 的执行轮。
-    if (/^后台任务测试/.test(last)) {
-      event({ role: "assistant" });
-      event({ content: "TASK-RAN " + last });
-      event({}, "stop");
-      res.end("data: [DONE]\n\n");
-      return;
-    }
-    // 任务完成通知轮（📋 前缀）。
-    if (/^📋/.test(last)) {
-      event({ role: "assistant" });
-      event({ content: "NOTIFIED " + last.slice(0, 40) });
-      event({}, "stop");
-      res.end("data: [DONE]\n\n");
-      return;
+    // 固定进程E2E编排与普通触发词分开；仍让pi真正执行工具，不在provider伪造副作用。
+    if (last.startsWith("E2E ") || last.startsWith("Task: E2E ")) {
+      if (pendingToolResult) {
+        event({ content: `E2E result: ${String(pendingToolResult.content)}` });
+        event({}, "stop");
+        res.end("data: [DONE]\n\n");
+        return;
+      }
+      let selected: { name: string; args: object } | undefined;
+      if (last === "E2E parallel") selected = { name: "subagent", args: { tasks: [
+        { agent: "scout", task: "E2E clock A" }, { agent: "reviewer", task: "E2E clock B" },
+      ] } };
+      else if (last === "E2E chain") selected = { name: "subagent", args: { chain: [
+        { agent: "worker", task: "E2E seed" }, { agent: "reviewer", task: "E2E previous {previous}" },
+      ] } };
+      else if (last === "E2E single") selected = { name: "subagent", args: { agent: "worker", task: "E2E clock single" } };
+      else if (last.startsWith("E2E web ")) selected = { name: "web_fetch", args: { url: last.slice("E2E web ".length) } };
+      else if (last.startsWith("E2E child-web ")) selected = { name: "subagent", args: { agent: "worker", task: "E2E web " + last.slice("E2E child-web ".length) } };
+      else if (last === "Task: E2E seed") {
+        event({ content: "E2E-CHAIN-SEED" }); event({}, "stop"); res.end("data: [DONE]\n\n"); return;
+      } else if (last.startsWith("Task: E2E previous ")) {
+        event({ content: last.slice("Task: E2E previous ".length) }); event({}, "stop"); res.end("data: [DONE]\n\n"); return;
+      } else if (last.startsWith("Task: E2E clock ")) {
+        // 小延迟让测试可观察两个实际模型请求重叠，不依赖机器执行微秒级差异。
+        const timer = setTimeout(() => {
+          event(toolCall("currentTime", {})); event({}, "tool_calls"); res.end("data: [DONE]\n\n");
+        }, 40);
+        res.once("close", () => clearTimeout(timer));
+        return;
+      } else if (last.startsWith("Task: E2E web ")) selected = { name: "web_fetch", args: { url: last.slice("Task: E2E web ".length) } };
+      if (selected && declaresTool(selected.name)) {
+        event(toolCall(selected.name, selected.args)); event({}, "tool_calls"); res.end("data: [DONE]\n\n"); return;
+      }
     }
     // 写文件路径：触发词"写入" → write 工具（内容含标记串，测试在审批后断言落盘）。
-    if (declaresTool("write") && /写入/.test(last) && !pendingToolResult) {
+    if (declaresTool("write") && /写入/.test(last) && !/子代理/.test(last) && !pendingToolResult) {
       event({ role: "assistant" });
       event(
         toolCall("write", {
@@ -217,10 +239,11 @@ export async function createFakeModel() {
       res.end("data: [DONE]\n\n");
       return;
     }
-    // 异步任务路径：触发词"后台" + 声明了 delegate_task。
-    if (declaresTool("delegate_task") && /后台/.test(last) && !pendingToolResult) {
+    // 主模型自行委派；子模型没有 subagent 工具，不会递归进入此分支。
+    if (declaresTool("subagent") && /子代理/.test(last) && !pendingToolResult) {
       event({ role: "assistant" });
-      event(toolCall("delegate_task", { action: "create", prompt: "后台任务测试：回复 TASK-MARKER" }));
+      const task = /子代理写入/.test(last) ? "帮我写入草稿" : /子代理挂起/.test(last) ? "freeze" : /子代理读取/.test(last) ? "读 shared/subagent-test.md" : "Reply SUBAGENT-MARKER";
+      event(toolCall("subagent", { agent: /只读子代理/.test(last) ? "scout" : "worker", task }));
       event({}, "tool_calls");
       res.end("data: [DONE]\n\n");
       return;
@@ -244,6 +267,19 @@ export async function createFakeModel() {
       event({ role: "assistant" });
       event({ content: "JOB-RAN " + last.replace(/^⏰\s*/, "") });
       event({}, "stop");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
+    // 指令路径：触发词"设定规则" + 声明了 instructions 工具。
+    if (declaresTool("instructions") && /设定规则/.test(last) && !pendingToolResult) {
+      event({ role: "assistant" });
+      event(
+        toolCall("instructions", {
+          action: "set",
+          content: "RULE-FROM-CHAT: Always be polite.",
+        }),
+      );
+      event({}, "tool_calls");
       res.end("data: [DONE]\n\n");
       return;
     }
@@ -308,6 +344,8 @@ export async function createFakeModel() {
             ? "write reply: "
           : toolName === "memory"
             ? "memory reply: "
+          : toolName === "instructions"
+            ? "instructions reply: "
             : toolName === "schedule"
               ? "schedule reply: "
               : "time reply: ";
@@ -332,6 +370,7 @@ export async function createFakeModel() {
     baseUrl:
       "http://127.0.0.1:" + (server.address() as AddressInfo).port + "/v1",
     requests,
+    requestTimings,
     slowClosed: () => slowClosed,
     close: async () => {
       server.closeAllConnections();

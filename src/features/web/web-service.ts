@@ -123,7 +123,8 @@ export const createWebService = (
   transport: WebTransport,
   defaults: { searchResults: number; maxSearchResults: number; maxContentChars: number },
 ): WebService => ({
-  search: async (query, count) => {
+  search: async (query, count, signal) => {
+    signal?.throwIfAborted();
     const text = query.trim();
     if (!text) return failure("Search query is empty");
     const resultCount = Math.min(
@@ -131,13 +132,18 @@ export const createWebService = (
       defaults.maxSearchResults,
     );
     try {
-      return formatSearch(await transport.search(text, resultCount));
+      const results = await transport.search(text, resultCount, signal);
+      signal?.throwIfAborted();
+      return formatSearch(results);
     } catch {
+      // 用户取消不是供应商失败，不能吞掉后继续执行或返回伪成功。
+      signal?.throwIfAborted();
       // 供应商 URL、DNS 错误和响应体都可能携带敏感信息，只返回受控失败。
       return failure("Web search failed");
     }
   },
-  fetch: async (url, extractMode = "markdown", maxChars) => {
+  fetch: async (url, extractMode = "markdown", maxChars, signal) => {
+    signal?.throwIfAborted();
     const parsed = normalizeUrl(url);
     if (!parsed) return failure("URL validation failed: only public HTTP(S) URLs are allowed", url.trim());
     const limit = Math.min(
@@ -145,7 +151,8 @@ export const createWebService = (
       defaults.maxContentChars,
     );
     try {
-      const page = await transport.fetch(parsed.toString());
+      const page = await transport.fetch(parsed.toString(), signal);
+      signal?.throwIfAborted();
       const type = page.contentType.toLowerCase();
       // 少数服务器不返回 content-type；HTML 通过正文前缀识别，其他类型保持保守拒绝。
       const looksHtml = type.includes("html") ||
@@ -172,6 +179,7 @@ export const createWebService = (
         text: output,
       };
     } catch {
+      signal?.throwIfAborted();
       return failure("Web fetch failed", parsed.toString());
     }
   },

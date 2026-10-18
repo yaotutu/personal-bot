@@ -2,10 +2,10 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { link, lstat, mkdir, open, realpath, rename, unlink } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { link, lstat, mkdir, open, rename, unlink } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type { ActionService } from "../../../features/actions/action-service.js";
-import { guardPath } from "./path-guard.js";
+import { resolveWorkspacePath, safeWorkspacePath } from "./workspace-path.js";
 
 const MAX_BYTES = 100_000;
 const POLL_INTERVAL_MS = 2_000;
@@ -30,26 +30,12 @@ const denied = (text: string) => ({
 const aborted = () => denied("Operation aborted; nothing was written.");
 const isMissing = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
 
-/**
- * 延续 guardPath 的目录边界，再逐段拒绝符号链接（包括指向 workspace 内的链接）。
- * root 本身允许是部署时的链接，但后续提交必须仍解析到审批时的同一物理目录。
- * 不跟随目标/父目录链接，避免表面合法的路径实际写到 workspace 外。
- */
-const safeTarget = async (root: string, path: string): Promise<string> => {
-  const base = resolve(root);
-  if (!path.trim() || isAbsolute(path) || path.split(/[\\/]/).includes(".."))
-    throw new Error("Unsafe path");
-  const lexical = guardPath(base, path);
-  if (!lexical || lexical === base) throw new Error("Unsafe path");
-  const physicalRoot = await realpath(base);
-  let current = physicalRoot;
-  for (const component of relative(base, lexical).split(sep)) {
-    current = join(current, component);
-    try {
-      if ((await lstat(current)).isSymbolicLink()) throw new Error("Unsafe path");
-    } catch (error) { if (!isMissing(error)) throw error; }
-  }
-  return current;
+/** 新文件可缺失，已有祖先和根目录仍逐段拒绝链接；审批后用同一规则重查。 */
+const safeTarget = async (root: string, path: string, sharedDir?: string, boundaryDir?: string): Promise<string> => {
+  if (!path.trim()) throw new Error("Unsafe path");
+  const selected = resolveWorkspacePath(root, path, sharedDir);
+  if (!selected || selected.path === selected.base) throw new Error("Unsafe path");
+  return safeWorkspacePath(selected.base, selected.path, { allowMissing: true, boundaryDir });
 };
 
 /** 内容摘要和 inode/纳秒时间戳共同绑定版本：同内容重建或改后复原也不能复用旧审批。 */
@@ -115,10 +101,10 @@ const awaitApproval = async (
  */
 const commitFile = async (
   root: string, path: string, target: string, original: Snapshot | undefined,
-  content: string, expiresAt: number, signal?: AbortSignal,
+  content: string, expiresAt: number, signal?: AbortSignal, sharedDir?: string, boundaryDir?: string,
 ) => serialCommit(target, async () => {
   const unchanged = async () =>
-    await safeTarget(root, path) === target && (await readSnapshot(target))?.version === original?.version;
+    await safeTarget(root, path, sharedDir, boundaryDir) === target && (await readSnapshot(target))?.version === original?.version;
   const expired = () => !Number.isFinite(expiresAt) || Date.now() >= expiresAt;
   let temporary: string | undefined;
   try {
@@ -127,7 +113,7 @@ const commitFile = async (
     if (!await unchanged()) return denied("File changed since approval was requested; request a new approval.");
     if (signal?.aborted) return aborted();
     await mkdir(dirname(target), { recursive: true });
-    if (await safeTarget(root, path) !== target) return denied("Access denied: unsafe file path.");
+    if (await safeTarget(root, path, sharedDir, boundaryDir) !== target) return denied("Access denied: unsafe file path.");
     if (signal?.aborted) return aborted();
     temporary = join(dirname(target), `.approval-${randomUUID()}.tmp`);
     const file = await open(temporary, "wx", 0o600);
@@ -151,13 +137,13 @@ const commitFile = async (
 
 /** 每次 run 由组合方传入新的上下文；此工厂不推断或缓存当前 runId。 */
 export const createWritableFileTools = (
-  root: string, actions: Actions, timeoutMs: number, context?: ApprovalContext,
+  root: string, actions: Actions, timeoutMs: number, context?: ApprovalContext, sharedDir?: string, boundaryDir?: string,
 ) => [
   defineTool({
     name: "write", label: "Write file",
-    description: "Create or overwrite a text file inside the shared documents directory. Every write requires explicit user approval. Relative paths only, no symlinks or ..; max 100KB. Concurrent changes require new approval.",
+    description: "Create or overwrite a text file inside the documents directory. Every write requires explicit user approval. Relative paths only, no symlinks or ..; max 100KB. Concurrent changes require new approval.",
     parameters: Type.Object({
-      path: Type.String({ description: "File path relative to the documents directory." }),
+      path: Type.String({ description: "File path relative to the documents directory (or shared/... for global shared files)." }),
       content: Type.String({ description: "Full file content to write." }),
     }, { additionalProperties: false }),
     async execute(_id, params, signal) {
@@ -166,7 +152,7 @@ export const createWritableFileTools = (
         return denied("File too large: writes are limited to 100KB.");
       let target: string;
       let original: Snapshot | undefined;
-      try { target = await safeTarget(root, params.path); original = await readSnapshot(target); }
+      try { target = await safeTarget(root, params.path, sharedDir, boundaryDir); original = await readSnapshot(target); }
       catch { return denied("Access denied: unsafe or unreadable file path."); }
       // 保存完整原文和新内容供 UI 比较，不再用截断 preview 隐藏真正的写入内容。
       const approved = await awaitApproval(actions, "file_write", `写入 ${params.path}`, {
@@ -174,14 +160,14 @@ export const createWritableFileTools = (
         baseVersion: original?.version ?? "missing",
       }, timeoutMs, signal, context);
       if (approved === undefined) return denied("Write not approved (denied, expired or cancelled); nothing was written.");
-      return commitFile(root, params.path, target, original, params.content, approved, signal);
+      return commitFile(root, params.path, target, original, params.content, approved, signal, sharedDir, boundaryDir);
     },
   }),
   defineTool({
     name: "edit", label: "Edit file",
     description: "Replace one exact nonempty text occurrence in an existing file. Requires explicit user approval; oldText must appear exactly once; resulting file max 100KB. Concurrent changes require new approval.",
     parameters: Type.Object({
-      path: Type.String({ description: "File path relative to the documents directory." }),
+      path: Type.String({ description: "File path relative to the documents directory (or shared/... for global shared files)." }),
       oldText: Type.String({ minLength: 1, description: "Nonempty exact existing text to replace." }),
       newText: Type.String({ description: "Replacement text." }),
     }, { additionalProperties: false }),
@@ -190,7 +176,7 @@ export const createWritableFileTools = (
       if (!params.oldText.length) return denied("oldText must not be empty.");
       let target: string;
       let original: Snapshot | undefined;
-      try { target = await safeTarget(root, params.path); original = await readSnapshot(target); }
+      try { target = await safeTarget(root, params.path, sharedDir, boundaryDir); original = await readSnapshot(target); }
       catch { return denied("Access denied: unsafe or unreadable file path."); }
       if (!original) return denied("File not found.");
       const first = original.content.indexOf(params.oldText);
@@ -207,7 +193,7 @@ export const createWritableFileTools = (
         originalContent: original.content, content, baseVersion: original.version,
       }, timeoutMs, signal, context);
       if (approved === undefined) return denied("Edit not approved (denied, expired or cancelled); nothing was written.");
-      return commitFile(root, params.path, target, original, content, approved, signal);
+      return commitFile(root, params.path, target, original, content, approved, signal, sharedDir, boundaryDir);
     },
   }),
 ];

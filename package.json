@@ -1,5 +1,5 @@
 {
-  "name": "personal-bot",
+  "name": "pi-muse",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,23 +10,26 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs && node --experimental-strip-types --no-warnings scripts/write-service-version.mjs",
     "typecheck": "tsc --noEmit",
     "test": "for dir in tests/unit tests/integration; do set -- \"$dir\"/*.test.ts; test -f \"$1\" || { echo \"No test files found in $dir\" >&2; exit 1; }; done; tsx --test --test-timeout=60000 tests/unit/*.test.ts tests/integration/*.test.ts",
+    "test:e2e": "pnpm build && tsx --test --test-concurrency=1 --test-timeout=90000 tests/e2e/*.test.ts",
+    "test:live": "tsx tests/live/run.ts",
+    "check": "pnpm typecheck && pnpm test && pnpm test:e2e && pnpm --dir web build && git diff --check",
     "dev:mock": "tsx scripts/dev-mock.ts"
   },
   "dependencies": {
     "@ag-ui/core": "0.0.59",
-    "@earendil-works/pi-ai": "1.1.0",
-    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@earendil-works/pi-ai": "1.3.0",
+    "@earendil-works/pi-coding-agent": "1.3.0",
     "@hono/node-server": "1.19.9",
-    "hono": "4.11.3",
-    "zod": "4.3.6"
+    "hono": "4.13.13",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@scalar/api-reference": "^1.74.0",
     "@types/node": "24.10.1",
-    "tsx": "4.21.0",
+    "tsx": "4.23.15",
     "typescript": "5.9.3"
   }
 }

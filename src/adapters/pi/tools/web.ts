@@ -27,7 +27,10 @@ export const createWebTools = (web: WebService) => [
       },
       { additionalProperties: false },
     ),
-    execute: async (_id, params) => content(await web.search(params.query, params.count)),
+    execute: async (_id, params, signal) => {
+      signal?.throwIfAborted();
+      return content(await web.search(params.query, params.count, signal));
+    },
   }),
   defineTool({
     name: "web_fetch",
@@ -47,7 +50,9 @@ export const createWebTools = (web: WebService) => [
       },
       { additionalProperties: false },
     ),
-    execute: async (_id, params) =>
-      content(await web.fetch(params.url, params.extractMode, params.maxChars)),
+    execute: async (_id, params, signal) => {
+      signal?.throwIfAborted();
+      return content(await web.fetch(params.url, params.extractMode, params.maxChars, signal));
+    },
   }),
 ];
