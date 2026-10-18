@@ -51,3 +51,15 @@ test("unit and integration suites are explicitly discovered, bounded, and suppor
   for (const directory of ["unit", "integration"])
     assert.ok((await readdir(resolve(sourceRoot, "../tests", directory))).some((name) => name.endsWith(".test.ts")));
 });
+
+test("local E2E and live commands stay separate, bounded and excluded from default model-free checks", async () => {
+  const packageFile = JSON.parse(await readFile(resolve(sourceRoot, "../package.json"), "utf8"));
+  const scripts = packageFile.scripts as Record<string, string>;
+  assert.match(scripts["test:e2e"], /pnpm build/);
+  assert.match(scripts["test:e2e"], /tests\/e2e\/\*\.test\.ts/);
+  assert.match(scripts["test:e2e"], /--test-concurrency=1/);
+  assert.match(scripts["test:e2e"], /--test-timeout=90000/);
+  assert.match(scripts["test:live"], /tests\/live\/run\.ts/);
+  assert.equal(scripts.check, "pnpm typecheck && pnpm test && pnpm test:e2e && pnpm --dir web build && git diff --check");
+  for (const name of ["test", "test:e2e", "check"]) assert.ok(!scripts[name].includes("test:live") && !scripts[name].includes("tests/live"));
+});

@@ -13,6 +13,9 @@
     "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs && node --experimental-strip-types --no-warnings scripts/write-service-version.mjs",
     "typecheck": "tsc --noEmit",
     "test": "for dir in tests/unit tests/integration; do set -- \"$dir\"/*.test.ts; test -f \"$1\" || { echo \"No test files found in $dir\" >&2; exit 1; }; done; tsx --test --test-timeout=60000 tests/unit/*.test.ts tests/integration/*.test.ts",
+    "test:e2e": "pnpm build && tsx --test --test-concurrency=1 --test-timeout=90000 tests/e2e/*.test.ts",
+    "test:live": "tsx tests/live/run.ts",
+    "check": "pnpm typecheck && pnpm test && pnpm test:e2e && pnpm --dir web build && git diff --check",
     "dev:mock": "tsx scripts/dev-mock.ts"
   },
   "dependencies": {

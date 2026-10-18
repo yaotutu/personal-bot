@@ -42,7 +42,7 @@
 
 自有 `web/` 是开发与页面验收入口，直接复用 HTTP 消息/事件契约；不保留历史接口与占位字段。
 聊天先读取 `{messages, revision}`，再向 `/api/conversation/run` 提交单条消息和 `expectedRevision`。版本冲突返回 409，页面同步历史并恢复草稿；Stop 同时绑定 threadId/runId。
-审批独立读取 `/api/actions/pending` 的完整预览，历史摘要与单项详情分开查询。后台 queued + running 最多 32 项，后台会话不能继续委派或创建调度源。
+审批独立读取 `/api/actions/pending` 的完整预览，历史摘要与单项详情分开查询。后台行为只有定时 jobs 与网页 monitors；subagent 在父聊天轮内运行，不使用旧 worker 队列，子工具权限只能收窄父会话上限。完整接入规则以服务端 `/docs` 与 `/openapi.json` 为准。
 
 ## 启动真实模型
 
@@ -85,6 +85,23 @@ pnpm test
 pnpm build
 pnpm start
 ~~~
+
+提交前把验证收紧到一条命令：
+
+~~~sh
+pnpm check   # typecheck + test + test:e2e + pnpm --dir web build + git diff --check
+~~~
+
+`pnpm check` 包含 `pnpm test:e2e`（自动先 `pnpm build` 再用 `node:test/tsx` 跑 `tests/e2e/*.test.ts`，串行进程套件，单项 90s）。它走真实 `dist/index.js`，fake provider 仍是本地 OpenAI SSE，不依赖外网；稳定用例覆盖鉴权、工具流、子代理三种模式、审批 approve/deny/cancel、慢 Web + 模型中途 Stop、隔离删除重启、`/api/events` SSE 与 SIGTERM、初始化失败清理。`pnpm test:e2e` 不需要在浏览器侧配合，也不能代替真实模型与自有 Web 页面验收。
+
+`pnpm test:live` 是显式 opt-in 的真实模型验收，不进入 `pnpm check`：
+
+~~~sh
+pnpm test:live --config .pi-muse/config.json --allow-live           # 默认清临时目录
+pnpm test:live --config .pi-muse/config.json --allow-live --keep-artifacts   # 保留脱敏 summary/traces
+~~~
+
+命令允许参数开头的一个 `--`（如 `pnpm test:live -- --config … --allow-live`），其余未知或重复参数会拒绝，不能在命令行传密钥。live 仅读取 `--config` 中的 `.model`，凭据仅保留在透明代理内存，脱敏报告不含真实key或鉴权头。DATA_DIR使用临时空实例，默认finally清理；`--keep-artifacts`保留合成测试数据及summary.json。live会产生模型费用，不自动运行，不进入`pnpm check`；不配置CI或GitHub Actions。详情见 `docs/testing.md`。
 
 ## 自研 Web 客户端（web/）
 
@@ -169,6 +186,7 @@ pi 自动压缩已开启（参数随上下文窗口收缩），展示历史完�
 ## 验证状态与后续
 
 - 2026-10-18：会话私有根统一为 `workspace/threads/<id>/`，修复主会话父目录暴露和只读符号链接绕过；277项自动化测试、类型检查、前后端构建通过。真实DeepSeek+自有Web确认旧越界请求已拒绝、私有/共享审批读写与重启规则/历史有效；不自动迁移旧数据。详见 `docs/archive/2026-10-18-workspace-isolation-fix-acceptance.md`。
+- 2026-10-18：新增本地 `pnpm test:e2e`、`pnpm test:live` 与 `pnpm check`；真实dist进程E2E、显式真实模型流程和资源清理均已实跑，准确数量、版本和验收范围见 `docs/HANDOFF.md` / `docs/archive/2026-10-18-e2e-live-acceptance.md`。不加CI，不修改生产接口，使用方法见 `docs/testing.md`。
 
 - 2026-10-17：默认数据目录及真实实例已离线迁移为 `.pi-muse/`，绝对配置路径与pi会话头同步更新；261项测试、类型检查、前后端构建和迁移后历史/登录回归通过。受保护备份位置与回退方式见 `docs/HANDOFF.md`。
 - 2026-10-17：品牌统一为 `pi-muse`；260 项自动化测试、类型检查、服务端/Web 构建通过。隔离 DEV 已验证桌面/移动端品牌、真实模型时间工具及历史刷新；PWA 已验证旧壳刷新与离线品牌。数据目录随后已离线迁移为 `.pi-muse/`，历史协议标识和已有自定义身份仍保留，备份及完整验收范围见 `docs/HANDOFF.md`。
@@ -178,4 +196,11 @@ pi 自动压缩已开启（参数随上下文窗口收缩），展示历史完�
 - 历史验收记录见 `docs/archive/first-stage-acceptance.md` 与 `docs/archive/second-stage-acceptance.md`，其中 OpenMuse 页面观察只对应当时的版本与范围。
 - 后续新增能力遵循 `feature → adapter → bootstrap` 显式装配，不把业务继续堆入 conversation 或 HTTP；不自动 commit/push。
 
-架构说明见 `docs/architecture.md`；历史重构计划见 `docs/archive/refactoring-plan.md`；交接记录见 `docs/HANDOFF.md`；接口盘点见 `docs/http-api-contract.md`；pi 复用边界见 `docs/pi-reuse.md`。
+## 开发文档
+
+- [AGENTS.md](AGENTS.md)：全局底线、按任务必读入口与最低完成标准。
+- [架构规范](docs/architecture.md)：职责、状态所有权、权限、生命周期、数据与新能力接入。
+- [测试规范](docs/testing.md)：回归补强、命令、验收证据、live 边界与 fake-model 触发词。
+- [API 开发规范](docs/api-development.md)：HTTP/SSE、工具报文、自动文档和契约交付要求；对外接入仍以运行时 `/docs`、`/openapi.json` 为准，[HTTP 辅助说明](docs/http-api-contract.md)不维护第二份规范。
+- [配置说明](docs/configuration.md)、[pi 复用边界](docs/pi-reuse.md)：启动配置与内核适配参考。
+- [交接记录](docs/HANDOFF.md)、[待实施需求](docs/backlog.md)：当前进度与暂缓事项；[历史归档](docs/archive/)只记录对应版本的实施与验收，不作为当前实现约定。

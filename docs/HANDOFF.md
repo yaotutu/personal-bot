@@ -2,11 +2,25 @@
 
 更新：2026-10-18。当前为单进程、单用户、单模型、多 thread 的模块化单体，自有 `web/` 是客户端。用户已明确不保留任何历史逻辑兼容；旧接口、占位字段和隐式迁移已移除。此前交接全文归档到 `docs/archive/handoff-before-incremental-protocol.md`，不能作为当前实现约定。
 
+## 开发规范入口调整（2026-10-18）
+
+- 根 [AGENTS.md](../AGENTS.md) 只保留项目定位、全局底线、按任务必读入口与最低完成标准；详细规则分别归入 [架构规范](architecture.md)、[测试规范](testing.md)和新增的 [API 开发规范](api-development.md)。使用说明仍在 README / configuration；客户端接入以运行时 `/docs` / `/openapi.json` 为准。
+- 整理为内容归位与去重，不放宽权限、审批、数据保护或测试要求；fake-model 触发词移入测试规范，架构中旧 worker 的超时/启动恢复/文档校验表述按当前源码修正，README 的旧 32 项后台队列描述同步移除。下方分阶段验收记录保留原版本语境，不作为当前行为约定。
+- 本轮仅修改文档，不修改业务代码、HTTP/SSE 契约、真实配置或数据；未调用 subagent，未 commit/push。只进行文档差异、规则去向与引用检查，不重跑全量测试、真实模型或浏览器验收，不扩大已有验收结论。
+
 ## 待实施需求入口
 
 - 后续讨论但暂时不做的需求，统一记录在 [`backlog.md`](backlog.md)；详细方案放 `docs/discussions/`。认可方案不等于立即开工，开始实施仍需用户明确授权。
 - **REQ-001：Dream 后台记忆整理**，用户已于 2026-10-18 认可方案并明确暂缓，详见 [`discussions/dream-memory.md`](discussions/dream-memory.md)。现有 pi 压缩不变，新增后台自动整理长期记忆；当前尚未实现，不提前改变现有“显式记忆写入”行为。
 - **REQ-002：重置当前会话（保留记忆与工作区）**，用户已确认核心方案、暂缓实施：用于主动清空上下文或上下文故障，不是新建另一个会话；保留规则、记忆与原工作区。历史展示、运行/审批收尾及通知衔接在实施前细化；未开工，不与 Dream 混合实施。
+
+## 本地 E2E 与真实模型验收命令（2026-10-18）
+
+- 新增 `pnpm test:e2e`（build后真实dist进程）、`pnpm test:live --config <JSON路径> --allow-live [--keep-artifacts]`、`pnpm check`；不增加CI/GitHub Actions/远程设置。`pnpm test`仍只跑unit/integration，不调用真实供应商。详见 [`testing.md`](testing.md)。
+- `tests/e2e/`固定覆盖鉴权、工具流、子代理单/并/链、审批批准拒绝取消、模型/Web Stop、隔离删除、正常重启、工作区SSE与SIGTERM、初始化失败；`tests/support/service-process.ts`以临时cwd和假凭据启动真实`dist/index.js`，不会读取正式数据。
+- `tests/live/`仅显式参数允许真实模型调用，仅读原配置model并在内存使用key；拒绝命令行key/未知参数，支持开头一个`--`。临时业务实例用透明代理占位key，所有审批写入/慢HTTPfixture均隔离。默认finally回收，仅`--keep-artifacts`保留合成测试data与脱敏summary.json。没有模型/工具自动重试，不用RUN_ERROR冒充成功，不以自然语言自述替代工具/文件/socket证据。
+- 实跑结果：`pnpm check`通过，unit/integration379/379、真实进程E2E11/11、typecheck、服务端/Web build和diff通过；真实模型命令14项逐项PASS（单/并/链/隔离/三种审批/模型Stop/两阶段WebStop及后续轮/旧权限队列/重启）。准确代码身份、时序、证据目录和限制见 [`archive/2026-10-18-e2e-live-acceptance.md`](archive/2026-10-18-e2e-live-acceptance.md)。
+- 本轮仅新增测试与使用规范，不修改生产接口或功能；不做浏览器UI验收，不能用服务端测试结果声称页面重新验收。未commit/push，正式配置/数据未修改。
 
 ## 提交前代码整理与验证（2026-10-18）
 
@@ -119,7 +133,7 @@
 - 当前分支：`main`；架构调整与代码整理已按用户要求提交为 `54e914a`（重构个人助手执行边界与增量聊天协议），未 push。
 - 更新本交接前工作区干净。本文是该提交之后的文档更新；接手时先执行 `git status --short`，不要撤销新增改动，也不要误认为主体重构仍未提交。
 - 本轮约定的重构已完成，没有必须继续修复的已知阻塞项。后续按用户实际需求推进，不为预防未来规模提前引入数据库、队列框架或执行恢复。
-- 优先阅读顺序：`AGENTS.md` → 本文 → `docs/architecture.md` → `docs/http-api-contract.md`。`docs/archive/` 只作历史记录。
+- 本节及后文为当时的接手与验收记录；当前接手先读根 `AGENTS.md` 与本文顶部，再按任务读取架构、测试、API 开发或配置文档。对外接入以 `/docs` / `/openapi.json` 为准，`docs/archive/` 只作历史记录。
 
 ## 本轮架构调整
 
@@ -166,4 +180,4 @@ pnpm --dir web dev
 
 历史读取目前仍为全量展示投影，增量发送已解除请求体增长限制；分页和虚拟列表可按实际长会话体验另做，不维护第二份历史。
 
-入口与约定见 `AGENTS.md`，职责和生命周期见 `docs/architecture.md`，接口见 `docs/http-api-contract.md` 与运行时 `/docs`，配置见 `docs/configuration.md`。
+开发入口见 [AGENTS.md](../AGENTS.md)，详细规范按任务读取 [architecture.md](architecture.md)、[testing.md](testing.md)和 [api-development.md](api-development.md)；配置见 [configuration.md](configuration.md)。客户端接入以运行时 `/docs`、`/openapi.json` 为准，[http-api-contract.md](http-api-contract.md)仅作辅助说明。
