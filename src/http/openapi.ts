@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { endpoints } from "./contracts/endpoints.js";
-import { sseEvents } from "./contracts/sse-events.js";
 
 /**
  * OpenAPI 3.1 文档生成器：从端点注册表 + zod v4 schema 自动生成，
@@ -55,16 +54,23 @@ export const buildOpenApiDocument = () => {
     if (endpoint.sse) {
       operation.responses = {
         200: {
-          description: "AG-UI 事件流（text/event-stream，每帧 data: <JSON>）",
+          description: endpoint.sse.description,
           content: {
             "text/event-stream": { schema: { type: "object" } },
           },
+          // 各端点自带 events map：聊天 SSE 用 sseEvents，工作区通知流用 workspaceEvents；
+          // 事件契约按各自命名空间渲染，互不混入。
           "x-sse-events": Object.fromEntries(
-            Object.entries(sseEvents).map(([name, schema]) => [
+            Object.entries(endpoint.sse.events).map(([name, schema]) => [
               name,
               { description: schema.description ?? "", schema: toSchema(schema, "output") },
             ]),
           ),
+        },
+        // SSE 端点同样可能返回鉴权/参数错误（握手阶段）；只补通用错误形状，不引入业务细节。
+        "4xx": {
+          description: "客户端错误（401 未鉴权、400 参数非法、404 资源不存在）",
+          content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } }, required: ["error"] } } },
         },
       };
     } else {

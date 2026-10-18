@@ -21,6 +21,7 @@ export const createTaskWorker = (
   hub: Pick<ConversationHub, "forThread" | "release" | "hasThread">,
   mainConversation: Pick<Conversation, "notify">,
   timeoutMs = 120_000,
+  onRunningChanged?: () => void,
 ): TaskWorker => {
   let running = false;
   let closed = false;
@@ -69,13 +70,18 @@ export const createTaskWorker = (
   const drain = async (): Promise<void> => {
     if (running || closed) return;
     running = true;
+    // worker 忙闲是内存事实，不能只依赖任务落盘通知（任务完成时 worker 仍可能忙）。
+    try { onRunningChanged?.(); } catch { /* 观察者失败不能改变执行生命周期。 */ }
     try {
       while (!closed) {
         const next = (await tasks.list()).find((task) => task.status === "queued");
         if (!next || closed) return;
         await runOne(next.id);
       }
-    } finally { running = false; }
+    } finally {
+      running = false;
+      try { onRunningChanged?.(); } catch { /* 空闲状态通知同样不阻塞任务收尾。 */ }
+    }
   };
   const kick = () => {
     if (!closed) current = current.then(drain, drain).catch(() => undefined);

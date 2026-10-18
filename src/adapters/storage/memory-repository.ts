@@ -30,7 +30,7 @@ const readState = async (file: string): Promise<MemoryState> => {
  * memory 与 identity 共用这一份 repository 和 writer，保证两个入口并发修改时
  * 不会各自先读到旧文件再互相覆盖；磁盘格式仍然保持 memory.json 原样。
  */
-export const createMemoryRepository = (file: string): MemoryRepository => {
+export const createMemoryRepository = (file: string, onCommitted?: () => void): MemoryRepository => {
   const serialized = createSerializedWriter();
   return {
     read: () => readState(file),
@@ -38,7 +38,11 @@ export const createMemoryRepository = (file: string): MemoryRepository => {
       serialized(async () => {
         const state = await readState(file);
         const changed = change(state);
-        if (changed.state) await writeJsonDocument(file, changed.state);
+        if (changed.state) {
+          await writeJsonDocument(file, changed.state);
+          // memory 与 identity 的通知和写锁一样共用；通知错误不回滚已落盘的数据。
+          try { onCommitted?.(); } catch { /* 客户端重连后会重新同步。 */ }
+        }
         return changed.result;
       }),
   };

@@ -2,19 +2,30 @@ import { z } from "zod";
 import * as req from "./rest.js";
 import * as resp from "./responses.js";
 import { sseEvents, SSE_EVENT_ORDER } from "./sse-events.js";
+import { workspaceEvents, WORKSPACE_SSE_DESCRIPTION } from "./workspace-events.js";
 
 /**
  * 端点注册表：所有对外 HTTP 接口的唯一清单。新增/修改端点必须在这里登记，
  * OpenAPI 文档（/openapi.json）与 Scalar 页面（/docs）由此自动生成——
  * 禁止手写 OpenAPI 文件。契约测试遍历此表做防漂移校验。
  */
+export type SseSpec = {
+  /** 流描述（写入 OpenAPI 200 描述） */
+  description: string;
+  /**
+   * 事件名 → 数据 schema。每端点显式绑定，不复用全表。
+   * 与聊天 SSE 不同的命名空间必须各自一份 events map，避免事件契约混入。
+   */
+  events: Readonly<Record<string, z.ZodType>>;
+};
+
 export type EndpointSpec = {
   method: "get" | "post" | "put" | "delete";
   /** 路径模板，路径参数用 :name（生成时转 {name}） */
   path: string;
   tag: string;
   summary: string;
-  /** 给 agent 的一句话使用提示（生成 x-agent-hint） */
+  /** 客户端正确接入所需的行为说明，同时生成 operation.description 与 x-agent-hint。 */
   hint?: string;
   auth: boolean;
   /** 请求体 schema（生成 io=input 的 JSON Schema） */
@@ -23,8 +34,12 @@ export type EndpointSpec = {
   query?: z.ZodType;
   /** 200 响应 schema（生成 io=output；契约测试对真实响应 safeParse） */
   response: z.ZodType;
-  /** 响应为 SSE 流时不生成 JSON schema，改挂 x-sse-events 事件契约 */
-  sse?: boolean;
+  /**
+   * 响应为 SSE 流时不生成 JSON schema，改挂 x-sse-events 事件契约。
+   * 每端点显式提供 events map：聊天 SSE 绑定 sseEvents；工作区通知流绑定 workspaceEvents；
+   * 互不复用，确保 OpenAPI 文档与生成器按各自命名空间渲染。
+   */
+  sse?: SseSpec;
 };
 
 const conversationQuery = z.object({
@@ -82,7 +97,11 @@ export const endpoints: EndpointSpec[] = [
   {
     method: "post", path: "/api/conversation/run", tag: "会话", summary: "提交一条用户消息（SSE 流）",
     hint: `提交 message 和 expectedRevision；版本冲突 409 后重新读取历史。事件顺序：${SSE_EVENT_ORDER}。`,
-    auth: true, request: req.runRequestSchema, response: z.object({}).describe("SSE 流"), sse: true,
+    auth: true, request: req.runRequestSchema, response: z.object({}).describe("SSE 流"),
+    sse: {
+      description: "AG-UI 事件流（text/event-stream，每帧 data: <JSON>）",
+      events: sseEvents,
+    },
   },
   {
     method: "post", path: "/api/conversation/stop", tag: "会话", summary: "停止指定运行",
@@ -195,4 +214,17 @@ export const endpoints: EndpointSpec[] = [
       "5 分钟不决定自动 expired。只有 pending 状态可决定（重复决定 409）。",
     auth: true, request: req.actionDecisionSchema, response: resp.pendingAction,
   },
- ];
+  // ---- 工作区变更通知（独立命名 SSE，不与聊天流共用事件）----
+  {
+    method: "get", path: "/api/events", tag: "通知", summary: "工作区变更通知流（SSE）",
+    hint: WORKSPACE_SSE_DESCRIPTION,
+    auth: true, response: z.object({}).describe("SSE 流"),
+    sse: {
+      description:
+        "命名 SSE：event: ready / workspace_updated / actions_updated，data: {}，每帧以空行结束。" +
+        "首帧 ready 后读取 /api/agent 与 /api/actions/pending；刷新期间收到新通知须在当前请求完成后补刷；重连后再次同步。" +
+        "每30秒注释 : keep-alive 为心跳，无事件ID或重放；断开通知连接不取消聊天或后台任务。完整接入规则见本接口描述。",
+      events: workspaceEvents,
+    },
+  },
+];

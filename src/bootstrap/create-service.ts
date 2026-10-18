@@ -35,6 +35,7 @@ import { openPi } from "../adapters/pi/session-factory.js";
 import { createPiExecution } from "../adapters/pi/execution.js";
 import type { ServiceContainer } from "./types.js";
 import { createToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
+import { createWorkspaceEvents } from "../features/workspace/workspace-events.js";
 
 /**
  * 应用唯一的运行时组装入口。
@@ -50,8 +51,11 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   await mkdir(layout.root, { recursive: true, mode: 0o700 });
 
   const auth = await createAuth(config, layout);
+  const workspaceEvents = createWorkspaceEvents();
+  const workspaceChanged = () => workspaceEvents.invalidate("workspace_updated");
   // identity 与 memory 共享同一文档和读改写队列；业务入口分开不等于写入者分开。
-  const memoryRepository = createMemoryRepository(layout.memoryFile);
+  // 提交回调位于共享 repository，覆盖对话工具、HTTP 和后台执行，不依赖哪个入口调用。
+  const memoryRepository = createMemoryRepository(layout.memoryFile, workspaceChanged);
   const memory = createMemoryService(memoryRepository);
   const identity = createIdentityService(memoryRepository, {
     // SOUL/USER 文件实现放 storage adapter；空内容写空文件（等于清空人设）。
@@ -59,7 +63,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     write: (which, content) =>
       writeProfileFile(which === "soul" ? layout.soulFile : layout.userFile, content),
   });
-  const jobs = createJobService(createJobRepository(layout.jobsFile));
+  const jobs = createJobService(createJobRepository(layout.jobsFile, workspaceChanged));
   await jobs.reconcileOnStart();
   const presentation = createToolPresentation(config.presentation);
   await ensureThreadLayout(layout);
@@ -78,10 +82,10 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     : undefined;
   // 异步任务域先建 service；worker 依赖 hub，hub 的工具装配又需要 worker，
   // 用可变引用解开循环（worker 在 hub 就绪后立即补上，首个请求前必然完成）。
-  const tasks = createTaskService(createTaskRepository(layout.tasksFile));
-  const goals = createGoalService(createGoalRepository(layout.goalsFile));
-  const actions = createActionService(createActionRepository(layout.actionsFile));
-  const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile));
+  const tasks = createTaskService(createTaskRepository(layout.tasksFile, workspaceChanged));
+  const goals = createGoalService(createGoalRepository(layout.goalsFile, workspaceChanged));
+  const actions = createActionService(createActionRepository(layout.actionsFile, () => workspaceEvents.invalidate("actions_updated")));
+  const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile, workspaceChanged));
   const skills = createSkillsService(createSkillRepository(layout));
   const workerRef: { current?: TaskWorker } = {};
 
@@ -180,7 +184,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     { monitorScanIntervalMs: config.monitorScanIntervalMs, web }, monitors,
     mainConversation, async (threadId) => (await conversationHub.hasThread(threadId)) ? conversationHub.forThread(threadId) : mainConversation,
   );
-  const taskWorker = createTaskWorker(tasks, conversationHub, mainConversation, config.runTimeoutMs);
+  const taskWorker = createTaskWorker(tasks, conversationHub, mainConversation, config.runTimeoutMs, workspaceChanged);
   workerRef.current = taskWorker;
   let closed = false;
   let closing: Promise<void> | undefined;
@@ -194,11 +198,13 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       return () => { requests.delete(pending); release(); };
     },
   };
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, tasks, taskWorker, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills };
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, tasks, taskWorker, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
     closed = true;
+    // 全局通知没有执行取消语义；先结束长连接，避免 HTTP server 等待它们而无法退出。
+    workspaceEvents.close();
     const stopped = [scheduler.close(), monitorScheduler.close(), taskWorker.close(), conversationHub.closeAll()];
     closing = (async () => {
       const results = await Promise.allSettled(stopped);

@@ -10,6 +10,7 @@ import { buildOpenApiDocument } from "./openapi.js";
 import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
 import { saveProfileSchema } from "./contracts/rest.js";
 import { createThreadRoutes } from "./routes/threads.js";
+import { createWorkspaceEventRoutes } from "./routes/events.js";
 
 // 只挂载 HTTP/协议适配：使用已组装的服务，不创建 store，也不启动或关闭调度器。
 export async function createHttpApp(dependencies: HttpDependencies) {
@@ -79,6 +80,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     return c.json(await dependencies.identity.saveProfile(parsed.data));
   });
   // 先鉴权，再挂载业务/运行协议，最后处理未知 API；顺序是现有安全边界。
+  app.route("/", createWorkspaceEventRoutes(dependencies.workspaceEvents));
   app.route("/api/threads", createThreadRoutes(dependencies));
   app.route("/", createWorkspaceRoutes(dependencies));
   app.route("/", runtimeRoutes);

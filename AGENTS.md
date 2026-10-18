@@ -11,6 +11,7 @@
 - nanobot 是默认的产品行为参考：核对源码后直接实现可兼容逻辑，不把常规实现选择反复交给用户；明显不适配 pi 执行内核或触及现有安全边界时才单独提示，不为对齐行为修改 pi 底层。
 - 双参考系优先级：交互、UI、HTTP、AG-UI 报文、工具卡片与客户端行为先核对自有 `web/` 和 `src/http/contracts/`。服务端能力语义、调度、副作用、失败策略先核对 nanobot 源码，再适配 pi。两边冲突时，不修改 pi 底层，不用假数据伪装兼容，明确选择更符合当前产品边界的一侧并记录差异。
 - 工具名、参数名、结果 JSON 结构和事件顺序都是协议契约；已有专用 renderer 时必须按其 schema 返回。新增/改名工具要用自有 Web DEV 页面验收，不只看 AG-UI 事件。
+- **对外 HTTP/SSE 变更必须同时交付完整契约、自动生成文档和契约测试**；前端不得依赖聊天说明或 Markdown 才能正确接入。详见下方「API 文档」强制规范，每次改接口都要主动执行。
 - Subagent 只承担边界明确、容易验收的小任务；架构设计、跨层改造和关键路径留在主 Agent，不为了并行而并行。
 - 测试使用隔离实例目录；未经明确要求，不修改真实 `.pi-muse/`（含 config.json）数据或 OpenMuse 仓库，不自动 commit/push，不撤销已有改动。
 
@@ -135,24 +136,38 @@ pnpm typecheck && pnpm build
 - 写入先在内存序列化，以 `wx`、`0600` 创建同目录临时文件，再 `rename` 替换；失败清理本次临时文件并保留原始错误。底层 writer 不做 fsync、自动重试、跨进程锁或 durable execution；scheduler 的补存仅重用已经得到的运行结果和完成时间。
 - 损坏文档需停止服务、保留原件并从有效备份恢复，不直接删文件消除报错。未来若改格式或路径，单独设计离线迁移与回退，不运行中双写。
 
-## API 文档（自动生成，禁止手写 OpenAPI）
+## API 文档（强制：契约源自动生成，禁止手写 OpenAPI）
+
+**完成标准：前端只阅读服务端 `/docs` 与 `/openapi.json`，就能正确接入本次新增或修改的接口；不需要另读源码、Markdown 或聊天记录才能补齐关键规则。接口能调用、路由已登记、schema 校验通过，都不等于文档交付完成。所有 Agent 必须主动遵守，不等待用户提醒。**
+
+### 契约唯一来源
 
 - **端点注册表** `src/http/contracts/endpoints.ts` 是所有对外 HTTP 接口的唯一清单：
-  新增/修改端点必须在此登记（method/path/tag/summary/hint/request/response schema）。
+  新增/修改端点必须在此登记（method/path/tag/summary/hint/request/response schema；SSE 还需绑定本端点的事件契约）。
 - **schema 即文档**：`contracts/rest.ts`（请求）、`contracts/responses.ts`（响应）、
-  `contracts/sse-events.ts`（AG-UI 事件子集）全部 zod v4；`.describe()` 直接进文档。
-  **禁止手写 OpenAPI JSON/YAML 文件**——文档由 `src/http/openapi.ts` 调
-  `z.toJSONSchema`（请求 io=input、响应 io=output）自动拼装 OpenAPI 3.1。
-- 运行时端点：`GET /openapi.json`（规范本体）、`GET /docs`（Scalar 页，
-  本地 bundle `/scalar.js` 优先、加载失败回退 CDN）。三者免鉴权。
-- **防漂移**：`tests/integration/docs-contract.test.ts` 四重守卫——结构完整
-  （每端点有 summary+schema）、文档路由可达、无副作用 GET 响应被注册表
-  schema safeParse、**双向路由审计**（Hono 实际路由表 ↔ 注册表逐条比对：
-  加了路由不登记→"文档会漏掉它"红；登记了不实现→"文档在撒谎"红。
-  例外仅为 /docs 三条文档基础设施路由）。
-  改接口不改 schema，测试红；漏登记新端点，测试红。
-- SSE 端点在 OpenAPI 里标 `text/event-stream`，事件契约挂 `x-sse-events` 扩展
-  （agent 可直接读）；非法 threadId 在宿主预校验即 HTTP 400（不进 SSE 流）。
+  `contracts/sse-events.ts`（AG-UI）及 `contracts/workspace-events.ts`（工作区通知）使用 zod v4。
+  字段含义、可选/空值语义、默认值、范围和状态含义写进 schema 与 `.describe()`。
+- **行为语义也是契约，不仅字段结构才是契约。** 鉴权、调用前置条件、错误/冲突处理、副作用、幂等与取消语义，以及客户端必须执行的同步步骤，必须写进会进入生成文档的描述字段。
+  当前 `EndpointSpec.hint` 会生成标准 `operation.description`（同时生成 `x-agent-hint`），不受“一句话”长度限制；SSE 的 `sse.description` 与事件 schema 的 `.describe()` 分别生成响应和事件描述。
+  **普通代码注释不会自动进入文档，不能把写了注释当成已补契约。**
+- **禁止手写 OpenAPI JSON/YAML 或维护第二份接口规范。** 文档由 `src/http/openapi.ts` 调
+  `z.toJSONSchema`（请求 io=input、响应 io=output）自动生成 OpenAPI 3.1。生成机制不足以表达必要信息时，扩展契约定义与生成器，不能绕开它另写一份文档。
+- `docs/http-api-contract.md`、交接文档和发给前端的说明只作辅助解释，不得成为关键接入规则的唯一出处；内容必须与契约源一致。**如果前端必须结合 Markdown 才能正确接入，视为本次接口交付未完成。**
+
+### SSE 等有状态协议的必备说明
+
+- 按实际协议明确：SSE 的 `event:` 与 `data` 编码方式、事件名/数据结构/触发条件、首帧与顺序、心跳、终止与断连语义、是否支持事件 ID/重放，以及客户端连接/重连后的处理。
+- 必要的客户端正确性规则同样必须生成到文档，例如“ready 后读取哪些接口”“刷新期间再收到通知要补刷”“断连是否取消执行”；不能只写在会话回复或 Markdown 中。
+- SSE 端点声明 `text/event-stream`，每端点的事件 schema 通过 `x-sse-events` 提供机器可读契约；聊天与工作区通知不得混用事件表。
+  **关键接入步骤必须同时出现在标准接口/响应描述中，不能只藏在自定义扩展里。** `/docs` 未展示某个扩展时，应通过契约源补充标准描述，不让前端猜测。
+
+### 每次接口变更的验收门槛
+
+1. 同步修改实现、契约源和测试，再检查生成的 `/openapi.json`：接口、字段、事件及关键行为说明都存在且与实现一致。
+2. 在 `/docs` 实际确认新增/修改接口及关键接入说明可见；不能只确认页面返回 200 或 schema 存在。无法完成页面验证时，明确报告未验证项，不宣称完整文档已验收。
+3. 保留并补充 `tests/integration/docs-contract.test.ts` 等契约测试：现有守卫覆盖结构完整、文档路由可达、无副作用 GET 响应校验、Hono 路由与注册表双向审计；SSE 分别校验真实事件与其契约。对本次关键接入规则补充生成文档的针对性断言，**不能把现有结构测试通过当成语义完整的证明**。
+
+运行时入口：`GET /openapi.json`（规范本体）、`GET /docs`（Scalar 页，本地 `/scalar.js` 优先，失败回退 CDN），均免鉴权。非法 threadId 在宿主预校验即 HTTP 400，不进聊天 SSE 流。
 
 ## 监控域（monitors）
 
