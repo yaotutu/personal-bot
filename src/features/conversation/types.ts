@@ -1,6 +1,7 @@
 /** 会话控制条目与模型消息共同存放在 pi 权威历史中。 */
 export const TURN_ENTRY_TYPE = "personal-bot.turn";
 export const RESULT_ENTRY_TYPE = "personal-bot.result";
+export const AGENT_STATUS_ENTRY_TYPE = "pi-muse.agent-status";
 export type ConversationNotification = { id: string; text: string };
 
 export type ConversationTurn = {

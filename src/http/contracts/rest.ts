@@ -86,9 +86,8 @@ export const createMonitorSchema = z.object({
 // ---------------------------------------------------------------------------
 // 审批：写操作的人工闸门（决定只能由人发出）
 // ---------------------------------------------------------------------------
-export const actionDecisionSchema = z.object({
-  decision: z.enum(["approve", "deny"]).describe("approve 放行挂起中的写操作；deny 返回受控拒绝给模型"),
-});
+// 决定请求 schema 已迁移到 contracts/approvals.ts 的 approvalDecisionRequest；
+// 此处不再保留旧 actionDecisionSchema，避免出现第二份可漂移的请求契约。
 
 // ---------------------------------------------------------------------------
 // 会话登录与增量聊天请求（Hono 直接使用同一契约校验）

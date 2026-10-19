@@ -1,9 +1,13 @@
 import { z } from "zod";
+import type { ApprovalViewDto } from "./approvals.js";
 
 /**
  * 响应契约（zod v4）：每个端点 200 响应的形状，全部从现有路由投影提炼。
  * 用途：1) OpenAPI 文档自动生成（io=output）；2) 契约测试对真实响应做
  * safeParse 防漂移（实现改了文档没跟，测试红）。schema 即文档。
+ *
+ * 审批相关形状（完整视图/摘要/分页）已迁移到 contracts/approvals.ts；
+ * 本文件不再保留旧 /api/actions 的 pending 列表或 payload 结构。
  */
 
 // 基础形状 -------------------------------------------------------------
@@ -149,20 +153,6 @@ export const memoryItem = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
-export const pendingAction = z.object({
-  id: z.string(),
-  kind: z.enum(["file_write", "file_edit"]),
-  title: z.string().describe("人类可读摘要，如：写入 notes.md"),
-  // 审批必须展示完整待执行内容；此处不截断，避免用户批准的文本与实际执行不同。
-  payload: z.record(z.string(), z.string()).describe("完整审批文本：待写入路径/内容或编辑前后文本，不截断"),
-  status: z.enum(["pending", "approved", "denied", "expired", "cancelled"]),
-  createdAt: z.string(),
-  decidedAt: z.string().optional(),
-  // 有效期必须存在；会话关联仅在由工具发起时提供。
-  expiresAt: z.string().describe("审批失效时间"),
-  threadId: z.string().optional().describe("发起审批的会话"),
-  runId: z.string().optional().describe("发起审批的运行"),
-});
 export const identityView = z.object({
   name: z.string(),
   tone: z.string(),
@@ -184,13 +174,14 @@ export type RunEventDto = z.infer<typeof runEvent>;
 export type MemoryDto = z.infer<typeof memoryItem>;
 export type GoalDto = z.infer<typeof goalView>;
 export type MonitorDto = z.infer<typeof monitorView>;
-export type ActionDto = z.infer<typeof pendingAction>;
+/**
+ * 兼容别名：自有 Web 在迁移到 GET /api/approvals 与审批 View 前仍按 ActionDto 引用。
+ * 它现在就是审批完整视图类型，不再包含旧 payload/actions 列表结构；
+ * 旧 reader（/api/actions*）已下线，无历史兼容层。
+ */
+export type ActionDto = ApprovalViewDto;
 export type AgentSnapshotDto = z.infer<typeof agentSnapshot>;
 export type ThreadDto = z.infer<typeof threadSnapshot>;
-
-export const pendingActionsResponse = z.object({ actions: z.array(pendingAction) });
-export const actionSummary = pendingAction.omit({ payload: true });
-export const actionsResponse = z.object({ actions: z.array(actionSummary) });
 
 // 技能 -----------------------------------------------------------------
 export const skillItem = z.object({

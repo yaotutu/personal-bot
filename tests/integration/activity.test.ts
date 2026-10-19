@@ -330,13 +330,12 @@ test("activity-integration: activity with write approval records approval and fi
 
   // 审批依真实 pending 状态观察，不因机器负载误判尚未登记的请求。
   const pendingActionId = await waitForTest(async () => {
-    const pendingRes = await service.app.request("/api/actions/pending", { headers });
-    const pending = (await pendingRes.json()) as { actions: Array<{ id: string }> };
-    return pending.actions[0]?.id;
+    const action = (await service.actions.history()).find((a) => a.status === "pending");
+    return action?.id;
   }, "pending activity write approval");
 
   // 人工批准该写入
-  const decideRes = await service.app.request(`/api/actions/${pendingActionId}/decide`, {
+  const decideRes = await service.app.request(`/api/approvals/${pendingActionId}/decision`, {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify({ decision: "approve" }),

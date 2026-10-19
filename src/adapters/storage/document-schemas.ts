@@ -75,13 +75,32 @@ export const readGoalsDocument = (
   return goals;
 };
 
-/** actions 裸数组；状态机形状校验，payload 保留字符串键值（diff 预览用）。 */
+/**
+ * actions 裸数组；状态机形状校验，payload 保留字符串键值（diff 预览用）。
+ *
+ * 当前 reader 只接受包含全部现行持久字段的记录：revision 必须为正整数，终态必须
+ * 有 resolvedAt，且只有人工 approved/denied 才允许 decidedAt。缺少新字段或状态与
+ * 时间字段矛盾的旧记录整体拒绝，不补默认值、不静默过滤，也不做隐式迁移。
+ */
 export const readActionsDocument = (
   value: unknown,
 ): import("../../features/actions/types.js").PendingAction[] => {
   if (!Array.isArray(value)) throw new InvalidDocumentError("actions");
   const statuses = ["pending", "approved", "denied", "expired", "cancelled"];
   const kinds = ["file_write", "file_edit"];
+  // 归属字段统一为 string|null；缺省同样视为损坏记录，不补默认值。
+  const nullableContext = (field: unknown) => field === null || typeof field === "string";
+  const isPayload = (field: unknown) =>
+    isObject(field) && Object.values(field).every((entry) => typeof entry === "string");
+  const isStateConsistent = (item: Record<string, unknown>) => {
+    const terminal = item.status !== "pending";
+    if (!terminal) return item.resolvedAt === null && item.decidedAt === null;
+    if (!isDate(item.resolvedAt)) return false;
+    // 只有人的批准/拒绝记录 decidedAt；过期和撤销保持 null。
+    return item.status === "approved" || item.status === "denied"
+      ? isDate(item.decidedAt)
+      : item.decidedAt === null;
+  };
   const list = value.filter(
     (item): item is import("../../features/actions/types.js").PendingAction =>
       isObject(item) &&
@@ -91,7 +110,19 @@ export const readActionsDocument = (
       kinds.includes(item.kind) &&
       typeof item.status === "string" &&
       statuses.includes(item.status) &&
-      isObject(item.payload),
+      isPayload(item.payload) &&
+      typeof item.revision === "number" &&
+      Number.isInteger(item.revision) &&
+      item.revision >= 1 &&
+      isDate(item.createdAt) &&
+      isDate(item.expiresAt) &&
+      nullableContext(item.threadId) &&
+      nullableContext(item.runId) &&
+      nullableContext(item.toolCallId) &&
+      nullableContext(item.subagentId) &&
+      nullableContext(item.workspaceThreadId) &&
+      nullableContext(item.activityId) &&
+      isStateConsistent(item),
   );
   if (list.length !== value.length) throw new InvalidDocumentError("actions");
   return list;

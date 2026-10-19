@@ -1,3 +1,4 @@
+import type { StatusRun, AgentStatus } from "../workspace/agent-status.js";
 import type { ActivityRun } from "../activities/types.js";
 import type { ActivitySession } from "../activities/activity-session.js";
 import type {
@@ -22,6 +23,8 @@ export type ConversationHistoryPort = {
   appendNotification: (notification: ConversationNotification) => void;
   appendResult: (result: ConversationResult) => void;
   restoreIfNoUser: (runId: string, checkpoint: string | null) => void;
+  appendAgentStatus?: (status: AgentStatus) => void;
+  agentStatuses?: () => AgentStatus[];
 };
 
 /** 执行仍交给 pi；port 只包含协调器实际调用的操作，不重建 agent loop。 */
@@ -34,7 +37,10 @@ export type ConversationExecution = {
   subscribe: (listener: (event: ExecutionEvent) => void) => () => void;
 };
 export type ConversationDependencies = {
+  threadId?: string;
   history: ConversationHistoryPort;
   activities?: ActivitySession;
-  openSession: (context: { runId: string; activity?: ActivityRun }) => Promise<ConversationExecution>;
+  beginStatus?: (input: { threadId: string; runId: string; source: "chat" | "job"; jobId?: string; initialRevision: number }) => StatusRun;
+  cancelApprovals?: (threadId: string, runId: string) => Promise<void>;
+  openSession: (context: { runId: string; activity?: ActivityRun; status?: StatusRun }) => Promise<ConversationExecution>;
 };

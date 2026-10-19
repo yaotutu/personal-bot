@@ -184,9 +184,14 @@ test("docs: activity GET endpoints are authenticated read-only JSON operations w
     "activity domain must expose GET endpoints only",
   );
 
-  // 本轮不新增活动事件：工作区通知事件表保持原三种，不混入 activity 命名空间。
+  // 本轮不新增活动事件：工作区推送流只承载运行/审批实时状态，不混入 activity 命名空间。
   const workspaceEvents = paths["/api/events"]?.get?.responses["200"]?.["x-sse-events"];
-  assert.deepEqual(Object.keys(workspaceEvents ?? {}).sort(), ["actions_updated", "ready", "workspace_updated"]);
+  assert.deepEqual(Object.keys(workspaceEvents ?? {}).sort(), [
+    "agent_status_updated",
+    "approval_pending",
+    "approval_updated",
+    "ready",
+  ]);
   assert.equal(Object.keys(workspaceEvents ?? {}).some((name) => /activit/i.test(name)), false);
 });
 
@@ -506,23 +511,35 @@ test("docs: notification stream documents the client sync protocol and keeps eve
   // 只检查标准描述，不借助 x-sse-events，防止关键接入规则只在机器扩展里存在。
   const description = operation.description;
   for (const rule of [
-    /Authorization: Bearer/, /event:[\s\S]*data:/, /data: \{\}/, /UTF-8/, /空行/,
-    /ready[\s\S]*\/api\/agent[\s\S]*\/api\/actions\/pending/,
-    /workspace_updated/, /actions_updated/, /刷新请求进行中[\s\S]*补刷/,
-    /首次连接[\s\S]*重连/, /回到前台[\s\S]*ready/, /30 秒[\s\S]*keep-alive/,
+    /Authorization: Bearer/, /event:[\s\S]*data:/, /UTF-8/, /空行/,
+    /ready[\s\S]*agentStatuses[\s\S]*pendingApprovals/,
+    /agent_status_updated/, /approval_pending/, /approval_updated/,
+    /GET \/api\/agent\/status\?threadId=/, /GET \/api\/activities/,
+    /instanceId[\s\S]*revision/, /\(id, revision\)/,
+    /30 秒[\s\S]*keep-alive/,
     /不发送事件 id/, /不支持历史重放/, /忽略 Last-Event-ID/,
-    /不取消聊天或任务/, /服务关闭[\s\S]*结束活跃流/,
-    /HTTP 401[\s\S]*重新登录/, /HTTP 503/, /不是聊天文字增量/, /不负责锁屏推送/,
-    /轮询/, /合并或冗余/,
+    /不会取消聊天/, /服务关闭[\s\S]*结束活跃流/,
+    /HTTP 401[\s\S]*重新登录/, /HTTP 503/, /HTTP 429/, /不是聊天增量/, /不负责锁屏系统推送/,
+    /8MiB/, /12MiB/, /断流/,
+    /本轮不发送记忆（memory）变化通知/, /不新增 jobs\/goals/,
   ]) assert.match(description, rule, `Missing client protocol rule in generated docs: ${rule}`);
+  // 旧失效通知协议已下线：不能再出现空 data 或旧事件名。
+  assert.doesNotMatch(description, /data: \{\}/);
+  assert.doesNotMatch(description, /workspace_updated|actions_updated/);
   assert.ok(operation.security?.length);
-  assert.deepEqual(Object.keys(operation.responses["200"]["x-sse-events"]).sort(), ["actions_updated", "ready", "workspace_updated"]);
+  assert.deepEqual(Object.keys(operation.responses["200"]["x-sse-events"]).sort(), [
+    "agent_status_updated",
+    "approval_pending",
+    "approval_updated",
+    "ready",
+  ]);
   const chat = document.paths["/api/conversation/run"].post as Operation;
   assert.ok(Object.hasOwn(chat.responses["200"]["x-sse-events"], "RUN_FINISHED"));
-  assert.ok(!Object.hasOwn(chat.responses["200"]["x-sse-events"], "workspace_updated"));
+  for (const name of ["ready", "agent_status_updated", "approval_pending", "approval_updated"])
+    assert.ok(!Object.hasOwn(chat.responses["200"]["x-sse-events"], name), `聊天 SSE 不应混入通知事件 ${name}`);
 });
 
-test("docs: /api/events SSE schema is text/event-stream with strict empty-object event payloads", () => {
+test("docs: /api/events SSE schema is text/event-stream with four directly usable state events", () => {
   const doc = buildOpenApiDocument();
   const op = (doc.paths as Record<string, Record<string, Record<string, unknown>>>)["/api/events"]?.get;
   assert.ok(op);
@@ -530,27 +547,197 @@ test("docs: /api/events SSE schema is text/event-stream with strict empty-object
   // 200 必须声明 text/event-stream 媒体类型
   const content = (ok.content as Record<string, Record<string, unknown>>)["text/event-stream"];
   assert.ok(content, "200 必须声明 text/event-stream content");
-  // 事件表恰好三种
-  const table = ok["x-sse-events"] as Record<string, { schema: Record<string, unknown> }>;
+  // 事件表恰好四种，且都是可直接展示的状态载荷，不再是空对象失效通知。
+  const table = ok["x-sse-events"] as Record<string, { description: string; schema: Record<string, unknown> }>;
   assert.ok(table, "必须声明 x-sse-events 事件契约");
-  assert.deepEqual(Object.keys(table).sort(), ["actions_updated", "ready", "workspace_updated"]);
-  // 每个事件 schema 都是严格的空对象
+  assert.deepEqual(Object.keys(table).sort(), [
+    "agent_status_updated",
+    "approval_pending",
+    "approval_updated",
+    "ready",
+  ]);
   for (const [name, entry] of Object.entries(table)) {
-    const schema = entry.schema;
-    assert.equal(schema.type, "object", `${name} schema.type 必须是 object`);
-    assert.deepEqual((schema.properties ?? {}) as Record<string, unknown>, {}, `${name} properties 必须为空`);
-    assert.equal(schema.additionalProperties, false, `${name} additionalProperties 必须为 false`);
+    assert.equal(entry.schema.type, "object", `${name} schema.type 必须是 object`);
+    assert.notDeepEqual((entry.schema.properties ?? {}) as Record<string, unknown>, {}, `${name} 必须携带真实状态字段`);
+    assert.ok(entry.description.length > 0, `${name} 必须有可读描述`);
   }
+  // ready 是完整替换集合；增量事件顶层都带 instanceId。
+  const ready = table.ready.schema;
+  assert.deepEqual(Object.keys(ready.properties as object).sort(), ["agentStatuses", "instanceId", "pendingApprovals", "serverTime"]);
+  for (const name of ["agent_status_updated", "approval_pending", "approval_updated"])
+    assert.ok(Object.hasOwn(table[name].schema.properties as object, "instanceId"), `${name} 顶层必须带 instanceId`);
+  // 审批新增推完整预览；审批终态推轻量投影（不含 title/kind/preview）。
+  const pendingProps = Object.keys(table.approval_pending.schema.properties as object);
+  assert.ok(pendingProps.includes("preview"));
+  const updatedProps = Object.keys(table.approval_updated.schema.properties as object);
+  for (const omitted of ["title", "kind", "preview"])
+    assert.ok(!updatedProps.includes(omitted), `approval_updated 不应包含 ${omitted}`);
   // 聊天 SSE 仍走独立事件表，不混入通知事件
   const runOp = (doc.paths as Record<string, Record<string, Record<string, unknown>>>)["/api/conversation/run"]?.post;
   const runTable = (runOp?.responses as Record<string, Record<string, Record<string, unknown>>>)["200"]?.["x-sse-events"];
   assert.ok(runTable, "聊天 SSE 必须有自己独立的事件表");
   const runNames = Object.keys(runTable as object);
-  for (const name of ["ready", "workspace_updated", "actions_updated"]) {
+  for (const name of ["ready", "agent_status_updated", "approval_pending", "approval_updated"]) {
     assert.ok(!runNames.includes(name), `聊天 SSE 事件表不应混入通知事件 ${name}`);
   }
 });
 
+test("docs: approvals replace legacy actions endpoints and pin strict list/detail/decision semantics", () => {
+  const doc = buildOpenApiDocument();
+  type Operation = {
+    description?: string;
+    security?: unknown[];
+    parameters?: { name: string; in: string; required: boolean; schema: JsonSchema }[];
+    requestBody?: { required: boolean; content: Record<string, { schema: JsonSchema }> };
+    responses: Record<string, { description?: string; content?: Record<string, { schema?: JsonSchema }> }>;
+  };
+  const paths = doc.paths as unknown as Record<string, Record<string, Operation>>;
+
+  // 旧审批入口必须从注册表与文档中彻底消失，不保留兼容 reader。
+  for (const legacy of ["/api/actions/pending", "/api/actions", "/api/actions/{id}", "/api/actions/{id}/decide"])
+    assert.equal(Object.hasOwn(paths, legacy), false, `legacy approval path must be gone: ${legacy}`);
+  assert.deepEqual(
+    Object.keys(paths).filter((path) => path === "/api/approvals" || path.startsWith("/api/approvals/")).sort(),
+    ["/api/approvals", "/api/approvals/{id}", "/api/approvals/{id}/decision"],
+    "approval domain must expose exactly list/detail/decision",
+  );
+
+  const list = paths["/api/approvals"]!.get!;
+  assert.deepEqual(list.security, [{ bearerAuth: [] }]);
+  assert.deepEqual(list.parameters?.map((parameter) => parameter.name).sort(), ["cursor", "limit"]);
+  for (const parameter of list.parameters ?? []) {
+    assert.equal(parameter.in, "query");
+    assert.equal(parameter.required, false);
+  }
+  const limit = queryParameter(list as never, "limit").schema;
+  assert.equal(limit.type, "integer");
+  assert.equal(limit.default, 20);
+  assert.equal(limit.minimum, 1);
+  assert.equal(limit.maximum, 100);
+  assert.match(limit.description ?? "", /默认 20/);
+  assert.match(limit.description ?? "", /1–100/);
+  assert.match(queryParameter(list as never, "cursor").schema.description ?? "", /不透明/);
+  for (const rule of [/只返回已处理\/失效审批的摘要/, /不含 preview/, /当前 pending 不在此列表/, /resolvedAt/, /分页不冻结/, /长期保留/])
+    assert.match(list.description ?? "", rule, `missing approval list rule: ${rule}`);
+
+  // 历史列表摘要省略 preview，但保留身份、revision、终态与时间。
+  const page = responseSchema(list as never);
+  assert.deepEqual(Object.keys(page.properties ?? {}).sort(), ["approvals", "hasMore", "nextCursor"]);
+  assert.deepEqual([...(page.required ?? [])].sort(), ["approvals", "hasMore", "nextCursor"]);
+  assert.equal(page.additionalProperties, false);
+  assert.deepEqual(nullableTypes(page.properties?.nextCursor), ["null", "string"]);
+  const summary = page.properties?.approvals?.items;
+  assert.ok(summary);
+  assert.equal(Object.hasOwn(summary.properties ?? {}, "preview"), false, "summary must omit preview");
+  assert.equal(Object.hasOwn(summary.properties ?? {}, "revision"), true, "summary must keep revision");
+
+  // 详情返回完整视图，字段与必填项精确；preview 全文不截断。
+  const detail = paths["/api/approvals/{id}"]!.get!;
+  const view = responseSchema(detail as never);
+  const viewFields = [
+    "activityId", "createdAt", "decidedAt", "expiresAt", "id", "kind", "preview", "resolvedAt",
+    "revision", "runId", "status", "subagentId", "threadId", "title", "toolCallId", "workspaceThreadId",
+  ];
+  assert.deepEqual(Object.keys(view.properties ?? {}).sort(), viewFields);
+  assert.deepEqual([...(view.required ?? [])].sort(), viewFields);
+  assert.equal(view.additionalProperties, false);
+  assert.deepEqual(view.properties?.status?.enum, ["pending", "approved", "denied", "expired", "cancelled"]);
+  assert.match(view.properties?.status?.description ?? "", /expired=超过 expiresAt 自动失效/);
+  assert.match(view.properties?.status?.description ?? "", /expired\/cancelled 不是人的决定，decidedAt 保持 null/);
+  assert.deepEqual(nullableTypes(view.properties?.decidedAt), ["null", "string"]);
+  assert.deepEqual(nullableTypes(view.properties?.resolvedAt), ["null", "string"]);
+  const preview = view.properties?.preview;
+  assert.deepEqual(Object.keys(preview?.properties ?? {}).sort(), ["after", "before", "beforeExists", "ownerThreadId", "path", "scope"]);
+  assert.equal(preview?.additionalProperties, false);
+  assert.match(preview?.properties?.before?.description ?? "", /不截断/);
+  assert.match(view.description ?? "", /1\.5MB/);
+  assert.match(view.description ?? "", /6MB/);
+  assert.match(view.description ?? "", /最多 32 项/);
+  assert.match(detail.description ?? "", /不存在返回 404/);
+
+  // 决定请求严格只接受 approve/deny；409 携带当前完整审批视图。
+  const decision = paths["/api/approvals/{id}/decision"]!.post!;
+  assert.equal(decision.requestBody?.required, true);
+  const request = decision.requestBody?.content["application/json"]?.schema;
+  assert.deepEqual(Object.keys(request?.properties ?? {}), ["decision"]);
+  assert.deepEqual(request?.properties?.decision?.enum, ["approve", "deny"]);
+  assert.equal(request?.additionalProperties, false);
+  const conflict = decision.responses["409"]?.content?.["application/json"]?.schema;
+  assert.deepEqual(Object.keys(conflict?.properties ?? {}).sort(), ["approval", "error"]);
+  assert.deepEqual([...(conflict?.required ?? [])].sort(), ["approval", "error"]);
+  assert.deepEqual(Object.keys(conflict?.properties?.approval?.properties ?? {}).sort(), viewFields);
+  assert.ok(Object.hasOwn(conflict?.properties?.approval?.properties ?? {}, "preview"));
+  for (const rule of [/幂等返回 200/, /revision 不变/, /不再次执行/, /相反决定[\s\S]*409/, /未知 id 返回 404/, /请求体非法返回 400/, /401/])
+    assert.match(decision.description ?? "", rule, `missing decision rule: ${rule}`);
+});
+
+test("docs: agent status query is read-only, requires both ids and shares the run status contract", () => {
+  const doc = buildOpenApiDocument();
+  type Operation = {
+    description?: string;
+    security?: unknown[];
+    parameters?: { name: string; in: string; required: boolean; schema: JsonSchema }[];
+    responses: Record<string, { content?: Record<string, { schema?: JsonSchema }> }>;
+  };
+  const paths = doc.paths as unknown as Record<string, Record<string, Operation>>;
+  const operation = paths["/api/agent/status"]!.get!;
+  assert.deepEqual(operation.security, [{ bearerAuth: [] }]);
+  assert.deepEqual(
+    operation.parameters?.map(({ name, in: location, required }) => ({ name, in: location, required })),
+    [
+      { name: "threadId", in: "query", required: true },
+      { name: "runId", in: "query", required: true },
+    ],
+    "both ids are required query parameters; no undeclared parameters",
+  );
+  assert.match(operation.description ?? "", /只读/);
+  assert.match(operation.description ?? "", /运行结束后的最终终态/);
+  assert.match(operation.description ?? "", /普通 chat 可能没有登记 Activity[\s\S]*activityId 为 null/);
+  assert.match(operation.description ?? "", /GET \/api\/activities/);
+  assert.match(operation.description ?? "", /不建立会话、不创建目录/);
+  assert.match(operation.description ?? "", /instanceId/);
+  assert.match(operation.description ?? "", /revision/);
+  assert.match(operation.description ?? "", /运行不存在或已被清理返回 404/);
+
+  const response = responseSchema(operation as never);
+  assert.deepEqual(Object.keys(response.properties ?? {}).sort(), ["instanceId", "status"]);
+  assert.deepEqual([...(response.required ?? [])].sort(), ["instanceId", "status"]);
+  assert.equal(response.additionalProperties, false);
+  assert.equal(response.properties?.instanceId?.format, "uuid");
+  const status = response.properties?.status;
+  assert.equal(status?.additionalProperties, false);
+  assert.deepEqual(status?.properties?.status?.enum, ["running", "succeeded", "failed", "cancelled"]);
+  assert.deepEqual(nullableTypes(status?.properties?.activityId), ["null", "string"]);
+  assert.match(status?.properties?.activityId?.description ?? "", /普通 chat 未登记活动时为 null/);
+  // 运行状态只携带审批 ID 引用，不内嵌审批完整视图（完整内容走 approval_pending / 详情接口）。
+  assert.equal(status?.properties?.pendingApprovalIds?.items?.type, "string");
+  assert.match(status?.properties?.pendingApprovalIds?.description ?? "", /approval_pending/);
+  assert.doesNotMatch(JSON.stringify(status), /"preview"/, "run status must not embed approval preview");
+  // 运行状态与 ready/agent_status_updated 共用同一 schema，避免三处字段漂移。
+  const events = paths["/api/events"]!.get!.responses["200"] as unknown as {
+    "x-sse-events": Record<string, { schema: JsonSchema }>;
+  };
+  assert.deepEqual(events["x-sse-events"]?.ready?.schema.properties?.agentStatuses?.items, status);
+  // 增量事件 = 同一运行状态 + 顶层 instanceId；只比较业务字段，避免锁死 $ref/内联写法。
+  const updated = events["x-sse-events"]?.agent_status_updated?.schema;
+  assert.equal(updated?.additionalProperties, false);
+  assert.deepEqual(
+    Object.keys(updated?.properties ?? {}).filter((key) => key !== "instanceId").sort(),
+    Object.keys(status?.properties ?? {}).sort(),
+  );
+  assert.equal(updated?.properties?.instanceId?.format, "uuid");
+});
+
+test("docs: snapshot points approvals at the SSE stream and keeps the existing read aggregation", () => {
+  const doc = buildOpenApiDocument();
+  const snapshot = doc.paths["/api/agent"].get as unknown as { description: string };
+  assert.match(snapshot.description, /GET \/api\/events/);
+  assert.match(snapshot.description, /ready\.pendingApprovals/);
+  assert.doesNotMatch(snapshot.description, /GET \/api\/actions\/pending/);
+  // 快照读取仍保留既有聚合，不因审批迁移顺带删除。
+  const schema = responseSchema(snapshot as never);
+  assert.deepEqual(Object.keys(schema.properties ?? {}).sort(), ["goals", "identity", "memories", "monitors", "tasks"]);
+});
 test("docs: /openapi.json and /docs are served without auth", async (t) => {
   const model = await createFakeModel();
   const dataDir = await mkdtemp(join(tmpdir(), "personal-bot-docs-"));
@@ -592,9 +779,10 @@ test("docs: /openapi.json and /docs are served without auth", async (t) => {
   const liveDesc = String(liveOp.description ?? "");
   assert.match(liveDesc, /Authorization[\s\S]*Bearer/i, "live description 应说明 Authorization: Bearer");
   assert.match(liveDesc, /event:[\s\S]*?data:/i, "live description 应说明 event:/data: 帧格式");
-  assert.match(liveDesc, /\{\}/, "live description 应说明 data 载荷为空对象");
+  assert.match(liveDesc, /agent_status_updated[\s\S]*approval_pending[\s\S]*approval_updated/i, "live description 应说明四类事件");
   assert.match(liveDesc, /keep-alive/i, "live description 应说明 : keep-alive 心跳");
   assert.match(liveDesc, /Last-Event-ID/, "live description 应说明无 Last-Event-ID / 不重放");
+  assert.doesNotMatch(liveDesc, /workspace_updated|actions_updated/, "旧失效通知事件不得保留");
 });
 
 test("docs: live GET responses parse against registry schemas (no drift)", async (t) => {
@@ -615,9 +803,12 @@ test("docs: live GET responses parse against registry schemas (no drift)", async
     }),
   );
   const headers = { Authorization: `Bearer ${service.auth.login()}` };
+  // 无路径参数、无必填查询参数的 GET 才可直接请求；/api/agent/status 需要 threadId+runId，
+  // 单独在下方验证其 400/404 语义，不能用一个缺参请求冒充成功响应。
   const cases: { path: string }[] = endpoints
-    .filter((e) => e.method === "get" && !e.path.includes(":") && e.path !== "/api/health" || e.path === "/api/health")
+    .filter((e) => e.method === "get" && !e.path.includes(":") || e.path === "/api/health")
     .filter((e) => !e.sse) // SSE 端点响应是流，不是 JSON schema；safeParse 不适用
+    .filter((e) => e.path !== "/api/agent/status")
     .map((e) => ({ path: e.path }));
   // conversation 需要查询参数；单独加。
   for (const { path } of cases) {
@@ -627,6 +818,18 @@ test("docs: live GET responses parse against registry schemas (no drift)", async
     const parsed = endpoint.response.safeParse(await response.json());
     assert.ok(parsed.success, `${path} response drifted from schema: ${parsed.success ? "" : JSON.stringify(parsed.error.issues).slice(0, 200)}`);
   }
+  // 运行状态查询：缺参 400、未声明参数 400、不存在的 run 404；均不得建立会话或目录。
+  for (const query of ["", "?threadId=local-main", "?runId=run-1", "?threadId=local-main&runId=run-1&extra=1"]) {
+    const response = await service.app.request(`/api/agent/status${query}`, { headers });
+    assert.equal(response.status, 400, `/api/agent/status${query} should be 400`);
+  }
+  const missingStatus = await service.app.request("/api/agent/status?threadId=local-main&runId=missing-run", { headers });
+  assert.equal(missingStatus.status, 404);
+  assert.equal(typeof ((await missingStatus.json()) as { error?: unknown }).error, "string");
+  const approvalPage = await service.app.request("/api/approvals", { headers });
+  assert.equal(approvalPage.status, 200);
+  const approvalEndpoint = endpoints.find((e) => e.path === "/api/approvals" && e.method === "get")!;
+  assert.ok(approvalEndpoint.response.safeParse(await approvalPage.json()).success, "empty approval page must match schema");
   const conv = await service.app.request("/api/conversation?threadId=local-main", { headers });
   assert.equal(conv.status, 200);
   const convEndpoint = endpoints.find((e) => e.path === "/api/conversation")!;

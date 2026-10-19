@@ -1639,10 +1639,10 @@ test("subagent: write approval is owned by the parent run and Stop cancels child
   t.after(h.close);
   const run = input([user("请子代理写入草稿")], "child-write");
   const pendingRun = h.events(run);
-  let action: { id: string; status: string; threadId?: string; runId?: string } | undefined;
+  let action: Awaited<ReturnType<ReturnType<typeof h.service>["actions"]["snapshotPending"]>>[number] | undefined;
   for (let i = 0; i < 500; i++) {
-    const state = await h.request("/api/actions/pending").then((response) => response.json());
-    action = state.actions[0];
+    // 待审批不再有 HTTP 列表接口：等待使用审批域只读快照，不伪造第二套状态。
+    action = (await h.service().actions.snapshotPending())[0];
     if (action) break;
     await sleep(10);
   }
@@ -1653,8 +1653,10 @@ test("subagent: write approval is owned by the parent run and Stop cancels child
   assert.equal((await stopped.json()).stopped, true);
   const events = await pendingRun;
   assert.equal(events.at(-1)?.type, "RUN_ERROR");
-  const settled = await h.request(`/api/actions/${action.id}`).then((response) => response.json());
+  const settled = await h.request(`/api/approvals/${action.id}`).then((response) => response.json());
   assert.equal(settled.status, "cancelled");
+  assert.equal(settled.revision, 2);
+  assert.equal(settled.decidedAt, null);
   for (const directory of await readdir(join(h.dataDir, "workspace", "threads"))) {
     if (directory.startsWith("subagent-")) await assert.rejects(readFile(join(h.dataDir, "workspace", "threads", directory, "draft.md")), { code: "ENOENT" });
   }
@@ -1737,9 +1739,9 @@ test("write approval gate: approve writes the file, deny and boundary paths beha
   const h = await harness();
   t.after(h.close);
   const pendingNotifications = async () => {
-    const pending = await h.request("/api/actions/pending").then((x) => x.json());
-    return (pending.actions as { id: string; kind: string; title: string; status: string }[])
-      .filter((x) => x.status === "pending");
+    // 待审批不再有 HTTP 列表接口；这里使用审批域只读快照作为等待条件，
+    // HTTP 决定仍走新协议 POST /api/approvals/:id/decision。
+    return h.service().actions.snapshotPending();
   };
   // 1) approve：run 挂起等待审批 → 批准 → 文件落盘 → 模型继续。
   const run1 = h.events(input([user("帮我写入草稿")], "write-ok"));
@@ -1750,7 +1752,7 @@ test("write approval gate: approve writes the file, deny and boundary paths beha
   }
   assert.ok(action, "write tool should create a pending action");
   assert.equal(
-    (await h.request(`/api/actions/${action.id}/decide`, { decision: "approve" })).status,
+    (await h.request(`/api/approvals/${action.id}/decision`, { decision: "approve" })).status,
     200,
   );
   const ev1 = await run1;
@@ -1760,7 +1762,13 @@ test("write approval gate: approve writes the file, deny and boundary paths beha
   assert.ok(
     ev1.filter((x) => x.type === "TEXT_MESSAGE_CONTENT").map((x) => (x as { delta?: string }).delta ?? "").join("").startsWith("write reply:"),
   );
-  assert.equal(await h.request(`/api/actions/${action.id}/decide`, { decision: "deny" }).then((x) => x.status), 409);
+  // 相反决定与已处理审批一律 409；响应携带当前完整审批视图，revision 不再推进。
+  const conflict = await h.request(`/api/approvals/${action.id}/decision`, { decision: "deny" });
+  assert.equal(conflict.status, 409);
+  const conflictBody = await conflict.json();
+  assert.equal(conflictBody.approval.id, action.id);
+  assert.equal(conflictBody.approval.status, "approved");
+  assert.equal(conflictBody.approval.revision, 2);
   // 2) deny：拒绝后文件不变，模型收到受控拒绝文案并正常收尾。
   const before = await readFile(join(threadWorkspaceDir(h.service().layout, "local-main"), "draft.md"), "utf8");
   const run2 = h.events(input([...(await h.getHistory()), user("再写入一次")], "write-deny"));
@@ -1771,7 +1779,7 @@ test("write approval gate: approve writes the file, deny and boundary paths beha
     action2 = list.find((x) => x.id !== action!.id);
   }
   assert.ok(action2);
-  await h.request(`/api/actions/${action2.id}/decide`, { decision: "deny" });
+  await h.request(`/api/approvals/${action2.id}/decision`, { decision: "deny" });
   const ev2 = await run2;
   assert.equal(ev2.at(-1)?.type, "RUN_FINISHED");
   assert.equal(await readFile(join(threadWorkspaceDir(h.service().layout, "local-main"), "draft.md"), "utf8"), before);
@@ -1783,7 +1791,7 @@ test("write approval gate: approve writes the file, deny and boundary paths beha
     const list = await pendingNotifications();
     action3 = list.find((x) => x.id !== action2!.id);
   }
-  await h.request(`/api/actions/${action3!.id}/decide`, { decision: "approve" });
+  await h.request(`/api/approvals/${action3!.id}/decision`, { decision: "approve" });
   assert.equal((await run3).at(-1)?.type, "RUN_FINISHED");
   assert.match(
     await readFile(join(threadWorkspaceDir(h.service().layout, "local-main"), "draft.md"), "utf8"),

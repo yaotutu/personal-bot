@@ -50,10 +50,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
 
   const auth = await createAuth(config, layout);
   const workspaceEvents = createWorkspaceEvents();
-  const workspaceChanged = () => workspaceEvents.invalidate("workspace_updated");
-  // identity 与 memory 共享同一文档和读改写队列；业务入口分开不等于写入者分开。
-  // 提交回调位于共享 repository，覆盖对话工具、HTTP 和后台执行，不依赖哪个入口调用。
-  const memoryRepository = createMemoryRepository(layout.memoryFile, workspaceChanged);
+  const memoryRepository = createMemoryRepository(layout.memoryFile);
   const memory = createMemoryService(memoryRepository);
   const identity = createIdentityService(memoryRepository, {
     // SOUL/USER 文件实现放 storage adapter；空内容写空文件（等于清空人设）。
@@ -61,7 +58,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     write: (which, content) =>
       writeProfileFile(which === "soul" ? layout.soulFile : layout.userFile, content),
   });
-  const jobs = createJobService(createJobRepository(layout.jobsFile, workspaceChanged));
+  const jobs = createJobService(createJobRepository(layout.jobsFile));
   await jobs.reconcileOnStart();
   const presentation = createToolPresentation(config.presentation);
   await ensureThreadLayout(layout);
@@ -78,9 +75,9 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
         maxContentChars: config.web.maxContentChars,
       })
     : undefined;
-  const goals = createGoalService(createGoalRepository(layout.goalsFile, workspaceChanged));
-  const actions = createActionService(createActionRepository(layout.actionsFile, () => workspaceEvents.invalidate("actions_updated")));
-  const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile, workspaceChanged));
+  const goals = createGoalService(createGoalRepository(layout.goalsFile));
+  const actions = createActionService(createActionRepository(layout.actionsFile), { onChange: (action) => workspaceEvents.approvalChanged(action) });
+  const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile));
   const skills = createSkillsService(createSkillRepository(layout));
 
   // 多会话：每个 thread 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
@@ -120,14 +117,20 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     async (threadId) => {
       const { manager, history, activities } = await createSessionHistory(layout, threadId, presentation);
       return createConversation(config, {
+        threadId,
         history,
         activities,
-        openSession: async ({ runId, activity }) => createPiExecution(
+        beginStatus: (input) => workspaceEvents.beginRun(input),
+        cancelApprovals: async (ownerThreadId, runId) => {
+          for (const action of await actions.list()) if (action.threadId === ownerThreadId && action.runId === runId && action.status === "pending") await actions.cancel(action.id);
+        },
+        openSession: async ({ runId, activity, status }) => createPiExecution(
           await openPi({
             config,
             threadId,
             runId,
             activity,
+            status,
             presentation,
             modelRuntime,
             layout,
@@ -173,6 +176,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   try {
     await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list()]);
     await actions.cancelPending();
+    workspaceEvents.seedApprovals(await actions.list());
   } catch (error) {
     await conversationHub.closeAll();
     throw error;
@@ -184,6 +188,13 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     mainConversation, (threadId) => conversationHub.findThread(threadId),
   );
   let closed = false;
+  let approvalExpiry: Promise<unknown> | undefined;
+  const approvalTimer = setInterval(() => {
+    if (!closed && !approvalExpiry) {
+      approvalExpiry = actions.expirePending().catch(() => undefined).finally(() => { approvalExpiry = undefined; });
+    }
+  }, 1_000);
+  approvalTimer.unref();
   let closing: Promise<void> | undefined;
   const requests = new Set<Promise<void>>();
   const lifecycle = {
@@ -201,12 +212,14 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
     closed = true;
+    clearInterval(approvalTimer);
     // 全局通知没有执行取消语义；先结束长连接，避免 HTTP server 等待它们而无法退出。
     workspaceEvents.close();
     const stopped = [scheduler.close(), monitorScheduler.close(), conversationHub.closeAll()];
     closing = (async () => {
       const results = await Promise.allSettled(stopped);
       await Promise.all([...requests]);
+      await approvalExpiry;
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
     })();
