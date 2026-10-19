@@ -7,12 +7,12 @@ import {
 
 /** 把 typed cursor 与生成时的过滤条件编码成不透明 base64url；只在 HTTP 适配层使用。 */
 export const encodeApprovalCursor = (
-  cursor: { decidedAt: string; id: string },
+  cursor: { resolvedAt: string; id: string },
   filter: ApprovalFilter,
 ): string =>
   Buffer.from(
     JSON.stringify({
-      decidedAt: cursor.decidedAt,
+      resolvedAt: cursor.resolvedAt,
       id: cursor.id,
       ...(filter.threadId !== undefined ? { threadId: filter.threadId } : {}),
       ...(filter.activityId !== undefined ? { activityId: filter.activityId } : {}),

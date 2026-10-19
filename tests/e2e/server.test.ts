@@ -8,7 +8,8 @@ import { createFakeModel } from "../support/fake-model.js";
 import { createServiceProcess } from "../support/service-process.js";
 import { createTestClient, waitForTest } from "../support/http-client.js";
 import { agentSnapshot } from "../../src/http/contracts/responses.js";
-import { pendingApprovalsResponse } from "../../src/http/contracts/approvals.js";
+import { approvalView } from "../../src/http/contracts/approvals.js";
+import { workspaceEvents } from "../../src/http/contracts/workspace-events.js";
 
 const fixture = async (t: TestContext) => {
   let model: Awaited<ReturnType<typeof createFakeModel>> | undefined;
@@ -90,9 +91,14 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
   test(`e2e: subagent file approval ${decision} preserves ownership and filesystem truth`, { timeout: 90_000 }, async (t) => {
     const { service, client } = await fixture(t);
     const running = await client.startRun("请子代理写入", "e2e-approval");
-    const action = await waitForTest(async () => pendingApprovalsResponse.parse(await client.json("/api/approvals/pending")).approvals.find((item) => item.runId === running.runId), "child approval");
+    // 主同步来源仍为 SSE ready 的完整集合，HTTP pending 只是补充只读入口。
+    const action = await waitForTest(async () => (await client.pending()).find((item) => item.runId === running.runId), "child approval");
     assert.equal(action.threadId, running.threadId);
-    assert.match(action.payload.content, /DRAFT-CONTENT/);
+    assert.equal(action.revision, 1);
+    assert.match(action.preview.after, /DRAFT-CONTENT/);
+    assert.equal(action.preview.path, "draft.md");
+    assert.equal(action.preview.before, "");
+    assert.equal(action.preview.beforeExists, false);
     const childDir = (await readdir(join(service.dataDir, "workspace/threads"))).find((name) => name.startsWith("subagent-"));
     assert.ok(childDir);
     const target = join(service.dataDir, "workspace/threads", childDir, "draft.md");
@@ -102,13 +108,26 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
       const events = await running.done;
       assert.equal(events.at(-1)?.type, "RUN_ERROR");
     } else {
-      assert.equal((await client.request(`/api/approvals/${action.id}/decision`, { decision })).status, 200);
+      assert.equal((await client.decideApproval(action.id, decision)).status, 200);
       terminalSuccess(await running.done);
     }
-    assert.equal((await client.json(`/api/approvals/${action.id}`)).status, decision === "approve" ? "approved" : decision === "deny" ? "denied" : "cancelled");
-    if (decision === "approve") assert.equal(await readFile(target, "utf8"), action.payload.content);
+    const settled = await client.approval(action.id);
+    assert.equal(settled.status, decision === "approve" ? "approved" : decision === "deny" ? "denied" : "cancelled");
+    // 批准、执行开始、执行完成各推进 revision；拒绝/取消只有终态迁移。
+    assert.equal(settled.revision, decision === "approve" ? 4 : 2);
+    assert.equal(settled.execution?.status ?? null, decision === "approve" ? "succeeded" : null);
+    assert.ok(settled.resolvedAt);
+    assert.equal(settled.decidedAt === null, decision === "cancel");
+    if (decision === "approve") assert.equal(await readFile(target, "utf8"), action.preview.after);
     else await assert.rejects(stat(target), { code: "ENOENT" });
-    assert.deepEqual((await client.json("/api/approvals/pending")).approvals, []);
+    // 终态审批只出现在历史列表，pending 集合由 ready 给出且已为空。
+    assert.deepEqual(await client.pending(), []);
+    const page = await client.approvalPage(`?limit=1`);
+    assert.equal(page.approvals.length, 1);
+    assert.equal(page.approvals[0].id, action.id);
+    assert.equal(Object.hasOwn(page.approvals[0], "preview"), false);
+    assert.equal(page.hasMore, false);
+    assert.equal(page.nextCursor, null);
     terminalSuccess(await client.run("现在几点", running.threadId));
   });
 }
@@ -162,29 +181,129 @@ test("e2e: private workspaces stay isolated and deleted threads do not revive on
   await assert.rejects(stat(join(service.dataDir, "sessions/e2e-owner")), { code: "ENOENT" });
 });
 
-test("e2e: workspace named SSE matches its contract and SIGTERM ends open subscriptions", { timeout: 90_000 }, async (t) => {
-  const { service, token, client } = await fixture(t);
-  const controller = new AbortController();
-  t.after(() => controller.abort());
-  const stream = await fetch(service.baseUrl + "/api/events", { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
-  assert.match(stream.headers.get("Content-Type") ?? "", /text\/event-stream/);
-  const reader = stream.body!.getReader();
-  t.after(async () => { await reader.cancel().catch(() => undefined); });
-  let buffer = "";
-  const decoder = new TextDecoder();
-  const nextFrame = async () => {
+test("e2e: workspace named SSE pushes ready state and real run status without memory invalidation frames", { timeout: 90_000 }, async (t) => {
+  const { service, client } = await fixture(t);
+  const stream = await client.subscribeEvents();
+  t.after(async () => { await stream.close(); });
+  // ready 是首帧且直接携带完整当前集合，不再是空对象通知。
+  const readyFrame = await stream.next();
+  assert.equal(readyFrame?.event, "ready");
+  const ready = workspaceEvents.ready.parse(readyFrame!.data);
+  assert.equal(typeof ready.instanceId, "string");
+  assert.ok(Number.isFinite(Date.parse(ready.serverTime)));
+  assert.deepEqual(ready.agentStatuses, []);
+  assert.deepEqual(ready.pendingApprovals, []);
+  // 真实 run 期间必须收到 agent_status_updated（含终态），事件本身按各自 schema 校验。
+  const running = await client.startRun("现在几点", "e2e-events");
+  // 从事件流中取本轮终态帧；帧本身用契约 schema 校验，证明推送的是可展示状态而非空通知。
+  const terminal = await (async () => {
     for (;;) {
-      const boundary = buffer.indexOf("\n\n");
-      if (boundary !== -1) { const frame = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2); return frame; }
-      const value = await reader.read(); if (value.done) return null;
-      buffer += decoder.decode(value.value, { stream: true });
+      const frame = await stream.next();
+      assert.ok(frame, "event stream ended before the run terminal status");
+      assert.ok(["agent_status_updated", "approval_pending", "approval_updated"].includes(frame.event), `unexpected event ${frame.event}`);
+      if (frame.event === "agent_status_updated") {
+        const status = workspaceEvents.agent_status_updated.parse(frame.data);
+        if (status.runId === running.runId && status.status !== "running") return status;
+      }
     }
-  };
-  assert.equal(await nextFrame(), "event: ready\ndata: {}");
+  })();
+  terminalSuccess(await running.done);
+  assert.equal(terminal.phase, null);
+  assert.ok(terminal.endedAt);
+  // 记忆写入不再发失效通知；下一条业务帧应属于新 run 而不是 memory/workspace_updated。
   await client.json("/api/agent/memories", { text: "SSE-E2E" });
-  assert.equal(await nextFrame(), "event: workspace_updated\ndata: {}");
+  const nextRun = await client.startRun("现在几点", "e2e-events");
+  const next = await stream.next();
+  assert.equal(next?.event, "agent_status_updated");
+  assert.equal(workspaceEvents.agent_status_updated.parse(next!.data).runId, nextRun.runId);
+  // 排空本轮其余状态帧直到终态，避免把遗留增量误当作断流后的 EOF。
+  for (;;) {
+    const frame = await stream.next();
+    assert.ok(frame);
+    if (frame.event !== "agent_status_updated") continue;
+    const status = workspaceEvents.agent_status_updated.parse(frame.data);
+    if (status.runId === nextRun.runId && status.status !== "running") break;
+  }
+  terminalSuccess(await nextRun.done);
   const spec = await client.json("/openapi.json");
-  assert.deepEqual(Object.keys(spec.paths["/api/events"].get.responses["200"]["x-sse-events"]).sort(), ["actions_updated", "ready", "workspace_updated"]);
+  assert.deepEqual(Object.keys(spec.paths["/api/events"].get.responses["200"]["x-sse-events"]).sort(),
+    ["agent_status_updated", "approval_pending", "approval_updated", "ready"]);
+  // 结束服务应关闭长连接，客户端读到 EOF。
   await service.stop();
-  assert.equal(await nextFrame(), null);
+  assert.equal(await stream.next(), null);
+});
+
+test("e2e: ready carries a real approval, HTTP detail matches id/revision, reconnect loses nothing and terminal status survives disconnect", { timeout: 90_000 }, async (t) => {
+  const { service, client } = await fixture(t);
+  const first = await client.subscribeEvents();
+  t.after(async () => { await first.close(); });
+  assert.deepEqual(workspaceEvents.ready.parse((await first.next())!.data).pendingApprovals, []);
+  const running = await client.startRun("帮我写入草稿", "e2e-sse-approval");
+  let pending: ReturnType<typeof workspaceEvents.approval_pending.parse> | undefined;
+  let waiting: { pendingApprovalIds: string[]; phase: string | null } | undefined;
+  for (;;) {
+    const frame = await first.next();
+    assert.ok(frame, "event stream ended before approval_pending");
+    if (frame.event === "approval_pending") {
+      const approval = workspaceEvents.approval_pending.parse(frame.data);
+      if (approval.runId === running.runId) pending = approval;
+    } else if (frame.event === "agent_status_updated") {
+      const status = workspaceEvents.agent_status_updated.parse(frame.data);
+      if (status.runId === running.runId && status.phase === "waiting_approval") waiting = status;
+    }
+    if (pending && waiting) break;
+  }
+  assert.equal(pending.revision, 1);
+  assert.equal(pending.status, "pending");
+  assert.equal(pending.preview.path, "draft.md");
+  assert.equal(pending.preview.scope, "thread");
+  assert.equal(pending.preview.ownerThreadId, running.threadId);
+  assert.match(pending.preview.after, /DRAFT-CONTENT/);
+  assert.ok(waiting.pendingApprovalIds.includes(pending.id));
+  // HTTP 完整视图与 SSE 推送是同一 id、同一 revision、同一不可变预览。
+  const detail = approvalView.parse(await client.approval(pending.id));
+  assert.equal(detail.id, pending.id);
+  assert.equal(detail.revision, pending.revision);
+  assert.deepEqual(detail.preview, pending.preview);
+  // 断线重连以新 ready 为同步边界：待审批集合完整恢复，不依赖丢失的增量。
+  await first.close();
+  const second = await client.subscribeEvents();
+  t.after(async () => { await second.close(); });
+  const reconnected = workspaceEvents.ready.parse((await second.next())!.data);
+  assert.deepEqual(reconnected.pendingApprovals.map((item) => [item.id, item.revision]), [[pending.id, 1]]);
+  assert.deepEqual(reconnected.agentStatuses.map((item) => item.runId), [running.runId]);
+  assert.equal((await client.decideApproval(pending.id, "approve")).status, 200);
+  let settled: ReturnType<typeof workspaceEvents.approval_updated.parse> | undefined;
+  let terminal: { status: string; endedAt: string | null } | undefined;
+  for (;;) {
+    const frame = await second.next();
+    assert.ok(frame, "event stream ended before the run terminal status");
+    if (frame.event === "approval_updated") {
+      const approval = workspaceEvents.approval_updated.parse(frame.data);
+      if (approval.id === pending.id) settled = approval;
+    } else if (frame.event === "agent_status_updated") {
+      const status = workspaceEvents.agent_status_updated.parse(frame.data);
+      if (status.runId === running.runId && status.status !== "running") terminal = status;
+    }
+    if (settled && terminal) break;
+  }
+  // 轻量投影记录真实执行回执，最终 revision=4；不包含 preview/title。
+  assert.equal(settled.status, "approved");
+  assert.equal(settled.revision, 4);
+  assert.equal(settled.execution?.status, "succeeded");
+  assert.ok(settled.decidedAt && settled.resolvedAt);
+  assert.equal(Object.hasOwn(settled, "preview"), false);
+  assert.equal(Object.hasOwn(settled, "title"), false);
+  terminalSuccess(await running.done);
+  assert.equal(terminal.status, "succeeded");
+  // 本轮新增输出与落盘结果都可读；断线后运行终态仍能通过 GET /api/agent/status 取回。
+  const history = await client.history(running.threadId);
+  assert.match(JSON.stringify(history), /DRAFT-CONTENT|write reply:/);
+  assert.equal(await readFile(join(service.dataDir, "workspace/threads/e2e-sse-approval/draft.md"), "utf8"),
+    pending.preview.after);
+  await second.close();
+  const final = await client.json(`/api/agent/status?threadId=${encodeURIComponent(running.threadId)}&runId=${encodeURIComponent(running.runId)}`);
+  assert.equal(final.status.status, "succeeded");
+  assert.equal(final.status.endedAt, terminal.endedAt);
+  assert.deepEqual(final.status.pendingApprovalIds, []);
 });

@@ -4,20 +4,16 @@ import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { link, lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { ActionService } from "../../../features/actions/action-service.js";
+import { ApprovalCapacityError, type ActionService } from "../../../features/actions/action-service.js";
 import type { ActivityObservation } from "../../../features/activities/types.js";
 import { resolveWorkspacePath, safeWorkspacePath } from "./workspace-path.js";
 
 const MAX_BYTES = 100_000;
 const POLL_INTERVAL_MS = 2_000;
-type ApprovalContext = { threadId?: string; runId?: string; activityId?: string; toolCallId?: string };
+type ApprovalContext = { threadId?: string; runId?: string; toolCallId?: string; subagentId?: string; workspaceThreadId?: string; activityId?: (() => string | null) | string };
 type Actions = Pick<ActionService, "submit" | "poll" | "cancel" | "markExecuting" | "finishExecution">;
 type Snapshot = { content: string; version: string };
-export type ActivityToolObservation = {
-  observe: (event: ActivityObservation) => void;
-  prefix: string;
-  getActivityId?: () => string | undefined;
-};
+export type ActivityToolObservation = { observe: (event: ActivityObservation) => void; prefix: string; getActivityId?: () => string | undefined };
 
 /** 同一物理 workspace 的不同工具工厂共用队列；审批等待不占锁，只有提交串行化。 */
 const commits = new Map<string, Promise<void>>();
@@ -81,7 +77,10 @@ const awaitApproval = async (
   signal?.addEventListener("abort", wakeAbort, { once: true });
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const action = await actions.submit(kind, title, payload, { ...context, timeoutMs });
+    const action = await actions.submit(kind, title, payload, {
+      ...context, timeoutMs,
+      activityId: typeof context?.activityId === "function" ? context.activityId() : context?.activityId,
+    });
     observe?.({
       id: `approval:${action.id}`,
       kind: "approval",
@@ -144,6 +143,9 @@ const awaitApproval = async (
       ]);
       clearTimeout(timer);
     }
+  } catch (error) {
+    if (error instanceof ApprovalCapacityError) return undefined;
+    throw error;
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", wakeAbort);
@@ -226,8 +228,8 @@ export const createWritableFileTools = (
       // 保存完整原文和新内容供 UI 比较，不再用截断 preview 隐藏真正的写入内容。
       const approved = await awaitApproval(actions, "file_write", `写入 ${params.path}`, {
         path: params.path, content: params.content, originalContent: original?.content ?? "",
-        baseVersion: original?.version ?? "missing",
-      }, timeoutMs, signal, { ...context, toolCallId: _id, activityId: observation?.getActivityId?.() ?? context?.activityId }, observation ? (event) => observation.observe({
+        baseVersion: original?.version ?? "missing", beforeExists: String(original !== undefined),
+      }, timeoutMs, signal, { ...context, toolCallId: _id }, observation ? (event) => observation.observe({
         ...event, id: `${observation.prefix}:${event.id}`, parentId: `${observation.prefix}:tool:${_id}`,
       }) : undefined);
       if (approved === undefined) return denied("Write not approved (denied, expired or cancelled); nothing was written.");
@@ -261,8 +263,8 @@ export const createWritableFileTools = (
         return denied("File too large: edited files are limited to 100KB.");
       const approved = await awaitApproval(actions, "file_edit", `编辑 ${params.path}`, {
         path: params.path, oldText: params.oldText, newText: params.newText,
-        originalContent: original.content, content, baseVersion: original.version,
-      }, timeoutMs, signal, { ...context, toolCallId: _id, activityId: observation?.getActivityId?.() ?? context?.activityId }, observation ? (event) => observation.observe({
+        originalContent: original.content, content, baseVersion: original.version, beforeExists: "true",
+      }, timeoutMs, signal, { ...context, toolCallId: _id }, observation ? (event) => observation.observe({
         ...event, id: `${observation.prefix}:${event.id}`, parentId: `${observation.prefix}:tool:${_id}`,
       }) : undefined);
       if (approved === undefined) return denied("Edit not approved (denied, expired or cancelled); nothing was written.");

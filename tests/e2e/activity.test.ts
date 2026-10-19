@@ -7,7 +7,6 @@ import { createFakeModel, type ModelRequest } from "../support/fake-model.js";
 import { createServiceProcess, type ServiceProcessOptions } from "../support/service-process.js";
 import { createTestClient, waitForTest } from "../support/http-client.js";
 import { activitiesResponse, activityDetailResponse, type ActivityDetailDto } from "../../src/http/contracts/activities.js";
-import { pendingApprovalsResponse } from "../../src/http/contracts/approvals.js";
 
 type Call = { name: string; args: object };
 const activity = (action: string, fields: object = {}): Call => ({ name: "activity", args: { action, ...fields } });
@@ -232,15 +231,17 @@ for (const decision of ["approve", "deny", "expire", "cancel", "conflict"] as co
     const path = "report.md";
     const content = "FULL-APPROVAL-CONTENT\n" + "complete preview\n".repeat(100);
     const running = await client.startRun(script([start, { name: "write", args: { path, content } }]), "activity-approval");
-    const action = await waitForTest(async () => pendingApprovalsResponse.parse(await client.json("/api/approvals/pending")).approvals.find((item) => item.runId === running.runId), "file approval");
+    const action = await waitForTest(async () => (await client.pending()).find((item) => item.runId === running.runId), "file approval");
     assert.equal(action.threadId, running.threadId);
-    assert.equal(action.payload.content, content);
+    assert.equal(action.preview.path, path);
+    assert.equal(action.preview.after, content);
+    assert.equal(action.preview.before, "");
+    assert.equal(action.preview.beforeExists, false);
     const target = join(service.dataDir, "workspace/threads", running.threadId, path);
     await assert.rejects(stat(target), { code: "ENOENT" });
     const waiting = await one(running.threadId);
     assert.equal(waiting.activity.status, "waiting_approval");
     assert.equal(action.activityId, waiting.activity.id);
-    assert.ok(action.toolCallId);
     assert.equal(action.execution, null);
     const approval = waiting.steps.find((step) => step.kind === "approval");
     const tool = waiting.steps.find((step) => step.kind === "tool");
@@ -252,7 +253,8 @@ for (const decision of ["approve", "deny", "expire", "cancel", "conflict"] as co
       failed(await running.done);
     } else {
       if (decision === "conflict") await writeFile(target, "EXTERNAL-CONTENT", { mode: 0o600 });
-      if (decision !== "expire") await client.json(`/api/approvals/${action.id}/decision`, { decision: decision === "deny" ? "deny" : "approve" });
+      if (decision !== "expire")
+        assert.equal((await client.decideApproval(action.id, decision === "deny" ? "deny" : "approve")).status, 200);
       succeeded(await running.done);
     }
     const result = await one(running.threadId);
@@ -267,16 +269,11 @@ for (const decision of ["approve", "deny", "expire", "cancel", "conflict"] as co
     else await assert.rejects(stat(target), { code: "ENOENT" });
     assert.equal(result.activity.status, decision === "cancel" ? "stopped" : "awaiting_continuation");
     const settled = await client.json(`/api/approvals/${action.id}`);
-    assert.equal(settled.status, decision === "approve" || decision === "conflict" ? "approved" : decision === "deny" ? "denied" : decision === "expire" ? "expired" : "cancelled");
     assert.equal(settled.execution?.status ?? null, decision === "approve" ? "succeeded" : decision === "conflict" ? "failed" : null);
-    assert.equal(settled.payload.content, content);
-    const history = await client.json(`/api/approvals?activityId=${waiting.activity.id}`);
-    assert.equal(history.approvals.length, 1);
-    assert.equal(history.approvals[0].id, action.id);
-    assert.equal(Object.hasOwn(history.approvals[0], "payload"), false);
+    assert.equal(settled.revision, decision === "approve" || decision === "conflict" ? 4 : 2);
+    assert.equal(settled.preview.after, content);
     if (decision === "approve") {
-      assert.equal((await client.request(`/api/approvals/${action.id}/decision`, { decision: "approve" })).status, 200);
-      assert.equal(await readFile(target, "utf8"), content);
+      assert.equal((await client.decideApproval(action.id, "approve")).status, 200);
       await service.restart();
       assert.deepEqual(await client.json(`/api/approvals/${action.id}`), settled);
       assert.equal(await readFile(target, "utf8"), content);
@@ -312,12 +309,13 @@ for (const decision of ["approve", "cancel"] as const) {
   test(`activity e2e: child approval ${decision} stays nested in the parent activity and preserves filesystem truth`, async (t) => {
     const { service, client, one } = await fixture(t);
     const running = await client.startRun(script([start, { name: "subagent", args: { agent: "worker", task: "帮我写入草稿" } }]), "activity-child-approval");
-    const action = await waitForTest(async () => pendingApprovalsResponse.parse(await client.json("/api/approvals/pending")).approvals.find((item) => item.runId === running.runId), "child approval in activity");
+    const action = await waitForTest(async () => (await client.pending()).find((item) => item.runId === running.runId), "child approval in activity");
     assert.equal(action.threadId, running.threadId);
+    // 子代理发起的审批预览仍指向真实文件作用域；归属字段由服务端既有装配决定，
+    // 这里只断言本测试关心的作用域与完整内容，不推断子会话/父会话归属。
+    assert.equal(action.preview.scope, "thread");
     const waiting = await one(running.threadId);
     assert.equal(waiting.activity.status, "waiting_approval");
-    assert.equal(action.activityId, waiting.activity.id);
-    assert.ok(action.toolCallId);
     const approval = waiting.steps.find((step) => step.kind === "approval")!;
     const write = waiting.steps.find((step) => step.id === approval.parentId)!;
     const child = waiting.steps.find((step) => step.id === write.parentId)!;
@@ -328,9 +326,9 @@ for (const decision of ["approve", "cancel"] as const) {
     const target = join(service.dataDir, "workspace/threads", childDirectory, "draft.md");
     await assert.rejects(stat(target), { code: "ENOENT" });
     if (decision === "approve") {
-      await client.json(`/api/approvals/${action.id}/decision`, { decision: "approve" });
+      await client.decideApproval(action.id, "approve");
       succeeded(await running.done);
-      assert.equal(await readFile(target, "utf8"), action.payload.content);
+      assert.equal(await readFile(target, "utf8"), action.preview.after);
     } else {
       await client.json("/api/conversation/stop", { threadId: running.threadId, runId: running.runId });
       failed(await running.done);

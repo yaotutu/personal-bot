@@ -42,7 +42,8 @@ test("approval client uses the new routes and validates the pending envelope ins
   });
   const approval = {
     id: "approval-1", kind: "file_write", title: "Write draft",
-    payload: { path: "draft.md", content: "complete preview" }, status: "pending",
+    preview: { scope: "thread", ownerThreadId: "local-main", path: "draft.md", before: "", after: "complete preview", beforeExists: false }, status: "pending",
+    revision: 1, threadId: "local-main", runId: null, activityId: null, toolCallId: null, subagentId: null, workspaceThreadId: "local-main", resolvedAt: null, decidedAt: null,
     createdAt: "2026-10-19T00:00:00.000Z", expiresAt: "2026-10-19T00:05:00.000Z", execution: null,
   };
   const requests: Array<{ path: string; init?: RequestInit }> = [];
@@ -57,7 +58,8 @@ test("approval client uses the new routes and validates the pending envelope ins
   assert.equal(requests[0].path, "/api/approvals/pending");
   assert.equal(requests[0].init?.signal, controller.signal);
   assert.equal(new Headers(requests[0].init?.headers).get("Authorization"), "Bearer test-token");
-  assert.equal(await decideApproval(approval.id, "approve", controller.signal), true);
+  body = { ...approval, status: "approved", revision: 2 };
+  assert.deepEqual(await decideApproval(approval.id, "approve", controller.signal), body);
   assert.equal(requests[1].path, "/api/approvals/approval-1/decision");
   assert.equal(requests[1].init?.method, "POST");
   assert.deepEqual(JSON.parse(String(requests[1].init?.body)), { decision: "approve" });

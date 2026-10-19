@@ -34,6 +34,43 @@ const queryParams = (query: z.ZodType) => {
   }));
 };
 
+/**
+ * 通用错误形状：鉴权、参数与业务冲突共用 {error}。具体业务状态码（如 409 携带
+ * 当前审批视图）由端点声明的 errorResponses 覆盖；这里只补未声明的兜底。
+ */
+const genericErrorSchema = {
+  type: "object",
+  properties: { error: { type: "string" } },
+  required: ["error"],
+};
+
+const errorResponses = (
+  endpoint: (typeof endpoints)[number],
+): Record<string, unknown> => {
+  const responses: Record<string, unknown> = {};
+  if (endpoint.auth) {
+    responses["401"] = {
+      description: "未鉴权或 token 失效；先 POST /api/session 重新登录",
+      content: { "application/json": { schema: genericErrorSchema } },
+    };
+  }
+  for (const [code, spec] of Object.entries(endpoint.errorResponses ?? {})) {
+    responses[code] = {
+      description: spec.description,
+      content: { "application/json": { schema: toSchema(spec.schema, "output") } },
+    };
+  }
+  // 端点未声明任何业务错误时保留 4xx 兜底；已声明的具体状态码不再被范围覆盖，
+  // 避免文档里同一错误出现两套互不一致的 schema。
+  if (!endpoint.errorResponses) {
+    responses["4xx"] = {
+      description: "客户端错误（401/400/404/409，见各端点描述）",
+      content: { "application/json": { schema: genericErrorSchema } },
+    };
+  }
+  return responses;
+};
+
 export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) => {
   const paths: Record<string, Record<string, unknown>> = {};
   for (const endpoint of endpoints) {
@@ -72,8 +109,8 @@ export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) =
         },
         // SSE 端点同样可能返回鉴权/参数错误（握手阶段）；只补通用错误形状，不引入业务细节。
         "4xx": {
-          description: "客户端错误（401 未鉴权、400 参数非法、404 资源不存在）",
-          content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } }, required: ["error"] } } },
+          description: "客户端错误（401 未鉴权、400 参数非法、404 资源不存在、429 连接数超限）",
+          content: { "application/json": { schema: genericErrorSchema } },
         },
       };
     } else {
@@ -82,11 +119,7 @@ export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) =
           description: "成功",
           content: { "application/json": { schema: toSchema(endpoint.response, "output") } },
         },
-        // 通用错误形状：401 未登录/过期，400 请求非法，404 目标不存在，409 状态冲突。
-        "4xx": {
-          description: "客户端错误（401/400/404/409，见各端点描述）",
-          content: { "application/json": { schema: { type: "object", properties: { error: { type: "string" } }, required: ["error"] } } },
-        },
+        ...errorResponses(endpoint),
       };
     }
     paths[openapiPath] = { ...(paths[openapiPath] ?? {}), [endpoint.method]: operation };

@@ -2,7 +2,8 @@ import { mkdir } from "node:fs/promises";
 import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { ensureThreadLayout, ensureThreadWorkspace, threadSessionsDir, threadWorkspaceDir, type DataLayout } from "../storage/data-layout.js";
 import type { ConversationHistoryPort } from "../../features/conversation/ports.js";
-import { RESULT_ENTRY_TYPE, TURN_ENTRY_TYPE, type ConversationTurn } from "../../features/conversation/types.js";
+import { AGENT_STATUS_ENTRY_TYPE, RESULT_ENTRY_TYPE, TURN_ENTRY_TYPE, type ConversationTurn } from "../../features/conversation/types.js";
+import type { AgentStatus } from "../../features/workspace/agent-status.js";
 import { createNotificationMessage, notificationIdOf } from "./notification-message.js";
 import { collectConversationRecords, projectConversationHistory } from "./history-projection.js";
 import type { ToolPresentation } from "../ag-ui/tool-presentation.js";
@@ -41,6 +42,9 @@ export const createSessionHistory = async (
       return presentation ? presentation.presentHistory(projected) : projected;
     },
     records: () => collectConversationRecords(manager.getBranch()),
+    appendAgentStatus: (status) => { manager.appendCustomEntry(AGENT_STATUS_ENTRY_TYPE, status); },
+    agentStatuses: () => manager.getBranch().filter((entry) => entry.type === "custom" && entry.customType === AGENT_STATUS_ENTRY_TYPE)
+      .map((entry) => (entry as { data: AgentStatus }).data),
     checkpoint: () => manager.getLeafId(),
     appendTurn: (turn) => { manager.appendCustomEntry(TURN_ENTRY_TYPE, turn); },
     appendNotification: (notification) => {

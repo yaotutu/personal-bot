@@ -75,34 +75,67 @@ export const readGoalsDocument = (
   return goals;
 };
 
-/** actions 保留裸数组和完整字符串预览；决定与执行分别校验，不能补造缺失的决定时间。 */
+/**
+ * actions 裸数组；状态机形状校验，payload 保留字符串键值（diff 预览用）。
+ *
+ * 当前 reader 只接受包含全部现行持久字段的记录：revision 必须为正整数，终态必须
+ * 有 resolvedAt，且只有人工 approved/denied 才允许 decidedAt。缺少新字段或状态与
+ * 时间字段矛盾的旧记录整体拒绝，不补默认值、不静默过滤，也不做隐式迁移。
+ */
 export const readActionsDocument = (
   value: unknown,
 ): import("../../features/actions/types.js").PendingAction[] => {
+  if (!Array.isArray(value)) throw new InvalidDocumentError("actions");
   const statuses = ["pending", "approved", "denied", "expired", "cancelled"];
   const kinds = ["file_write", "file_edit"];
-  const executionStatuses = ["running", "succeeded", "failed", "cancelled", "unknown"];
-  const isApprovalTime = (time: unknown): time is string => isDate(time) && new Date(time).toISOString() === time;
-  if (!Array.isArray(value) || !value.every((item) => {
-    if (!isObject(item) || typeof item.id !== "string" || !item.id || typeof item.title !== "string" ||
-      typeof item.kind !== "string" || !kinds.includes(item.kind) ||
-      typeof item.status !== "string" || !statuses.includes(item.status) ||
-      !isObject(item.payload) || !Object.values(item.payload).every((text) => typeof text === "string") ||
-      !isApprovalTime(item.createdAt) || !isApprovalTime(item.expiresAt) ||
-      (item.status === "pending" ? item.decidedAt !== undefined : !isApprovalTime(item.decidedAt)) ||
-      ![item.threadId, item.runId, item.activityId, item.toolCallId].every(optionalString)) return false;
+  const actionTime = (time: unknown): time is string => isDate(time) && new Date(time).toISOString() === time;
+  // 归属字段统一为 string|null；缺省同样视为损坏记录，不补默认值。
+  const nullableContext = (field: unknown) => field === null || typeof field === "string";
+  const isPayload = (field: unknown) =>
+    isObject(field) && Object.values(field).every((entry) => typeof entry === "string");
+  const validExecution = (item: Record<string, unknown>) => {
     if (item.execution === undefined) return true;
     const execution = item.execution;
     if (item.status !== "approved" || !isObject(execution) ||
-      typeof execution.status !== "string" || !executionStatuses.includes(execution.status) ||
-      !isApprovalTime(execution.startedAt) ||
-      !(execution.result === null || typeof execution.result === "string")) return false;
+      typeof execution.status !== "string" || !["running", "succeeded", "failed", "cancelled", "unknown"].includes(execution.status) ||
+      !actionTime(execution.startedAt) || !(execution.result === null || typeof execution.result === "string")) return false;
     if (execution.status === "running") return execution.finishedAt === null && execution.result === null;
-    return execution.status === "unknown"
-      ? execution.finishedAt === null || isApprovalTime(execution.finishedAt)
-      : isApprovalTime(execution.finishedAt);
-  })) throw new InvalidDocumentError("actions");
-  return value;
+    return execution.status === "unknown" ? execution.finishedAt === null : actionTime(execution.finishedAt);
+  };
+  const isStateConsistent = (item: Record<string, unknown>) => {
+    const terminal = item.status !== "pending";
+    if (!terminal) return item.resolvedAt === null && item.decidedAt === null;
+    if (!actionTime(item.resolvedAt)) return false;
+    // 只有人的批准/拒绝记录 decidedAt；过期和撤销保持 null。
+    return item.status === "approved" || item.status === "denied"
+      ? actionTime(item.decidedAt)
+      : item.decidedAt === null;
+  };
+  const list = value.filter(
+    (item): item is import("../../features/actions/types.js").PendingAction =>
+      isObject(item) &&
+      typeof item.id === "string" &&
+      typeof item.title === "string" &&
+      typeof item.kind === "string" &&
+      kinds.includes(item.kind) &&
+      typeof item.status === "string" &&
+      statuses.includes(item.status) &&
+      isPayload(item.payload) &&
+      typeof item.revision === "number" &&
+      Number.isInteger(item.revision) &&
+      item.revision >= 1 &&
+      actionTime(item.createdAt) &&
+      actionTime(item.expiresAt) &&
+      nullableContext(item.threadId) &&
+      nullableContext(item.runId) &&
+      nullableContext(item.toolCallId) &&
+      nullableContext(item.subagentId) &&
+      nullableContext(item.workspaceThreadId) &&
+      nullableContext(item.activityId) &&
+      isStateConsistent(item) && validExecution(item),
+  );
+  if (list.length !== value.length) throw new InvalidDocumentError("actions");
+  return list;
 };
 
 /** monitors 裸数组；条件/状态形状校验。 */

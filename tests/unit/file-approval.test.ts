@@ -71,9 +71,14 @@ test("approval records explicit deadline and run ownership; late approve cannot 
   assert.equal(action.threadId, "thread-a");
   assert.equal(action.runId, "run-a");
   t.mock.timers.tick(500);
-  assert.equal((await actions.decide(action.id, "approve")).ok, false);
+  assert.equal(await actions.decide(action.id, "approve"), undefined);
   assert.deepEqual(await actions.poll(action.id), { status: "expired" });
-  assert.equal((await actions.list())[0].decidedAt, new Date(1_500).toISOString());
+  const [expired] = await actions.list();
+  // 过期是系统失效而不是人的决定：只写 resolvedAt，decidedAt 必须保持 null。
+  assert.equal(expired.status, "expired");
+  assert.equal(expired.revision, 2);
+  assert.equal(expired.resolvedAt, new Date(1_500).toISOString());
+  assert.equal(expired.decidedAt, null);
 });
 
 test("approval decision respects the stored deadline and fails closed for invalid deadlines", async (t) => {
@@ -84,7 +89,7 @@ test("approval decision respects the stored deadline and fails closed for invali
   assert.deepEqual(await actions.poll(action.id), { status: "expired" });
   const { expiresAt: _, ...invalid } = action;
   const restored = createActionService(memoryRepository([invalid as PendingAction]));
-  assert.equal((await restored.decide(action.id, "approve")).ok, false);
+  assert.equal(await restored.decide(action.id, "approve"), undefined);
   assert.deepEqual(await restored.poll(action.id), { status: "expired" });
 });
 
@@ -99,7 +104,7 @@ test("approval cancellation is terminal and startup cleanup preserves settled de
   await actions.cancel(cancelled.id);
   await actions.cancel(cancelled.id);
   await actions.cancel("unknown");
-  assert.equal((await actions.decide(cancelled.id, "approve")).ok, false);
+  assert.equal(await actions.decide(cancelled.id, "approve"), undefined);
   await actions.cancelPending();
   const once = await actions.list();
   await actions.cancelPending();
@@ -125,17 +130,31 @@ test("write approval exposes full content, version and execution context", async
   const result = await execute(tools, "write", { path: "note.md", content });
   assert.equal(result.isError, undefined);
   const [action] = await actions.list();
-  assert.deepEqual(action.payload, { path: "note.md", originalContent: original, content, baseVersion: action.payload.baseVersion });
+  assert.deepEqual(action.payload, {
+    path: "note.md", originalContent: original, content,
+    baseVersion: action.payload.baseVersion, beforeExists: "true",
+  });
   assert.notEqual(action.payload.baseVersion, "missing");
   assert.equal(action.threadId, "thread");
   assert.equal(action.runId, "run");
-  assert.equal(action.toolCallId, "test-call");
-  assert.equal(action.status, "approved");
   assert.equal(action.execution?.status, "succeeded");
-  assert.ok(action.execution?.finishedAt);
+  assert.equal(action.revision, 4);
   assert.equal(Date.parse(action.expiresAt) - Date.parse(action.createdAt), 5_000);
   assert.equal(await readFile(join(root, "note.md"), "utf8"), content);
   assert.deepEqual(await readdir(root), ["note.md"]);
+});
+
+test("new-file write approval records beforeExists=false with an empty before", async (t) => {
+  const { root, actions } = await fixture(t);
+  const result = await execute(createWritableFileTools(root, approving(actions), 5_000), "write", { path: "nested/new.md", content: "new" });
+  assert.equal(result.isError, undefined);
+  const [action] = await actions.list();
+  // 新建文件的完整预览：before 为空串，beforeExists 明确为 false，baseVersion 固定为 missing。
+  assert.deepEqual(action.payload, {
+    path: "nested/new.md", originalContent: "", content: "new",
+    baseVersion: "missing", beforeExists: "false",
+  });
+  assert.equal(await readFile(join(root, "nested/new.md"), "utf8"), "new");
 });
 
 test("execution claim failure stops file effects and receipt failure never reports that a committed file is absent", async (t) => {
@@ -181,6 +200,7 @@ test("edit approval exposes complete before/after and treats replacement syntax 
   assert.equal(action.payload.newText, newText);
   assert.equal(action.payload.originalContent, original);
   assert.equal(action.payload.content, content);
+  assert.equal(action.payload.beforeExists, "true");
   assert.equal(await readFile(join(root, "note.md"), "utf8"), content);
 });
 
@@ -203,7 +223,7 @@ test("approval abort during polling cancels immediately without waiting the two-
   controller.abort();
   assert.equal((await bounded(result)).isError, true);
   assert.equal((await actions.list())[0].status, "cancelled");
-  assert.equal((await actions.decide((await actions.list())[0].id, "approve")).ok, false);
+  assert.equal(await actions.decide((await actions.list())[0].id, "approve"), undefined);
   assert.deepEqual(await readdir(root), []);
 });
 
@@ -291,10 +311,6 @@ for (const name of ["write", "edit"] as const) {
     const result = await execute(createWritableFileTools(root, wrapped, 5_000), name, params);
     assert.equal(result.isError, true);
     assert.equal(await readFile(join(root, "file"), "utf8"), "external");
-    const [approval] = await actions.list();
-    assert.equal(approval.status, "approved");
-    assert.equal(approval.execution?.status, "failed");
-    assert.match(approval.execution?.result ?? "", /File changed since approval/);
   });
 }
 

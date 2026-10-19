@@ -35,6 +35,8 @@ import type { ActivityRun, ActivityObservation } from "../../features/activities
 import { createActivityObserver } from "./activity-observer.js";
 import { createToolPresentation, type ToolPresentation } from "../ag-ui/tool-presentation.js";
 import { ACTIVITY_TOOL_INSTRUCTIONS } from "./tools/activity.js";
+import type { StatusRun } from "../../features/workspace/agent-status.js";
+import { createStatusObserver } from "./status-observer.js";
 
 /**
  * pi 装配的依赖集合。全部经由组合入口显式注入；可选能力（goals/actions/
@@ -59,6 +61,8 @@ export type PiDeps = {
   monitors?: MonitorService;
   web?: WebService;
   weather?: WeatherService;
+  status?: StatusRun;
+  statusSubagentId?: string;
   activity?: ActivityRun;
   activityPrefix?: string;
   activityParentId?: string;
@@ -118,6 +122,9 @@ export async function openPi(deps: PiDeps) {
     threadId: child?.ownerThreadId ?? deps.threadId,
     runId: child?.ownerRunId ?? deps.runId,
     isSubagent: Boolean(child),
+    subagentId: deps.statusSubagentId,
+    workspaceThreadId: child?.ownerThreadId ?? deps.threadId,
+    currentActivityId: () => deps.status?.snapshot().activityId ?? null,
     activity: child ? undefined : deps.activity,
     activityObservation: deps.activity ? {
       observe: (event: ActivityObservation) => deps.activity!.observe(event),
@@ -193,9 +200,10 @@ export async function openPi(deps: PiDeps) {
   // 不启动 CLI，也不会从个人 ~/.pi 或可写工作区发现资源。
   if (!child && enabledSkillNames.has("task")) {
     const roles = await loadSubagentRoles(layout.subagentsDir);
-    const extension = createSubagentExtension(roles, async (role, task, signal, update, parentToolCallId) => {
+    const extension = createSubagentExtension(roles, async (role, task, signal, update, parentToolCallId, queuedChildId) => {
       signal?.throwIfAborted();
-      const childId = `subagent-${randomUUID()}`;
+      const childId = queuedChildId ?? `subagent-${randomUUID()}`;
+      deps.status?.observe({ kind: "subagent", phase: "start", id: childId, role: role.name });
       const parentStepId = `main:tool:${parentToolCallId}`;
       deps.activity?.observe({ id: childId, parentId: parentStepId, kind: "subagent", phase: "start", title: "Subagent executing" });
       await ensureThreadWorkspace(layout, childId);
@@ -207,6 +215,7 @@ export async function openPi(deps: PiDeps) {
         activity: deps.activity,
         activityPrefix: childId,
         activityParentId: childId,
+        statusSubagentId: childId,
       });
       const abort = () => { void session.abort().catch(() => undefined); };
       signal?.addEventListener("abort", abort, { once: true });
@@ -224,6 +233,7 @@ export async function openPi(deps: PiDeps) {
         await session.waitForIdle();
         signal?.throwIfAborted();
         const failed = !reason || reason === "error" || reason === "aborted";
+        deps.status?.observe({ kind: "subagent", phase: "end", id: childId, role: role.name, outcome: failed ? "failed" : "succeeded" });
         deps.activity?.observe({
           id: childId,
           parentId: parentStepId,
@@ -237,6 +247,7 @@ export async function openPi(deps: PiDeps) {
       } catch {
         await session.abort();
         await session.waitForIdle();
+        deps.status?.observe({ kind: "subagent", phase: "end", id: childId, role: role.name, outcome: signal?.aborted ? "cancelled" : "failed" });
         deps.activity?.observe({
           id: childId,
           parentId: parentStepId,
@@ -253,7 +264,7 @@ export async function openPi(deps: PiDeps) {
         unsubscribe();
         session.dispose();
       }
-    });
+    }, (id, role) => deps.status?.observe({ kind: "subagent", phase: "queued", id, role }));
     const inlineLoader = new DefaultResourceLoader({
       cwd, agentDir, settingsManager: SettingsManager.inMemory({}),
       noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
@@ -311,5 +322,6 @@ export async function openPi(deps: PiDeps) {
     );
     session.subscribe(observer);
   }
+  if (deps.status) session.subscribe(createStatusObserver(deps.status, deps.presentation ?? createToolPresentation(config.presentation), deps.statusSubagentId ?? null));
   return session;
 }

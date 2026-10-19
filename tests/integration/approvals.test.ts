@@ -1,9 +1,27 @@
+/**
+ * 审批 HTTP + 文档回归。每条用例独占 dataDir；不调模型。
+ *
+ * 真实路径：以 service.actions.submit / decide / markExecuting / finishExecution
+ * 落入真实 repository；批量终态数据通过独立临时 dataDir 的 actions.json 直接写入，
+ * 让 actions.history 与路由都走生产代码，不再复制分页算法。
+ *
+ * merge 语义（已对齐 main 为冲突基准，叠加 execution 与 /pending 补充读取）：
+ * - 主同步来源仍是 SSE 的 ready.pendingApprovals + approval_pending；
+ *   /api/approvals/pending 仅作为补充只读，不能写入或延长授权。
+ * - HTTP 审批响应使用 main 的 preview{scope, ownerThreadId, path, before, after,
+ *   beforeExists} 形状，不暴露内部 payload 字段。
+ * - /api/approvals 接受 cursor/limit/threadId/activityId/status 过滤参数；
+ *   游标 base64url 编码，且过滤绑定（换过滤必须从首屏开始）。
+ * - /api/approvals/pending 已决定/已执行审批不再出现在 pending 集合。
+ * - execution 字段始终存在；未观察到执行时为 null，与 status 平行。
+ */
+
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
+import { Buffer } from "node:buffer";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Buffer } from "node:buffer";
 import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
 import { createService } from "../../src/bootstrap/create-service.js";
@@ -11,22 +29,17 @@ import { createConfig } from "../../src/config/load-config.js";
 import { endpoints } from "../../src/http/contracts/endpoints.js";
 import { buildOpenApiDocument } from "../../src/http/openapi.js";
 import {
-  approval,
-  approvalDecisionSchema,
-  approvalsQuerySchema,
+  approvalDecisionRequest,
+  approvalListQuery,
+  approvalPage,
+  approvalSummary,
+  approvalView,
   pendingApprovalsResponse,
-  type ApprovalDto,
+  type ApprovalPageDto,
   type ApprovalSummaryDto,
-  type ApprovalsPageDto,
+  type ApprovalViewDto,
 } from "../../src/http/contracts/approvals.js";
 import type { PendingAction } from "../../src/features/actions/types.js";
-
-/**
- * 审批 HTTP + 文档回归。每条用例独占 dataDir；不调模型。
- * 真实路径：以 service.actions.submit / decide / cancel / markExecuting / finishExecution
- * 落入真实 repository；批量终态数据通过独立临时 dataDir 的 actions.json 直接写入，
- * 让 actions.history 与路由都走生产代码，不再复制分页算法。
- */
 
 type Service = Awaited<ReturnType<typeof createService>>;
 type Opened = { service: Service; headers: Record<string, string> };
@@ -78,9 +91,13 @@ const openServiceWithActions = async (
 
 const decodeCursor = (token: string) =>
   JSON.parse(Buffer.from(token, "base64url").toString("utf8")) as {
-    decidedAt: string; id: string; threadId?: string; activityId?: string; status?: string;
+    resolvedAt: string; id: string; threadId?: string; activityId?: string; status?: string;
   };
 
+/**
+ * 由 caller 注入的合成审批记录；不要写 services.submit，因为那会让 revision / decidedAt
+ * 由服务端生成，难以制造确定的 resolvedAt 排序样本。
+ */
 const settled = (overrides: {
   id?: string; status?: PendingAction["status"]; title?: string; kind?: PendingAction["kind"];
   decidedAt: string; createdAt?: string; expiresAt?: string;
@@ -88,16 +105,24 @@ const settled = (overrides: {
 }): PendingAction => {
   const id = overrides.id ?? randomUUID();
   return {
-    id, kind: overrides.kind ?? "file_write",
+    id,
+    kind: overrides.kind ?? "file_write",
     title: overrides.title ?? `title-${id.slice(0, 8)}`,
     payload: { path: `${id}.md`, content: `content-${id}` },
     status: overrides.status ?? "approved",
+    revision: overrides.status === "approved" && overrides.execution ? 3 : 2,
     createdAt: overrides.createdAt ?? overrides.decidedAt,
     expiresAt: overrides.expiresAt ?? "2030-01-01T00:00:00.000Z",
-    ...(overrides.threadId !== undefined ? { threadId: overrides.threadId } : {}),
-    ...(overrides.activityId !== undefined ? { activityId: overrides.activityId } : {}),
-    decidedAt: overrides.decidedAt,
-    ...(overrides.execution !== undefined ? { execution: overrides.execution } : {}),
+    resolvedAt: overrides.decidedAt,
+    // 只有 approved/denied 才允许 decidedAt；其他终态保持 null。
+    decidedAt: overrides.status === "denied" || overrides.status === "approved" ? overrides.decidedAt : null,
+    threadId: overrides.threadId ?? null,
+    runId: null,
+    toolCallId: null,
+    subagentId: null,
+    workspaceThreadId: null,
+    activityId: overrides.activityId ?? null,
+    ...(overrides.execution ? { execution: overrides.execution } : {}),
   };
 };
 
@@ -118,38 +143,56 @@ test("approvals: four /api/approvals routes require Bearer auth", async (t) => {
   }
 });
 
-test("approvals: pending returns full payload preview with execution null", async (t) => {
+test("approvals: /pending returns full preview shape, not raw payload, and disappears after decide", async (t) => {
   const { service, headers } = await openService(t);
   const fullContent = "FULL-CONTENT preview not truncated\n".repeat(2000);
   const action = await service.actions.submit(
     "file_write",
     "Write notes preview",
-    { path: "notes.md", content: fullContent },
-    { threadId: "local-main" },
+    {
+      path: "notes.md",
+      content: fullContent,
+      originalContent: "OLD-CONTENT",
+      beforeExists: "true",
+      baseVersion: "v1",
+    },
+    { threadId: "local-main", workspaceThreadId: "local-main" },
   );
 
-  const body = pendingApprovalsResponse.parse(
-    await (await service.app.request("/api/approvals/pending", { headers })).json(),
-  );
+  const raw = await (await service.app.request("/api/approvals/pending", { headers })).json();
+  const body = pendingApprovalsResponse.parse(raw);
+
   assert.equal(body.approvals.length, 1);
-  assert.equal(body.approvals[0]!.id, action.id);
-  assert.equal(body.approvals[0]!.status, "pending");
-  assert.equal(body.approvals[0]!.payload.path, "notes.md");
-  assert.equal(body.approvals[0]!.payload.content, fullContent);
-  assert.equal(body.approvals[0]!.payload.content.length, fullContent.length);
-  assert.equal(body.approvals[0]!.execution, null);
-  assert.match(body.approvals[0]!.expiresAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*Z$/);
+  const record = body.approvals[0] as ApprovalViewDto;
+  assert.equal(record.id, action.id);
+  assert.equal(record.status, "pending");
+  assert.equal(record.resolvedAt, null);
+  assert.equal(record.decidedAt, null);
+  // HTTP 用 main 的 preview 形状：before/after/path/beforeExists/scope/ownerThreadId
+  // 内部 payload 不可见。
+  assert.equal(typeof record.preview, "object");
+  assert.equal(record.preview.path, "notes.md");
+  assert.equal(record.preview.before, "OLD-CONTENT");
+  assert.equal(record.preview.after, fullContent);
+  assert.equal(record.preview.after.length, fullContent.length);
+  assert.equal(record.preview.beforeExists, true);
+  assert.equal(record.preview.scope, "thread");
+  assert.equal(record.preview.ownerThreadId, "local-main");
+  assert.equal(Object.hasOwn(record, "payload"), false, "/pending must not expose raw payload");
+  // execution 始终存在；pending 时为 null。
+  assert.equal(record.execution, null);
+  assert.match(record.expiresAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*Z$/);
 
   await service.actions.decide(action.id, "approve");
   const after = pendingApprovalsResponse.parse(
     await (await service.app.request("/api/approvals/pending", { headers })).json(),
   );
-  assert.equal(after.approvals.length, 0);
+  assert.equal(after.approvals.length, 0, "decided items must leave /pending");
 });
 
-test("approvals: decision same returns 200, preserves decidedAt, no duplicate actions_updated", async (t) => {
+test("approvals: decision same returns 200, preserves decidedAt, no duplicate actions_updated notification", async (t) => {
   const { service, headers } = await openService(t);
-  const events: string[] = [];
+  const events: unknown[] = [];
   const unsubscribe = service.workspaceEvents.subscribe({
     notify: (event) => events.push(event), close: () => {},
   });
@@ -157,8 +200,8 @@ test("approvals: decision same returns 200, preserves decidedAt, no duplicate ac
 
   const action = await service.actions.submit(
     "file_write", "Idempotent title",
-    { path: "idem.md", content: "IDEM-CONTENT" },
-    { threadId: "local-main" },
+    { path: "idem.md", content: "IDEM-CONTENT", originalContent: "" },
+    { threadId: "local-main", workspaceThreadId: "local-main" },
   );
   assert.equal(events.length, 1, "submit must broadcast exactly one actions_updated");
 
@@ -182,17 +225,23 @@ test("approvals: decision same returns 200, preserves decidedAt, no duplicate ac
   assert.equal(secondBody.decidedAt, decidedAt1, "decidedAt must not change on idempotent re-decide");
   assert.equal(events.length, 2, "idempotent re-decide must not broadcast actions_updated");
 
-  const history = await (await service.app.request("/api/approvals", { headers })).json() as ApprovalsPageDto;
-  assert.equal(history.approvals.length, 1);
-  assert.equal(history.approvals[0]!.id, action.id);
-  assert.equal(history.approvals[0]!.status, "approved");
-  assert.equal(history.approvals[0]!.decidedAt, decidedAt1);
+  // 决定端通过 GET /api/approvals/:id 返回的详情与决定结果一致。
+  const detail = approvalView.parse(
+    await (await service.app.request(`/api/approvals/${action.id}`, { headers })).json(),
+  );
+  assert.equal(detail.id, action.id);
+  assert.equal(detail.status, "approved");
+  assert.equal(detail.decidedAt, decidedAt1);
+  assert.equal(detail.preview.path, "idem.md");
+  assert.equal(detail.preview.after, "IDEM-CONTENT");
 });
 
 test("approvals: decision - reverse, expired, cancelled return 409; missing 404; bad body 400", async (t) => {
   const { service, headers } = await openService(t);
 
-  const reverse = await service.actions.submit("file_write", "Reverse", { path: "r.md", content: "r" });
+  const reverse = await service.actions.submit("file_write", "Reverse", {
+    path: "r.md", content: "r", originalContent: "",
+  });
   await service.actions.decide(reverse.id, "approve");
   const reverseRes = await service.app.request(`/api/approvals/${reverse.id}/decision`, {
     method: "POST", headers: { ...headers, "Content-Type": "application/json" },
@@ -202,7 +251,7 @@ test("approvals: decision - reverse, expired, cancelled return 409; missing 404;
   assert.equal(typeof (await reverseRes.json()).error, "string");
 
   const expired = await service.actions.submit(
-    "file_write", "Expired", { path: "e.md", content: "e" }, { timeoutMs: 1 },
+    "file_write", "Expired", { path: "e.md", content: "e", originalContent: "" }, { timeoutMs: 1 },
   );
   await sleep(8);
   const expiredRes = await service.app.request(`/api/approvals/${expired.id}/decision`, {
@@ -211,7 +260,9 @@ test("approvals: decision - reverse, expired, cancelled return 409; missing 404;
   });
   assert.equal(expiredRes.status, 409, "expired must 409");
 
-  const cancelled = await service.actions.submit("file_write", "Cancelled", { path: "c.md", content: "c" });
+  const cancelled = await service.actions.submit(
+    "file_write", "Cancelled", { path: "c.md", content: "c", originalContent: "" },
+  );
   await service.actions.cancel(cancelled.id);
   const cancelledRes = await service.app.request(`/api/approvals/${cancelled.id}/decision`, {
     method: "POST", headers: { ...headers, "Content-Type": "application/json" },
@@ -240,37 +291,49 @@ test("approvals: decision - reverse, expired, cancelled return 409; missing 404;
   assert.equal(notJson.status, 400, "malformed JSON must 400");
 });
 
-test("approvals: detail returns full snapshot that callers cannot mutate, and 404 for missing", async (t) => {
+test("approvals: detail returns full preview with execution appearing only after markExecuting, immutable to callers", async (t) => {
   const { service, headers } = await openService(t);
-  const payload = { path: "detail.md", content: "DETAIL-CONTENT " + "x".repeat(5000) };
-  const action = await service.actions.submit("file_write", "Detail preview", payload, {
-    threadId: "local-main", runId: "run-detail", activityId: "act-detail",
-  });
+  const action = await service.actions.submit(
+    "file_write", "Detail preview",
+    { path: "detail.md", content: "DETAIL-CONTENT " + "x".repeat(5000), originalContent: "" },
+    { threadId: "local-main", runId: "run-detail", activityId: "act-detail" },
+  );
   await service.actions.decide(action.id, "approve");
+
+  // execute 前 execution 必须为 null，且 HTTP 不暴露 payload 字段。
+  const preExec = approvalView.parse(
+    await (await service.app.request(`/api/approvals/${action.id}`, { headers })).json(),
+  );
+  assert.equal(preExec.status, "approved");
+  assert.equal(preExec.execution, null, "execution only after markExecuting");
+  assert.equal(preExec.preview.path, "detail.md");
+  assert.equal(preExec.preview.after, "DETAIL-CONTENT " + "x".repeat(5000));
+  assert.equal(preExec.runId, "run-detail");
+  assert.equal(preExec.activityId, "act-detail");
+  assert.equal(Object.hasOwn(preExec, "payload"), false, "detail must not expose payload");
+
   await service.actions.markExecuting(action.id);
   await service.actions.finishExecution(action.id, "succeeded", "EXECUTED-OK");
 
-  const detail = approval.parse(
+  const post = approvalView.parse(
     await (await service.app.request(`/api/approvals/${action.id}`, { headers })).json(),
   );
-  assert.equal(detail.status, "approved");
-  assert.deepEqual(detail.payload, payload, "payload returned as-is");
-  assert.equal(detail.execution?.status, "succeeded");
-  assert.equal(detail.execution?.result, "EXECUTED-OK");
-  assert.equal(detail.runId, "run-detail");
-  assert.equal(detail.activityId, "act-detail");
+  assert.equal(post.status, "approved");
+  assert.equal(post.execution?.status, "succeeded");
+  assert.equal(post.execution?.result, "EXECUTED-OK");
+  assert.ok(post.execution?.finishedAt);
 
-  // 调用方改返回值不能反向影响服务端
-  (detail.payload as Record<string, string>).content = "mutated";
+  // 调用方改返回值不能反向影响服务端。
+  (post.preview as unknown as { after: string }).after = "mutated";
   const refetch = await (await service.app.request(`/api/approvals/${action.id}`, { headers })).json();
-  assert.equal(refetch.payload.content, payload.content);
+  assert.equal(refetch.preview.after, "DETAIL-CONTENT " + "x".repeat(5000));
 
   const missing = await service.app.request(`/api/approvals/${randomUUID()}`, { headers });
   assert.equal(missing.status, 404);
   assert.equal(typeof (await missing.json()).error, "string");
 });
 
-test("approvals: history exposes settled summaries only, with execution preserved and no payload", async (t) => {
+test("approvals: /api/approvals exposes settled summaries only, omits preview, includes execution=null fields", async (t) => {
   const items = [
     settled({ id: "a-approved", status: "approved", decidedAt: "2026-10-19T08:00:00.000Z", title: "approved" }),
     settled({ id: "a-denied", status: "denied", decidedAt: "2026-10-19T07:00:00.000Z", title: "denied" }),
@@ -279,34 +342,43 @@ test("approvals: history exposes settled summaries only, with execution preserve
   ];
   const { service, headers } = await openServiceWithActions(t, items);
 
-  // pending 不应进入历史：通过真实 submit 验证
-  await service.actions.submit("file_write", "P", { path: "p.md", content: "p" });
+  // 现场新提交一条 pending：它不能进入历史，但能进入 /pending。
+  await service.actions.submit(
+    "file_write", "P", { path: "p.md", content: "p", originalContent: "" },
+  );
 
-  const history = await (await service.app.request("/api/approvals", { headers })).json() as ApprovalsPageDto;
+  const history = approvalPage.parse(
+    await (await service.app.request("/api/approvals", { headers })).json(),
+  );
   assert.equal(history.approvals.length, 4);
   assert.deepEqual(history.approvals.map((it) => it.id), [
     "a-approved", "a-denied", "a-cancelled", "a-expired",
   ]);
   for (const item of history.approvals as ApprovalSummaryDto[]) {
+    assert.equal(Object.hasOwn(item, "preview"), false, "summary must omit preview");
     assert.equal(Object.hasOwn(item, "payload"), false, "summary must omit payload");
-    assert.ok(Object.hasOwn(item, "execution"), "summary must expose execution field");
+    assert.equal(Object.hasOwn(item, "execution"), true, "summary must expose execution field");
     assert.equal(item.execution, null, "summary without execution reports null, not success");
-    assert.ok(typeof item.decidedAt === "string");
+    // approved/denied 必带 decidedAt；expired/cancelled 为 null。
+    if (item.status === "approved" || item.status === "denied") {
+      assert.ok(typeof item.decidedAt === "string");
+    } else {
+      assert.equal(item.decidedAt, null);
+    }
   }
   assert.equal(history.hasMore, false);
   assert.equal(history.nextCursor, null);
 
-  // pending 端点仍真实暴露，不受历史文件注入影响
+  // pending 端点仍真实暴露；不受历史文件注入影响。
   const pendingBody = pendingApprovalsResponse.parse(
     await (await service.app.request("/api/approvals/pending", { headers })).json(),
   );
-  assert.equal(pendingBody.approvals.length, 1, "pending must still surface via /api/approvals/pending");
+  assert.equal(pendingBody.approvals.length, 1, "/pending must still surface live pending");
 });
 
-test("approvals: history pagination orders by decidedAt+id desc; full sweep covers all with no overlap or gap", async (t) => {
+test("approvals: /api/approvals orders resolvedAt desc + id desc; full sweep covers all with no overlap or gap", async (t) => {
   const base = new Date("2026-10-19T00:00:00.000Z").getTime();
   const items: PendingAction[] = [];
-  // 7 条不同 time；再 2 条相同 time 验证 id 降序 → 共 9 条
   for (let i = 0; i < 7; i++) {
     items.push(settled({
       id: `id-${String(i).padStart(2, "0")}`,
@@ -320,18 +392,20 @@ test("approvals: history pagination orders by decidedAt+id desc; full sweep cove
   items.push(settled({ id: "id-tie-B", decidedAt: "2026-10-19T00:00:30.000Z", status: "approved", threadId: "t-C" }));
   const { service, headers } = await openServiceWithActions(t, items);
 
+  // 按 resolvedAt desc + id desc 排序：自然时间大的更靠前；相同时 id 大的靠前。
   const expectedAll = items
     .slice()
-    .sort((a, b) => (b.decidedAt ?? "").localeCompare(a.decidedAt ?? "") || b.id.localeCompare(a.id))
+    .sort((a, b) => (b.resolvedAt ?? "").localeCompare(a.resolvedAt ?? "") || b.id.localeCompare(a.id))
     .map((it) => it.id);
-  // 9 条按 limit=3 分三页；逐页收集验证无漏无重
   const collected: string[] = [];
   let cursor: string | null = null;
   let pages = 0;
   for (;;) {
     pages++;
     const url = cursor ? `/api/approvals?limit=3&cursor=${cursor}` : `/api/approvals?limit=3`;
-    const body = await (await service.app.request(url, { headers })).json() as ApprovalsPageDto;
+    const body = approvalPage.parse(
+      await (await service.app.request(url, { headers })).json(),
+    );
     collected.push(...body.approvals.map((it) => it.id));
     if (!body.hasMore) break;
     assert.ok(typeof body.nextCursor === "string", `page ${pages}: nextCursor must be opaque string`);
@@ -342,29 +416,41 @@ test("approvals: history pagination orders by decidedAt+id desc; full sweep cove
   assert.deepEqual(collected, expectedAll, "full sweep must equal descending order");
   assert.equal(new Set(collected).size, collected.length, "no overlaps across pages");
 
-  // 单页校验（第一页）：前三条按 (decidedAt desc, id desc)，含两个同时间条目
-  const first = await (await service.app.request("/api/approvals?limit=3", { headers })).json() as ApprovalsPageDto;
+  // 首页校验：id-tie-B (id-tie-A) 之前两条同时间按 id desc；接下来是 06。
+  const first = approvalPage.parse(
+    await (await service.app.request("/api/approvals?limit=3", { headers })).json(),
+  );
   assert.deepEqual(first.approvals.map((it) => it.id), ["id-tie-B", "id-tie-A", "id-06"]);
   assert.ok(typeof first.nextCursor === "string");
   const decoded = decodeCursor(first.nextCursor!);
-  assert.equal(decoded.decidedAt, items.find((it) => it.id === "id-06")!.decidedAt);
+  const last = items.find((it) => it.id === "id-06")!;
+  assert.equal(decoded.resolvedAt, last.resolvedAt);
   assert.equal(decoded.id, "id-06");
 
-  const denied = await (await service.app.request("/api/approvals?status=denied", { headers })).json() as ApprovalsPageDto;
+  // 过滤在分页前应用；status 过滤、threadId 过滤、activityId 过滤必须保持顺序与时间不变。
+  const denied = approvalPage.parse(
+    await (await service.app.request("/api/approvals?status=denied", { headers })).json(),
+  );
   assert.ok(denied.approvals.length >= 1);
   for (const it of denied.approvals) assert.equal(it.status, "denied");
 
-  const byThread = await (await service.app.request("/api/approvals?threadId=t-C", { headers })).json() as ApprovalsPageDto;
+  const byThread = approvalPage.parse(
+    await (await service.app.request("/api/approvals?threadId=t-C", { headers })).json(),
+  );
   assert.deepEqual(byThread.approvals.map((it) => it.id), ["id-tie-B", "id-tie-A"]);
 
-  const byActivity = await (await service.app.request("/api/approvals?activityId=act-X", { headers })).json() as ApprovalsPageDto;
+  const byActivity = approvalPage.parse(
+    await (await service.app.request("/api/approvals?activityId=act-X", { headers })).json(),
+  );
   for (const it of byActivity.approvals) assert.equal(it.activityId, "act-X");
 
+  // pending 不是合法 status 过滤值：必须 400。
   assert.equal((await service.app.request("/api/approvals?status=pending", { headers })).status, 400);
+  // 不合法 threadId 格式必须 400。
   assert.equal((await service.app.request("/api/approvals?threadId=-bad-start", { headers })).status, 400);
 });
 
-test("approvals: history strict query rejects duplicates, unknowns, illegal limits, padding/base64url mismatches", async (t) => {
+test("approvals: /api/approvals strict query rejects duplicates, unknowns, illegal limits, padding/base64url mismatches", async (t) => {
   const { service, headers } = await openService(t);
   const cases: Array<[string, string]> = [
     ["duplicate keys", "limit=1&limit=2"],
@@ -375,7 +461,7 @@ test("approvals: history strict query rejects duplicates, unknowns, illegal limi
     ["limit non-numeric", "limit=abc"],
     ["limit decimal", "limit=1.5"],
     ["negative space", "limit=-1"],
-    // base64url 不接受填充符与 base64+ 非 url-safe 字符
+    // base64url 不接受 padding、非 url-safe 字符、非 base64 输入。
     ["cursor with padding", `cursor=${Buffer.from("{}", "utf8").toString("base64")}`],
     ["cursor uses + (base64)", `cursor=${Buffer.from("{}", "utf8").toString("base64").replace(/=+$/, "")}`],
     ["cursor uses / (base64)", `cursor=${Buffer.from('{"a":"b/c"}', "utf8").toString("base64").replace(/=+$/, "")}`],
@@ -388,33 +474,27 @@ test("approvals: history strict query rejects duplicates, unknowns, illegal limi
     assert.equal(r.status, 400, `${label} (${qs}) must 400`);
   }
 
-  // 合法游标内含过滤条件，但本次查询缺过滤 → 400
+  // 游标携带 filter binding：本次查询缺过滤或过滤条件不一致 → 400。
   const bind = Buffer.from(JSON.stringify({
-    decidedAt: "2026-10-19T00:00:00.000Z", id: "x", threadId: "t-A", status: "approved",
+    resolvedAt: "2026-10-19T00:00:00.000Z", id: "x", threadId: "t-A", status: "approved",
   }), "utf8").toString("base64url");
-  assert.equal(
-    (await service.app.request(`/api/approvals?cursor=${bind}`, { headers })).status,
-    400,
-  );
+  assert.equal((await service.app.request(`/api/approvals?cursor=${bind}`, { headers })).status, 400);
   assert.equal(
     (await service.app.request(`/api/approvals?threadId=t-A&status=denied&cursor=${bind}`, { headers })).status,
     400,
   );
 
-  // 游标结构非法：缺字段、额外字段、bad decidedAt
+  // 游标结构非法：缺字段、额外字段、bad resolvedAt。
   for (const obj of [
     { id: "x" },
-    { decidedAt: "bad-date", id: "x" },
-    { decidedAt: "2026-10-19T00:00:00.000Z", id: "x", bogus: true },
+    { resolvedAt: "bad-date", id: "x" },
+    { resolvedAt: "2026-10-19T00:00:00.000Z", id: "x", bogus: true },
   ]) {
     const token = Buffer.from(JSON.stringify(obj), "utf8").toString("base64url");
-    assert.equal(
-      (await service.app.request(`/api/approvals?cursor=${token}`, { headers })).status,
-      400,
-    );
+    assert.equal((await service.app.request(`/api/approvals?cursor=${token}`, { headers })).status, 400);
   }
 
-  // 合法过滤 + 合法游标 → 200；提供两条候选保证 cursor 之后还能命中
+  // 合法过滤 + 合法游标：完整匹配；服务能继续翻页。
   const matched = [
     settled({ id: "older", decidedAt: "2026-10-18T23:59:58.000Z", status: "approved", threadId: "t-A" }),
     settled({ id: "newer", decidedAt: "2026-10-18T23:59:59.000Z", status: "approved", threadId: "t-A" }),
@@ -425,38 +505,49 @@ test("approvals: history strict query rejects duplicates, unknowns, illegal limi
     { headers: opened.headers },
   );
   assert.equal(ok.status, 200);
-  const okBody = await ok.json() as ApprovalsPageDto;
+  const okBody = approvalPage.parse(await ok.json());
   assert.deepEqual(okBody.approvals.map((it) => it.id), ["newer", "older"]);
 });
 
 test("approvals: execution running and succeeded are reported, but approved without execution stays approved", async (t) => {
   const { service, headers } = await openService(t);
-  const a = await service.actions.submit("file_write", "a", { path: "a.md", content: "a" });
+  const a = await service.actions.submit(
+    "file_write", "a", { path: "a.md", content: "a", originalContent: "" },
+  );
   await service.actions.decide(a.id, "approve");
 
-  const justApproved = await (await service.app.request(`/api/approvals/${a.id}`, { headers })).json() as ApprovalDto;
+  // 仅批准：execution 仍为 null，status 保持 approved。
+  const justApproved = approvalView.parse(
+    await (await service.app.request(`/api/approvals/${a.id}`, { headers })).json(),
+  );
   assert.equal(justApproved.status, "approved");
   assert.equal(justApproved.execution, null, "approved without execution must report null");
 
   await service.actions.markExecuting(a.id);
-  const running = await (await service.app.request(`/api/approvals/${a.id}`, { headers })).json() as ApprovalDto;
+  const running = approvalView.parse(
+    await (await service.app.request(`/api/approvals/${a.id}`, { headers })).json(),
+  );
   assert.equal(running.status, "approved");
   assert.equal(running.execution?.status, "running");
+  assert.equal(running.execution?.finishedAt, null);
 
   await service.actions.finishExecution(a.id, "succeeded", "OK");
-  const succeeded = await (await service.app.request(`/api/approvals/${a.id}`, { headers })).json() as ApprovalDto;
+  const succeeded = approvalView.parse(
+    await (await service.app.request(`/api/approvals/${a.id}`, { headers })).json(),
+  );
   assert.equal(succeeded.status, "approved");
   assert.equal(succeeded.execution?.status, "succeeded");
   assert.ok(succeeded.execution?.finishedAt);
   assert.equal(succeeded.execution?.result, "OK");
 
-  const history = await (await service.app.request("/api/approvals", { headers })).json() as ApprovalsPageDto;
-  const fromHistory = history.approvals.find((it) => it.id === a.id)!;
-  assert.equal(fromHistory.status, "approved");
-  assert.deepEqual(
-    (fromHistory as unknown as { execution: { status: string; result: string } }).execution,
-    succeeded.execution,
+  // 历史摘要里 execution 字段始终存在；未观察到执行时为 null。
+  const history = approvalPage.parse(
+    await (await service.app.request("/api/approvals", { headers })).json(),
   );
+  const fromHistory = history.approvals.find((it) => it.id === a.id)! as ApprovalSummaryDto;
+  assert.equal(fromHistory.status, "approved");
+  assert.equal(fromHistory.execution?.status, "succeeded");
+  assert.equal(fromHistory.execution?.result, "OK");
 });
 
 test("approvals: legacy /api/actions is not registered and falls back to 501 with valid auth", async (t) => {
@@ -520,6 +611,7 @@ test("approvals: buildOpenApiDocument registers the four routes with parameters,
   const summaryItem = (listResponse.properties!.approvals as {
     items: { properties: Record<string, { enum?: string[] }>; required: string[] };
   }).items;
+  assert.equal(Object.hasOwn(summaryItem.properties, "preview"), false, "summary item must omit preview");
   assert.equal(Object.hasOwn(summaryItem.properties, "payload"), false, "summary item must omit payload");
   assert.deepEqual(summaryItem.properties.status.enum, ["approved", "denied", "expired", "cancelled"]);
   assert.ok(summaryItem.required.includes("decidedAt"));
@@ -528,21 +620,22 @@ test("approvals: buildOpenApiDocument registers the four routes with parameters,
   assert.match(cursorDescription, /不透明 base64url/);
   const listDescription = list.description ?? "";
   for (const rule of [
-    /decidedAt 降序、同一时间按 id 降序/,
+    /resolvedAt[\s\S]*降序[\s\S]*id 降序/,
     /limit 默认 20、范围 1–100/,
-    /cursor.*绑定.*过滤条件/,
+    /cursor.*绑定.*过滤/,
     /改变过滤后必须从第一页重新开始/,
-    /重复参数、非法 limit、非法游标/,
+    /重复参数/,
     /一律 400/,
-    /approved.*授权一次提交/,
     /execution=null/,
   ]) assert.match(listDescription, rule, `list description missing: ${rule}`);
 
+  // /pending：每条记录的 preview 字段必须存在，不暴露 payload。
   const pending = paths["/api/approvals/pending"]!.get!;
   const pendingProperties = (((pending.responses!["200"]!.content["application/json"].schema as {
     properties: { approvals: { items: { properties: Record<string, unknown> } } };
   }).properties.approvals.items)).properties;
-  assert.ok(pendingProperties.payload, "pending item must include full payload");
+  assert.ok(pendingProperties.preview, "pending item must include preview");
+  assert.equal(pendingProperties.payload, undefined, "pending item must not expose payload");
 
   const detail = paths["/api/approvals/{id}"]!.get!;
   assert.deepEqual(
@@ -560,11 +653,11 @@ test("approvals: buildOpenApiDocument registers the four routes with parameters,
   assert.deepEqual((reqSchema.properties as { decision: { enum: string[] } }).decision.enum, ["approve", "deny"]);
   const desc = decision.description ?? "";
   for (const rule of [
-    /同一决定重复提交幂等返回 200/,
-    /相反决定、已过期或已取消返回 409/,
-    /不存在返回 404/,
-    /非法或带额外字段返回 400/,
-    /有效期由 expiresAt 决定（默认5分钟）/,
+    /相同.*重复提交.*幂等.*200/,
+    /相反.*expired.*cancelled.*409/,
+    /未知.*id.*404/,
+    /请求体.*非法.*400/,
+    /有效期.*expiresAt/,
   ]) assert.match(desc, rule, `decision description missing: ${rule}`);
 });
 
@@ -585,20 +678,75 @@ test("approvals: registry and Hono route set stay in lockstep", async (t) => {
   }
 });
 
-test("approvals: contracts - approvalsQuerySchema and approvalDecisionSchema reject illegal input", () => {
-  assert.equal(approvalsQuerySchema.safeParse({}).success, true);
-  assert.equal(approvalsQuerySchema.safeParse({ limit: "5" }).success, true);
-  assert.equal(approvalsQuerySchema.safeParse({ limit: "101" }).success, false);
-  assert.equal(approvalsQuerySchema.safeParse({ since: "2026-10-19T00:00:00.000Z" }).success, false);
-  assert.equal(approvalsQuerySchema.safeParse({ threadId: "-bad" }).success, false);
+test("approvals: contracts - approvalListQuery and approvalDecisionRequest reject illegal input", () => {
+  // approvalListQuery 必须 strict：未声明字段 → false；limit 字符串→数字；范围 1-100；其他过滤必合法。
+  assert.equal(approvalListQuery.safeParse({}).success, true);
+  assert.equal(approvalListQuery.safeParse({ limit: "5" }).success, true);
+  assert.equal(approvalListQuery.safeParse({ limit: "101" }).success, false);
+  assert.equal(approvalListQuery.safeParse({ limit: 0 }).success, false);
+  assert.equal(approvalListQuery.safeParse({ since: "2026-10-19T00:00:00.000Z" }).success, false);
+  assert.equal(approvalListQuery.safeParse({ threadId: "-bad" }).success, false);
+  assert.equal(approvalListQuery.safeParse({ status: "pending" }).success, false);
+  assert.equal(approvalListQuery.safeParse({ status: "approved" }).success, true);
+  assert.equal(approvalListQuery.safeParse({ activityId: "" }).success, false);
 
-  assert.equal(approvalDecisionSchema.safeParse({ decision: "approve" }).success, true);
+  assert.equal(approvalDecisionRequest.safeParse({ decision: "approve" }).success, true);
   for (const bad of [
     {},
     { decision: "maybe" },
     { decision: "approve", extra: true },
     { decision: 1 },
   ]) {
-    assert.equal(approvalDecisionSchema.safeParse(bad).success, false, `${JSON.stringify(bad)} must be invalid`);
+    assert.equal(approvalDecisionRequest.safeParse(bad).success, false, `${JSON.stringify(bad)} must be invalid`);
   }
+});
+
+// 校验在 strict mode 下 approvalSummary / approvalView / pendingApprovalsResponse / approvalPage 解析器的
+// 关键字段：preview 必须存在、execution 必须存在；allowextras 严格不允许多余字段。
+test("approvals: zod schemas confirm wire shapes", () => {
+  const pendingItem = {
+    id: "id",
+    revision: 1,
+    threadId: null,
+    runId: null,
+    toolCallId: null,
+    subagentId: null,
+    workspaceThreadId: null,
+    activityId: null,
+    kind: "file_write" as const,
+    title: "t",
+    status: "pending" as const,
+    preview: {
+      scope: "thread" as const,
+      ownerThreadId: "owner",
+      path: "p",
+      before: "",
+      after: "a",
+      beforeExists: false,
+    },
+    execution: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    expiresAt: "2026-01-06T00:00:00.000Z",
+    resolvedAt: null,
+    decidedAt: null,
+  };
+  approvalView.parse(pendingItem);
+
+  const summaryItem = {
+    ...pendingItem,
+    status: "approved" as const,
+    revision: 2,
+    resolvedAt: "2026-01-02T00:00:00.000Z",
+    decidedAt: "2026-01-02T00:00:00.000Z",
+    execution: { status: "succeeded" as const, startedAt: "2026-01-02T00:00:01.000Z", finishedAt: "2026-01-02T00:00:02.000Z", result: "ok" },
+  };
+  // approvalSummary 不含 preview，但允许 execution；status 必须为终态之一。
+  const { preview: _preview, ...withoutPreview } = summaryItem;
+  approvalSummary.parse(withoutPreview);
+
+  // pending status 不会进入 approvalSummary（status enum 不含 pending）。
+  assert.equal(approvalSummary.safeParse({ ...withoutPreview, status: "pending" }).success, false);
+
+  // append 不允许（strict 模式）。
+  assert.equal(approvalView.safeParse({ ...pendingItem, leak: true }).success, false);
 });

@@ -5,13 +5,8 @@ import {
   decodeApprovalCursor,
   encodeApprovalCursor,
 } from "../approval-cursor.js";
-import {
-  approvalDecisionSchema,
-  approvalsQuerySchema,
-  presentApproval,
-  presentApprovalSummary,
-  type ApprovalFilter,
-} from "../contracts/approvals.js";
+import { approvalDecisionRequest, approvalListQuery, type ApprovalFilter } from "../contracts/approvals.js";
+import { presentApproval } from "../approval-presenters.js";
 
 /**
  * 审批路由：当前 pending、终态历史、单项详情与人工决定。
@@ -41,7 +36,7 @@ export const createApprovalsRoutes = (
   app.get("/api/approvals", async (c) => {
     const raw = parseQueryObject(new URL(c.req.url));
     if (!raw) return c.json({ error: "Invalid approval query" }, 400);
-    const parsed = approvalsQuerySchema.safeParse(raw);
+    const parsed = approvalListQuery.safeParse(raw);
     if (!parsed.success) return c.json({ error: "Invalid approval query" }, 400);
     const { limit, cursor: encodedCursor, threadId, activityId, status } = parsed.data;
     const filter: ApprovalFilter = {
@@ -49,20 +44,23 @@ export const createApprovalsRoutes = (
       ...(activityId !== undefined ? { activityId } : {}),
       ...(status !== undefined ? { status } : {}),
     };
-    let cursor: { decidedAt: string; id: string } | undefined;
+    let cursor: { resolvedAt: string; id: string } | undefined;
     if (encodedCursor !== undefined) {
       const decoded = decodeApprovalCursor(encodedCursor);
       if (!decoded || !approvalCursorMatchesFilter(decoded, filter))
         return c.json({ error: "Invalid approval cursor" }, 400);
-      cursor = { decidedAt: decoded.decidedAt, id: decoded.id };
+      cursor = { resolvedAt: decoded.resolvedAt, id: decoded.id };
     }
-    const page = await actions.history({
+    const page = await actions.page({
       limit,
       ...filter,
       ...(cursor ? { cursor } : {}),
     });
     return c.json({
-      approvals: page.approvals.map(presentApprovalSummary),
+      approvals: page.approvals.map((action) => {
+        const { preview: _preview, ...summary } = presentApproval(action);
+        return summary;
+      }),
       hasMore: page.hasMore,
       nextCursor: page.nextCursor ? encodeApprovalCursor(page.nextCursor, filter) : null,
     });
@@ -70,7 +68,7 @@ export const createApprovalsRoutes = (
 
   // 高频审批仅查询当前 pending；完整预览供横幅渲染和 SSE ready 后初始化。
   app.get("/api/approvals/pending", async (c) =>
-    c.json({ approvals: (await actions.listPending()).map(presentApproval) }),
+    c.json({ approvals: (await actions.snapshotPending()).map(presentApproval) }),
   );
 
   // 详情含 pending 与终态；不存在返回 404，不返回空壳记录。
@@ -83,15 +81,15 @@ export const createApprovalsRoutes = (
 
   // 决定只提交一次：相同决定幂等返回当前记录；相反决定或已过期/取消返回 409。
   app.post("/api/approvals/:id/decision", async (c) => {
-    const parsed = approvalDecisionSchema.safeParse(
+    const parsed = approvalDecisionRequest.safeParse(
       await c.req.json().catch(() => undefined),
     );
     if (!parsed.success) return c.json({ error: "Invalid approval decision" }, 400);
-    const result = await actions.decide(c.req.param("id"), parsed.data.decision);
-    if (result.ok) return c.json(presentApproval(result.approval));
+    const result = await actions.resolveDecision(c.req.param("id"), parsed.data.decision);
+    if (result.ok) return c.json(presentApproval(result.action!));
     return result.code === "not_found"
-      ? c.json({ error: result.message }, 404)
-      : c.json({ error: result.message }, 409);
+      ? c.json({ error: "Approval not found" }, 404)
+      : c.json({ error: "Approval is already resolved or expired", approval: presentApproval(result.action!) }, 409);
   });
 
   return app;

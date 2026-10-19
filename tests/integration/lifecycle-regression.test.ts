@@ -100,9 +100,10 @@ test("Stop cancels a pending write approval without changing the existing file",
       return readSse(response);
     })
     .then((text) => ({ text }), (error: unknown) => ({ error }));
-  await until(async () => (await service.actions.list()).some((action) => action.status === "pending"),
+  // 待审批没有 HTTP 列表接口；内部只读快照用于等待真实挂起状态，不伪造第二套状态。
+  await until(async () => (await service.actions.snapshotPending()).length > 0,
     "write did not reach pending approval");
-  const pending = (await service.actions.list()).filter((action) => action.status === "pending");
+  const pending = await service.actions.snapshotPending();
   assert.equal(pending.length, 1);
   assert.equal(pending[0].kind, "file_write");
   assert.equal(await readFile(target, "utf8"), original);

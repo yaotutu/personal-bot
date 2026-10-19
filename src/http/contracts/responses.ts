@@ -1,9 +1,13 @@
 import { z } from "zod";
+import type { ApprovalViewDto } from "./approvals.js";
 
 /**
  * 响应契约（zod v4）：每个端点 200 响应的形状，全部从现有路由投影提炼。
  * 用途：1) OpenAPI 文档自动生成（io=output）；2) 契约测试对真实响应做
  * safeParse 防漂移（实现改了文档没跟，测试红）。schema 即文档。
+ *
+ * 审批相关形状（完整视图/摘要/分页）已迁移到 contracts/approvals.ts；
+ * 本文件不再保留旧 /api/actions 的 pending 列表或 payload 结构。
  */
 
 // 基础形状 -------------------------------------------------------------
@@ -170,6 +174,12 @@ export type RunEventDto = z.infer<typeof runEvent>;
 export type MemoryDto = z.infer<typeof memoryItem>;
 export type GoalDto = z.infer<typeof goalView>;
 export type MonitorDto = z.infer<typeof monitorView>;
+/**
+ * 兼容别名：自有 Web 在迁移到 GET /api/approvals 与审批 View 前仍按 ActionDto 引用。
+ * 它现在就是审批完整视图类型，不再包含旧 payload/actions 列表结构；
+ * 旧 reader（/api/actions*）已下线，无历史兼容层。
+ */
+export type ActionDto = ApprovalViewDto;
 export type AgentSnapshotDto = z.infer<typeof agentSnapshot>;
 export type ThreadDto = z.infer<typeof threadSnapshot>;
 

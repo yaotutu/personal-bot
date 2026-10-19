@@ -1,3 +1,4 @@
+import type { AgentStatus, StatusRun, RunOutcome } from "../workspace/agent-status.js";
 import type { ActivityRun } from "../activities/types.js";
 import { ConversationError, rejectConversation } from "./errors.js";
 import { validateConversationInput } from "./validate-input.js";
@@ -9,6 +10,7 @@ type ActiveRun = {
   done: Promise<void>;
   session?: ConversationExecution;
   reason?: CancelReason;
+  status?: StatusRun;
 };
 // 会话只管理唯一的运行锁和生命周期；执行与历史由组合入口注入，不持有 SDK/store。
 export function createConversation(
@@ -70,6 +72,28 @@ export function createConversation(
     return validated;
   };
   const snapshot = () => ({ messages: history(), revision: historyPort.checkpoint() ?? "empty" });
+  const executionStatus = (runId: string): AgentStatus | undefined => {
+    if (active?.runId === runId && active.status) return active.status.snapshot();
+    const saved = historyPort.agentStatuses?.().findLast((status) => status.runId === runId);
+    return saved ? structuredClone(saved) : undefined;
+  };
+  const beginStatus = (threadId: string, runId: string, source: "chat" | "job", jobId?: string) => {
+    const previous = executionStatus(runId);
+    return dependencies.beginStatus?.({ threadId, runId, source, jobId, initialRevision: (previous?.revision ?? 0) + 1 });
+  };
+  const statusActivity = (activity: ActivityRun | undefined, status: StatusRun | undefined): ActivityRun | undefined => {
+    if (!activity || !status) return activity;
+    const sync = <T extends Parameters<StatusRun["activity"]>[0]>(overview: T) => { status.activity(overview); return overview; };
+    return { ...activity,
+      start: (input) => sync(activity.start(input)), resume: (id) => sync(activity.resume(id)),
+      update: (progress) => sync(activity.update(progress)), wait: (question) => sync(activity.wait(question)),
+      complete: (result) => sync(activity.complete(result)),
+    };
+  };
+  const finishStatus = async (running: ActiveRun, threadId: string, outcome: RunOutcome) => {
+    await dependencies.cancelApprovals?.(threadId, running.runId);
+    if (running.status) historyPort.appendAgentStatus?.(running.status.finish(outcome));
+  };
   const run = async (
     input: ConversationInput,
     emit: (event: ConversationEvent) => void,
@@ -124,8 +148,9 @@ export function createConversation(
       } else {
         // 初始化或刚开始就停止时，不应先隐藏待重试的旧消息。先打开宿主，
         // 再提交 context edit，并同步宿主内存中的模型上下文。
-        activity = dependencies.activities?.beginRun(running.runId);
-        running.session = await openSession({ runId: running.runId, activity });
+        running.status = beginStatus(input.threadId, running.runId, "chat");
+        activity = statusActivity(dependencies.activities?.beginRun(running.runId), running.status);
+        running.session = await openSession({ runId: running.runId, activity, status: running.status });
         if (running.reason)
           throw new ConversationError(running.reason, "Response cancelled");
         // 只在宿主初始化成功且尚未取消时隐藏待重试轮，保持早停时旧历史可见。
@@ -147,6 +172,7 @@ export function createConversation(
         // prompt 完成 + waitForIdle 才允许提交终态；message_end 的 public listener
         // 早于 pi 内部 appendMessage，不能在 listener 内发 RUN_FINISHED。
         await running.session.waitForIdle();
+        running.status?.finalizing();
         if (running.reason)
           throw new ConversationError(running.reason, "Response cancelled");
         if (
@@ -165,6 +191,7 @@ export function createConversation(
           status,
         } satisfies ConversationResult);
         activity?.finish("completed", delivered);
+        await finishStatus(running, input.threadId, "succeeded");
       }
       emit({
         type: "run_finished",
@@ -186,6 +213,7 @@ export function createConversation(
         status,
       } satisfies ConversationResult);
       activity?.finish(running.reason === "STOPPED" || running.reason === "DISCONNECTED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed");
+      await finishStatus(running, input.threadId, running.reason ? "cancelled" : "failed");
       const code =
         running.reason ||
         (error instanceof ConversationError ? error.code : "MODEL_ERROR");
@@ -223,7 +251,7 @@ export function createConversation(
   const trigger = async (
     text: string,
     runId: string,
-    options: { signal?: AbortSignal; timeoutMs?: number } = {},
+    options: { signal?: AbortSignal; timeoutMs?: number; jobId?: string; threadId?: string } = {},
   ) => {
     if (closed || options.signal?.aborted) return { status: "failed" as const, text: "cancelled" };
     if (active) return { status: "failed" as const, text: "busy" };
@@ -251,9 +279,11 @@ export function createConversation(
       runId,
       assistantId: "assistant-" + runId,
     };
+    const sourceThreadId = dependencies.threadId ?? options.threadId ?? "local-main";
     try {
-      activity = dependencies.activities?.beginRun(running.runId);
-      running.session = await openSession({ runId: running.runId, activity });
+      running.status = beginStatus(sourceThreadId, running.runId, "job", options.jobId);
+      activity = statusActivity(dependencies.activities?.beginRun(running.runId), running.status);
+      running.session = await openSession({ runId: running.runId, activity, status: running.status });
       if (running.reason) throw new ConversationError(running.reason, "Response cancelled");
       historyPort.appendTurn(turn);
       running.session.syncContext();
@@ -266,12 +296,14 @@ export function createConversation(
       });
       await running.session.prompt(text);
       await running.session.waitForIdle();
+      running.status?.finalizing();
       const ok = !running.reason && finalReason && finalReason !== "error" && finalReason !== "aborted";
       historyPort.appendResult({
         runId,
         status: ok ? "completed" : "failed",
       } satisfies ConversationResult);
       activity?.finish(ok ? "completed" : running.reason === "STOPPED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed", Boolean(finalText.trim()));
+      await finishStatus(running, sourceThreadId, ok ? "succeeded" : running.reason ? "cancelled" : "failed");
       return { status: ok ? ("completed" as const) : ("failed" as const), text: finalText };
     } catch {
       if (running.session) {
@@ -283,6 +315,7 @@ export function createConversation(
         status: "failed",
       } satisfies ConversationResult);
       activity?.finish(running.reason === "STOPPED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed");
+      await finishStatus(running, sourceThreadId, running.reason ? "cancelled" : "failed");
       return { status: "failed" as const, text: "" };
     } finally {
       if (timeout) clearTimeout(timeout);
@@ -299,6 +332,7 @@ export function createConversation(
     }
   };
   return {
+    executionStatus,
     activities: () => dependencies.activities?.details() ?? [],
     history,
     snapshot,

@@ -90,6 +90,7 @@ export const createScheduler = (
         const outcome = await targetConversation.trigger(
           `⏰ [定时任务] ${current.prompt}`,
           `job-${current.id}-${Date.now()}`,
+          { jobId: current.id, threadId: current.originThreadId },
         );
         // busy 表示尚未开始执行，不是模型失败；不消耗一次性任务，留到
         // 下次普通扫描。真正已执行的失败仍按原规则 markRun，不自动重跑。

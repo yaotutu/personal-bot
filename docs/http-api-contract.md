@@ -16,8 +16,8 @@
 - 监控仅省略 `originThreadId` 时默认主会话；显式新 ID 在接纳前建立会话，不因来源消失改投主会话。删除中的来源绑定/规则或技能保存返回409 `THREAD_DELETING`，客户端不自动重试旧ID。
 - 删除等待已接纳的来源写入收尾再级联清理定时任务与监控；迟到 GET/Stop 不重建会话。删除成功后显式 run/规则或技能保存/监控来源绑定仍可建立全新同名会话；删除非事务，不承诺失败回滚。
 - `subagent` 是主模型的工具调用，不是 REST 创建的后台任务。single/parallel/chain 三选一，最多8项、4并发，链式失败停止；子结果回到父模型，父聊天继续。父Stop、超时或断开聊天流会取消子会话，写入仍逐次审批且绑定父thread/run；不落 tasks.json 或子会话历史，不自动重试/续跑。完整接入与展示边界已生成到聊天 run 接口描述中。
-- `GET /api/approvals/pending` 仅返回当前未过期 pending 的完整预览；`GET /api/approvals` 分页返回终态摘要；`GET /api/approvals/:id` 返回登记时的单项完整详情。历史与预览长期保留，不按条数或时间自动裁剪。
-- `POST /api/approvals/:id/decision` 只决定人的批准/拒绝；同一决定幂等返回，相反决定或过期/取消冲突。批准不代表实际文件提交成功，独立 `execution` 回报工具执行事实；未观察到结果时为 null，重启中断的在途提交标记 unknown。任何过期/取消/版本变化均不能复用授权。
+- 审批查询与决定：`GET /api/approvals` 为已处理/失效审批历史摘要列表（分页，不含 preview）；`GET /api/approvals/:id` 返回单项完整详情（含不可变 preview 全文）。当前 pending 审批主要由 `/api/events` 推送，`GET /api/approvals/pending` 是补充只读入口。历史按 resolvedAt/id 倒序，游标绑定 status/threadId/activityId 过滤；不按时间或条数清理预览，不再使用已下线的 `/api/actions` 接口。
+- `POST /api/approvals/:id/decision` 提交人工决定（`approve`/`deny`），只决定人的授权，批准不代表实际文件提交成功；实际结果以 execution、真实工具执行与 Activity 步骤为准；execution=null 不代表成功，重启遗留在途提交为 unknown，不补跑。相同决定的重复提交幂等返回原审批，相反决定、已过期或已取消返回 409（响应体带当前审批视图）。任何过期/取消/版本变化均不能复用授权。
 
 ## 部署版本与错误诊断
 
@@ -26,27 +26,19 @@
 - sourceHash 仅覆盖源码、内置资源、脚本、包/锁文件及 TypeScript 配置，不读取实例配置、凭据或会话数据。构建产物脱离仓库后仍保留原身份。
 - 文件不存在使用受控 `File not found.`；其余原始工具错误在模型上下文和 JSONL 持久化前替换为通用文案。技能诊断使用 `builtin/...` / `user/...` 逻辑路径，不要求前端替换服务端绝对路径。
 
-## 工作区变更通知（GET /api/events）
+## 工作区实时状态推送（GET /api/events）
 
-`GET /api/events` 是独立命名的 SSE 流，只推送"重新读取"信号，不承载业务正文；与 AG-UI 聊天流不复用事件命名空间。
+`GET /api/events` 是独立命名的 SSE 流，直接承载可展示的最新状态（运行状态与待审批项），不与 AG-UI 聊天流复用事件命名空间。单向推送，不接收用户操作（操作走独立 HTTP 接口）。
 
 - 鉴权：与其它 `/api/*` 相同，使用 `Authorization: Bearer <token>`；连接 `text/event-stream`，`Cache-Control: no-cache, no-transform`。
-- 事件有三种：`event: ready` / `event: workspace_updated` / `event: actions_updated`，`data` 始终为 `{}`，每帧以空行结束。
-- 心跳：空闲时每 30 秒发送注释帧 `: keep-alive\n\n`（不算业务事件，用于降低代理空闲超时概率；慢连接恢复可写后再发送）。
-- 协议约束：无事件 ID，忽略 `Last-Event-ID`，不支持重放；首次建立连接服务端先发 `ready`，客户端之后才能收到通知。
-
-客户端约定：
-
-1. 拿到 `ready` 帧后再读取 `/api/agent` 与 `/api/approvals/pending` 拉一次最新快照，避免先读后订阅的漏通知窗口。
-2. 收到 `workspace_updated` 表示 jobs / goals / memories / monitors / identity 的数据可能变化，重读 `/api/agent`；收到 `actions_updated` 表示审批新增、批准、拒绝、过期或撤销，重读 `/api/approvals/pending`。按这两个读取范围合并刷新即可，允许客户端复用现有聚合刷新方法。
-3. 刷新期间到来的新通知不能丢：一次刷新未完成时若再收到同范围通知，必须在本次刷新完成后至少再补刷一次；不同范围按各自路径单独合并。
-4. 断线、回前台重连：再次收到 `ready` 帧即视为一次同步边界，按 1-3 重新拉取；不要依赖本地缓存判断"是否漏通知"。
-5. 本轮未修改客户端轮询。客户端完成连接、重连和补刷处理后，可以替换原有 5 秒盲轮询；保留首次同步、操作后刷新和手动刷新。建议前台保留一条连接，退后台可断开，非主动断线后适度退避重连；锁屏系统推送不在本接口范围内。握手 401 应重新登录，服务关闭期间 503 可稍后重连。
-
-实现要点（供实现者对照；不作为客户端契约）：
-
-- HTTP/工具/调度写入复用 repository 的提交后通知；业务执行不等待网络发送。信号允许合并或冗余，不承诺每帧都对应一个唯一变更；外部进程直接修改数据文件不在通知范围内。
-- 慢连接有界合并：每条连接内部用至多一帧待发送 + 两个失效标记（每类一个），背压期间同类变更合并为一条帧，另一类不互挤。
+- 事件有四类，`data` 为单行 JSON 载荷：
+  1. `event: ready`：首帧，提供完整当前集合，包含 `instanceId`、`serverTime`、`agentStatuses`（进行中运行快照，最多32项）与 `pendingApprovals`（当前待审批完整视图，最多32项）。
+  2. `event: agent_status_updated`：单个运行最新状态快照（含 `instanceId`、`threadId`、`runId`、`revision`、`phase` 等），终态也会推送一次。
+  3. `event: approval_pending`：新增待审批项完整视图（含 `id`、`revision: 1`、`title`、`kind` 与不可变 `preview` 全文）。
+  4. `event: approval_updated`：审批进入终态（`approved`/`denied`/`expired`/`cancelled`）或执行回执变化后的轻量投影（revision 每次递增，含 execution、关联 ID 与时间，不含 preview/title）。
+- 心跳：空闲时每 30 秒发送注释帧 `: keep-alive\n\n`。
+- 协议约束：无事件 ID，忽略 `Last-Event-ID`，不支持重放；每次重连以首帧 `ready` 为全新同步边界，整体替换本地进行中与待审批集合。
+- 运行状态查询：`GET /api/agent/status?threadId=...&runId=...` 返回 `{instanceId, status}`，可按指定运行只读查询最新/终态状态。
 - 服务关闭 / 请求 abort / reader cancel / 订阅者抛错都会触发清理，订阅者从集合移除后不再收到通知。
 
 所有 `/api/*` 业务端点使用 Bearer token，health/session 和文档基础设施除外。未知接口不提供历史兼容响应。非回环监听必须配置访问密钥。

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionFactory, type AgentToolResult, type AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
 
@@ -8,6 +9,7 @@ export type SubagentRunner = (
   role: SubagentRole, task: string, signal: AbortSignal | undefined,
   update: (result: SubagentResult) => void,
   parentToolCallId?: string,
+  subagentId?: string,
 ) => Promise<SubagentResult>;
 type Details = { mode: "single" | "parallel" | "chain"; results: SubagentResult[] };
 
@@ -37,7 +39,7 @@ const truncateOutput = (output: string) => {
   return `${bytes.subarray(0, end).toString("utf8")}\n\n[Output truncated]`;
 };
 
-export const createSubagentTool = (roles: readonly SubagentRole[], run: SubagentRunner) => defineTool({
+export const createSubagentTool = (roles: readonly SubagentRole[], run: SubagentRunner, queued?: (id: string, role: string) => void) => defineTool({
   name: SUBAGENT_TOOL_NAME,
   label: "Subagent",
   description: "Delegate self-contained work to subagents with isolated contexts. " +
@@ -56,6 +58,8 @@ export const createSubagentTool = (roles: readonly SubagentRole[], run: Subagent
     if (requests.length > MAX_PARALLEL_TASKS) return invalid(`Too many subagents (maximum ${MAX_PARALLEL_TASKS}).`);
     const missing = requests.find((request) => !roles.some((role) => role.name === request.agent));
     if (missing) return invalid(`Unknown agent. Available agents: ${roles.map((role) => role.name).join(", ")}`);
+    const childIds = requests.map(() => `subagent-${randomUUID()}`);
+    requests.forEach((request, index) => queued?.(childIds[index], request.agent));
     const results: SubagentResult[] = [];
     const update: AgentToolUpdateCallback<Details> | undefined = onUpdate;
     const emit = () => update?.({
@@ -70,7 +74,7 @@ export const createSubagentTool = (roles: readonly SubagentRole[], run: Subagent
         result = await run(role, task, signal, () => {
           // 仅报告进度，不把未结束的子会话原始消息/诊断塞入父会话。
           update?.({ content: [{ type: "text", text: `Subagent ${role.name} is working` }], details: { mode, results: results.filter(Boolean) } });
-        }, _id);
+        }, _id, childIds[index]);
       } catch {
         signal?.throwIfAborted();
         result = { agent: role.name, task, output: "Subagent execution failed", isError: true };
@@ -113,5 +117,5 @@ export const createSubagentTool = (roles: readonly SubagentRole[], run: Subagent
   },
 });
 
-export const createSubagentExtension = (roles: readonly SubagentRole[], run: SubagentRunner): ExtensionFactory =>
-  (pi) => { pi.registerTool(createSubagentTool(roles, run)); };
+export const createSubagentExtension = (roles: readonly SubagentRole[], run: SubagentRunner, queued?: (id: string, role: string) => void): ExtensionFactory =>
+  (pi) => { pi.registerTool(createSubagentTool(roles, run, queued)); };

@@ -9,12 +9,27 @@ import type {
   TaskDto,
   ThreadDto,
 } from "../../../src/http/contracts/responses.js";
-import { pendingApprovalsResponse, type ApprovalDto } from "../../../src/http/contracts/approvals.js";
 import type { RunRequestDto } from "../../../src/http/contracts/rest.js";
 import { sseEventSchema, type SseEvent } from "../../../src/http/contracts/sse-events.js";
+import type { AgentStatusDto } from "../../../src/http/contracts/agent-status.js";
+import { pendingApprovalsResponse, type ApprovalViewDto } from "../../../src/http/contracts/approvals.js";
+import {
+  workspaceEvents,
+  type AgentStatusUpdatedEventDto,
+  type ApprovalPendingEventDto,
+  type ApprovalUpdatedEventDto,
+  type ReadyEventDto,
+} from "../../../src/http/contracts/workspace-events.js";
 export type { SseEvent };
-
-export type { TaskDto, MemoryDto, MonitorDto, GoalDto, ApprovalDto, ThreadDto };
+export type {
+  AgentStatusDto,
+  ApprovalViewDto,
+  AgentStatusUpdatedEventDto,
+  ApprovalPendingEventDto,
+  ApprovalUpdatedEventDto,
+  ReadyEventDto,
+};
+export type { TaskDto, MemoryDto, MonitorDto, GoalDto, ThreadDto };
 export type IdentityDto = NonNullable<AgentSnapshotDto["identity"]>;
 export type MilestoneDto = GoalDto["milestones"][number];
 /**
@@ -292,18 +307,37 @@ export const removeGoal = async (id: string): Promise<void> => {
 // ---------------------------------------------------------------------------
 // 审批闸门（写操作的人工批准）
 // ---------------------------------------------------------------------------
+/**
+ * 提交人工决定并返回服务端权威审批视图。
+ *
+ * 只有 2xx 才代表服务端已记录决定；409（已过期/已处理/相反决定）与网络错误都抛出，
+ * 由调用方保留卡片并等待 SSE 的 approval_updated/ready 校正，不能伪造成功。
+ */
 export const decideApproval = async (
   id: string,
   decision: "approve" | "deny",
   signal?: AbortSignal,
-): Promise<boolean> => {
+): Promise<ApprovalViewDto> => {
   const response = await request(`/api/approvals/${id}/decision`, {
     method: "POST",
     body: JSON.stringify({ decision }),
     signal,
   });
-  if (!response.ok) throw new ApiError(response.status, `审批失败 (${response.status})，请刷新确认操作状态`);
-  return true;
+  if (!response.ok) {
+    const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
+    throw new ApiError(
+      response.status,
+      failure?.error ?? `审批失败 (${response.status})，请刷新确认操作状态`,
+    );
+  }
+  return response.json();
+};
+
+/** 补充只读入口，不替代 SSE ready 的完整当前集合。 */
+export const listPendingApprovals = async (signal?: AbortSignal): Promise<ApprovalViewDto[]> => {
+  const response = await request("/api/approvals/pending", { signal });
+  if (!response.ok) throw new ApiError(response.status, "无法加载待审批操作");
+  return pendingApprovalsResponse.parse(await response.json()).approvals;
 };
 
 // ---------------------------------------------------------------------------
@@ -341,11 +375,105 @@ export const controlMonitor = async (
   return response.json();
 };
 
-/** 审批高频查询仅访问审批域；完整正文只随当前 pending 返回。 */
-export const listPendingApprovals = async (signal?: AbortSignal): Promise<ApprovalDto[]> => {
-  const response = await request("/api/approvals/pending", { signal });
-  if (!response.ok) throw new ApiError(response.status, "无法加载待审批操作");
-  return pendingApprovalsResponse.parse(await response.json()).approvals;
+export type WorkspaceEvent =
+  | { type: "ready"; data: ReadyEventDto }
+  | { type: "agent_status_updated"; data: AgentStatusUpdatedEventDto }
+  | { type: "approval_pending"; data: ApprovalPendingEventDto }
+  | { type: "approval_updated"; data: ApprovalUpdatedEventDto };
+
+/**
+ * 订阅工作区 SSE 实时流（GET /api/events）。
+ *
+ * 与聊天 AG-UI 流完全独立：这里按 `event:` 命名帧分派，并用 workspaceEvents 中同名
+ * zod schema 校验 data，不复用聊天事件 schema。EOF 不是正常终态：只要不是调用方主动
+ * abort，就抛出错误，由 App 负责延迟重连；收到新连接的 ready 后整体重建状态。
+ * reader 在 finally 中取消，确保卸载、401 或解析失败都不会泄漏底层连接。
+ */
+export const subscribeWorkspaceEvents = async (
+  onEvent: (event: WorkspaceEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> => {
+  const response = await request("/api/events", { signal });
+  if (!response.ok || !response.body) {
+    const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
+    throw new ApiError(response.status, failure?.error ?? `通知连接失败 (${response.status})`);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  // 取消 fetch 不一定立即终止已获得的 reader；显式 cancel 才能唤醒悬挂 read 并释放连接。
+  const cancelReader = () => { void reader.cancel().catch(() => undefined); };
+  signal?.addEventListener("abort", cancelReader, { once: true });
+  try {
+    for (;;) {
+      signal?.throwIfAborted();
+      const { done, value } = await reader.read();
+      signal?.throwIfAborted();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // 服务端每个事件恰好一行 data 且以空行结束；注释心跳没有 event 名，直接跳过。
+      let boundary: number;
+      while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        let name = "";
+        const dataLines: string[] = [];
+        for (const rawLine of frame.split("\n")) {
+          const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+          if (!line || line.startsWith(":")) continue;
+          if (line.startsWith("event:")) name = line.slice(6).trim();
+          else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
+        }
+        if (!name || !Object.hasOwn(workspaceEvents, name)) continue;
+        let payload: unknown;
+        try {
+          payload = JSON.parse(dataLines.join("\n"));
+        } catch {
+          throw new Error("服务端返回了不符合契约的工作区通知，请刷新后重试");
+        }
+        // 按事件名绑定各自 schema，不复用聊天 AG-UI 事件；失败即视为契约错误。
+        const invalid = () => new Error("服务端返回了不符合契约的工作区通知，请刷新后重试");
+        let event: WorkspaceEvent;
+        switch (name) {
+          case "ready": {
+            const parsed = workspaceEvents.ready.safeParse(payload);
+            if (!parsed.success) throw invalid();
+            event = { type: "ready", data: parsed.data };
+            break;
+          }
+          case "agent_status_updated": {
+            const parsed = workspaceEvents.agent_status_updated.safeParse(payload);
+            if (!parsed.success) throw invalid();
+            event = { type: "agent_status_updated", data: parsed.data };
+            break;
+          }
+          case "approval_pending": {
+            const parsed = workspaceEvents.approval_pending.safeParse(payload);
+            if (!parsed.success) throw invalid();
+            event = { type: "approval_pending", data: parsed.data };
+            break;
+          }
+          case "approval_updated": {
+            const parsed = workspaceEvents.approval_updated.safeParse(payload);
+            if (!parsed.success) throw invalid();
+            event = { type: "approval_updated", data: parsed.data };
+            break;
+          }
+          default:
+            continue;
+        }
+        signal?.throwIfAborted();
+        onEvent(event);
+      }
+    }
+    // EOF 只能由主动 abort 解释；其他情况交给调用方按 ready 重新同步。
+    signal?.throwIfAborted();
+    throw new Error("工作区通知连接已结束，请重新连接");
+  } finally {
+    signal?.removeEventListener("abort", cancelReader);
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
 };
 
 /** 显式停止必须等待服务端完成取消，随后读取的 revision 才是稳定终态。 */

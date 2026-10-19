@@ -8,6 +8,7 @@ import { createMonitorsRoutes } from "./routes/monitors.js";
 import { createApprovalsRoutes } from "./routes/approvals.js";
 import { createActivitiesRoutes } from "./routes/activities.js";
 import { createConversationRoutes } from "./routes/conversation.js";
+import { createAgentStatusRoutes } from "./routes/agent-status.js";
 
 /**
  * 自研 Web 业务端点的组合出口：每个域一个路由文件（routes/），
@@ -15,6 +16,7 @@ import { createConversationRoutes } from "./routes/conversation.js";
  */
 export const createWorkspaceRoutes = (dependencies: HttpDependencies) => {
   const app = new Hono();
+  app.route("/", createAgentStatusRoutes(dependencies));
   app.route("/", createSnapshotRoute(dependencies));
   app.route("/", createTasksRoutes(dependencies));
   app.route("/", createGoalsRoutes(dependencies));

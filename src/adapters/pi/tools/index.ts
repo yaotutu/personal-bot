@@ -27,6 +27,9 @@ type ToolDependencies = {
   memory: MemoryService;
   jobs: JobService;
   isSubagent?: boolean;
+  subagentId?: string;
+  workspaceThreadId?: string;
+  currentActivityId?: () => string | null;
   activity?: ActivityRun;
   activityObservation?: ActivityToolObservation;
   goals?: GoalService;
@@ -72,7 +75,7 @@ const registrations = [
   {
     names: ["write", "edit"],
     create: (deps: ToolDependencies) =>
-      deps.actions ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { threadId: deps.threadId, runId: deps.runId }, deps.sharedDir, deps.layout?.workspaceDir, deps.activityObservation) : [],
+      deps.actions ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { threadId: deps.threadId, runId: deps.runId, subagentId: deps.subagentId, workspaceThreadId: deps.workspaceThreadId ?? deps.threadId, activityId: deps.currentActivityId }, deps.sharedDir, deps.layout?.workspaceDir, deps.activityObservation) : [],
   },
   { names: ["search_web", "web_fetch"], create: (deps: ToolDependencies) => deps.web ? createWebTools(deps.web) : [] },
   { names: ["get_weather"], create: (deps: ToolDependencies) => deps.weather ? [weatherTool(deps.weather)] : [] },
