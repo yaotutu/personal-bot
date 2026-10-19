@@ -29,6 +29,8 @@ const toolLabel = (call: ToolCallView): string => {
   switch (call.name) {
     case "currentTime":
       return "查询当前时间";
+    case "activity":
+      return "登记工作活动";
     case "memory":
       return "记忆操作";
     case "schedule":

@@ -1,3 +1,5 @@
+import type { ActivityRun } from "../activities/types.js";
+import type { ActivitySession } from "../activities/activity-session.js";
 import type {
   ConversationHistory,
   ConversationNotification,
@@ -33,5 +35,6 @@ export type ConversationExecution = {
 };
 export type ConversationDependencies = {
   history: ConversationHistoryPort;
-  openSession: (context: { runId: string }) => Promise<ConversationExecution>;
+  activities?: ActivitySession;
+  openSession: (context: { runId: string; activity?: ActivityRun }) => Promise<ConversationExecution>;
 };

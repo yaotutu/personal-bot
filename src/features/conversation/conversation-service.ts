@@ -1,3 +1,4 @@
+import type { ActivityRun } from "../activities/types.js";
 import { ConversationError, rejectConversation } from "./errors.js";
 import { validateConversationInput } from "./validate-input.js";
 import type { ConversationDependencies, ConversationExecution } from "./ports.js";
@@ -99,6 +100,8 @@ export function createConversation(
       runId: input.runId,
       assistantId: "assistant-" + input.runId,
     };
+    let activity: ActivityRun | undefined;
+    let delivered = false;
     let finalReason: string | undefined;
     let status: ConversationResult["status"] = "failed";
     // nanobot 不会因为最终模型回复失败而否认已经完成的工具副作用。
@@ -121,7 +124,8 @@ export function createConversation(
       } else {
         // 初始化或刚开始就停止时，不应先隐藏待重试的旧消息。先打开宿主，
         // 再提交 context edit，并同步宿主内存中的模型上下文。
-        running.session = await openSession({ runId: running.runId });
+        activity = dependencies.activities?.beginRun(running.runId);
+        running.session = await openSession({ runId: running.runId, activity });
         if (running.reason)
           throw new ConversationError(running.reason, "Response cancelled");
         // 只在宿主初始化成功且尚未取消时隐藏待重试轮，保持早停时旧历史可见。
@@ -130,7 +134,10 @@ export function createConversation(
         turnRecorded = true;
         running.session.syncContext();
         unsubscribe = running.session.subscribe((event) => {
-          if (event.type === "assistant_end") finalReason = event.reason;
+          if (event.type === "assistant_end") {
+            finalReason = event.reason;
+            delivered = Boolean(event.text.trim());
+          }
           else {
             if (event.type === "tool_result") toolReturned = true;
             emit(event);
@@ -157,6 +164,7 @@ export function createConversation(
           runId: input.runId,
           status,
         } satisfies ConversationResult);
+        activity?.finish("completed", delivered);
       }
       emit({
         type: "run_finished",
@@ -177,6 +185,7 @@ export function createConversation(
         runId: input.runId,
         status,
       } satisfies ConversationResult);
+      activity?.finish(running.reason === "STOPPED" || running.reason === "DISCONNECTED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed");
       const code =
         running.reason ||
         (error instanceof ConversationError ? error.code : "MODEL_ERROR");
@@ -201,6 +210,7 @@ export function createConversation(
         running.session?.dispose();
       } finally {
         // SDK 清理异常也不能悬挂已排队通知，否则 monitor.close 会永远等待投递。
+        activity?.close();
         flushNotifications();
         active = undefined;
         release();
@@ -232,6 +242,7 @@ export function createConversation(
       void cancel("TIMEOUT", runId).catch(() => undefined);
     }, options.timeoutMs);
     let unsubscribe: (() => void) | undefined;
+    let activity: ActivityRun | undefined;
     let finalReason: string | undefined;
     let finalText = "";
     const turn: ConversationTurn = {
@@ -241,7 +252,8 @@ export function createConversation(
       assistantId: "assistant-" + runId,
     };
     try {
-      running.session = await openSession({ runId: running.runId });
+      activity = dependencies.activities?.beginRun(running.runId);
+      running.session = await openSession({ runId: running.runId, activity });
       if (running.reason) throw new ConversationError(running.reason, "Response cancelled");
       historyPort.appendTurn(turn);
       running.session.syncContext();
@@ -259,6 +271,7 @@ export function createConversation(
         runId,
         status: ok ? "completed" : "failed",
       } satisfies ConversationResult);
+      activity?.finish(ok ? "completed" : running.reason === "STOPPED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed", Boolean(finalText.trim()));
       return { status: ok ? ("completed" as const) : ("failed" as const), text: finalText };
     } catch {
       if (running.session) {
@@ -269,6 +282,7 @@ export function createConversation(
         runId,
         status: "failed",
       } satisfies ConversationResult);
+      activity?.finish(running.reason === "STOPPED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed");
       return { status: "failed" as const, text: "" };
     } finally {
       if (timeout) clearTimeout(timeout);
@@ -277,6 +291,7 @@ export function createConversation(
       try {
         running.session?.dispose();
       } finally {
+        activity?.close();
         flushNotifications();
         active = undefined;
         release();
@@ -284,6 +299,7 @@ export function createConversation(
     }
   };
   return {
+    activities: () => dependencies.activities?.details() ?? [],
     history,
     snapshot,
     validate,

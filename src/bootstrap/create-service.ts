@@ -33,6 +33,7 @@ import { createPiExecution } from "../adapters/pi/execution.js";
 import type { ServiceContainer } from "./types.js";
 import { createToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
 import { createWorkspaceEvents } from "../features/workspace/workspace-events.js";
+import { createActivityService } from "../features/activities/service.js";
 
 /**
  * 应用唯一的运行时组装入口。
@@ -117,14 +118,17 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
 
   const conversationHub = createConversationHub(
     async (threadId) => {
-      const { manager, history } = await createSessionHistory(layout, threadId, presentation);
+      const { manager, history, activities } = await createSessionHistory(layout, threadId, presentation);
       return createConversation(config, {
         history,
-        openSession: async ({ runId }) => createPiExecution(
+        activities,
+        openSession: async ({ runId, activity }) => createPiExecution(
           await openPi({
             config,
             threadId,
             runId,
+            activity,
+            presentation,
             modelRuntime,
             layout,
             sessionManager: manager,
@@ -191,7 +195,8 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       return () => { requests.delete(pending); release(); };
     },
   };
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents };
+  const activities = createActivityService(conversationHub);
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, activities };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。

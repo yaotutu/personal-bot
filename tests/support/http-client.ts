@@ -45,7 +45,7 @@ export const createTestClient = (baseUrl: () => string, token: string, timeoutMs
     })();
     // 等待审批/fixture时先接住错误，最终仍由调用方await done断言，不吞失败。
     void done.catch(() => undefined);
-    return { threadId, runId, events, done };
+    return { threadId, runId, events, done, cancel: () => reader.cancel() };
   };
   const run = async (content: string, threadId?: string) => (await startRun(content, threadId)).done;
   return { request, json, history, startRun, run };

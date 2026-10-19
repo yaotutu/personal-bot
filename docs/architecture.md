@@ -11,8 +11,8 @@
 | `src/index.ts`、`scripts/dev-mock.ts` | 配置加载、监听、信号退出；调用统一组合入口 | 业务规则、工具实现 |
 | `src/config/load-config.ts` | 必需 JSON 配置、直接凭据与校验 | 环境变量回退、创建业务实例 |
 | `src/bootstrap/create-service.ts`、`types.ts` | 唯一实例组装、启动校准、执行源启停、统一关闭 | DTO、agent loop |
-| `src/features/` | conversation/memory/identity/jobs/goals/actions/monitors/skills/web/weather/workspace 的规则与最小 port | Hono、AG-UI、pi SDK、文件系统或具体 adapter |
-| `src/adapters/pi/` | session factory、历史投影、诊断脱敏、资源隔离、prompt、工具装配与路径 guard | 第二套历史、手写 agent loop |
+| `src/features/` | conversation/memory/identity/jobs/goals/actions/monitors/skills/web/weather/workspace/activities 的规则与最小 port | Hono、AG-UI、pi SDK、文件系统或具体 adapter |
+| `src/adapters/pi/` | session factory、历史投影、activity 记录与安全观察、诊断脱敏、资源隔离、prompt、工具装配与路径 guard | 第二套历史、手写 agent loop |
 | `src/adapters/ag-ui/` | SSE、事件投影、运行与取消适配 | 会话锁或业务域状态 |
 | `src/adapters/storage/` | DataLayout、文件读写、各域 repository | 业务状态机、通用 CRUD 框架 |
 | `src/adapters/web/`、`src/adapters/weather/` | 安全网络传输、供应商适配 | 绕过 DNS/大小/超时边界 |
@@ -59,6 +59,15 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - 每个调用独占 `workspace/threads/subagent-<uuid>/`，不复制父 workspace、历史或 `INSTRUCTIONS.md`；仅 `shared/...` 显式互通。写/编辑仍逐次人工审批，归属父 thread/run；父 Stop、超时或聊天断流取消子会话并等待清理。
 - 子会话不持久化，结果作为父工具结果回写；`subagent-*` 内部工作区不作为用户会话展示。role 来自内置 `assets/subagents/<role>.md`，`DATA_DIR/subagents/*.md` 可覆盖；角色不允许另配 model，来源与本地差异见 [适配说明](../src/adapters/pi/subagent/README.md)。
 - **旧 worker 的现行处理边界**：旧 `tasks.json`、`task-*` 目录不读、不迁移、不删除、不执行，不保留旧 reader；遗留 `task-*` 从用户列表和父文件根解析中过滤。`delegate_task`、`POST /api/agent/tasks`、`target: task` 分发已下线；原 `task` 技能名只装载 subagent，保留是为了不破坏会话技能覆盖。`/api/agent` 的 tasks 只含 `kind: job`，控制仅 `target: job`，删除会话的 removed 只统计 jobs/monitors。更早实现仅查 archive，不恢复旧队列。
+
+## 工作活动（Activity）
+
+- **定义与自主决策**：Activity 是主 Agent 被交办具体工作目标并实际推进执行的过程记录。由主 Agent 根据对话上下文自主决定是否调用 `activity` 工具登记（`start`），不使用关键词白名单、耗时阈值或分类模型；普通问答、解释、澄清、方案讨论与简单查询不作为活动登记。
+- **生命周期状态机**：明确区分 `running`、`waiting_approval`、`waiting_user`、`awaiting_continuation`、`completed`、`failed`、`stopped`、`interrupted`。同一执行轮次至多绑定一项活动，重复 `start` 幂等返回当前活动；下一轮不自动续跑或绑定，由 Agent 显式调用 `resume`。
+- **完成保护**：调用 `complete` 仅表示完成声明，须在当前轮次所有工具/子代理/审批步骤均已结束时方可调用；实际状态维持 pending，仅当本轮模型顺利收尾且最终回复文本成功交付客户端后，才在服务端投影为 `completed`；若中途又执行其它工具、被用户 Stop、失败或中断，声明失效并如实反映真实终态。
+- **权威存储与级联生命周期**：Activity 概览与步骤均以 custom entries (`pi-muse.activity`) 保存于该 thread 唯一的 SessionManager / JSONL 历史树中，不维护第二套历史或单独的 activities.json。来源会话被删除时，其活动记录随 JSONL 物理文件一并清理；重新建立同名会话不会复活已删除活动。
+- **真实逐步明细与安全观察**：明细步骤由 `createActivityObserver` 从真实的 SDK 事件流与审批回调捕获（包含 execution、model、tool、subagent、approval、file_commit），不依赖模型在事后回忆或编造。子代理步骤以 `main:tool:<parentCallId>` 为 parentId 形成嵌套；所有步骤严格遵守脱敏与安全展示规则，不暴露原始工具参数、全文载荷、模型思维或内部诊断。
+- **查询接口**：对外暴露只读的 `GET /api/activities`（支持 `limit` 1–100、不透明 base64url 游标、`threadId` 与 `status` 过滤；按 `createdAt` 倒序及唯一 ID 全序稳定排序）与 `GET /api/activities/:id`（概览与逐步明细）；不提供前端直接写或强制完成活动的 HTTP 接口。分页不冻结快照。
 
 ## 文件工具与审批
 

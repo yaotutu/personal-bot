@@ -79,6 +79,20 @@ export async function createFakeModel() {
     const pendingToolResult = input.messages
       .slice(lastUserIndex + 1)
       .find((x) => x.role === "tool" && x.content);
+    // 固定脚本只决定模型发出的工具调用，不模拟登记/审批/文件/历史等服务端事实。
+    // 以本轮真实 tool result 数推进，避免旧会话的工具结果影响下一轮测试。
+    const activityPlan = last.startsWith("E2E activity ") ? JSON.parse(last.slice("E2E activity ".length)) as {
+      calls: { name: string; args: object }[];
+      end?: "reply" | "hold" | "fail" | "empty";
+    } : undefined;
+    const activityResults = input.messages.slice(lastUserIndex + 1).filter((message) => message.role === "tool");
+    if (activityPlan && activityResults.length >= activityPlan.calls.length) {
+      if (activityPlan.end === "hold") { res.on("close", () => { slowClosed++; }); return; }
+      if (activityPlan.end === "fail") {
+        res.writeHead(401, { "Content-Type": "application/json" }).end(JSON.stringify({ error: { message: "provider-secret-activity-diagnostic", type: "invalid_api_key" } }));
+        return;
+      }
+    }
     // 工具已经执行后再返回 401，用来验证 nanobot 式语义：副作用保留，
     // 最终模型回复失败只影响本轮输出，不回滚 memory/jobs。
     if (pendingToolResult && /工具后失败/.test(last)) {
@@ -119,6 +133,14 @@ export async function createFakeModel() {
       return;
     }
     event({ role: "assistant" });
+    if (activityPlan) {
+      const selected = activityPlan.calls[activityResults.length];
+      if (selected) event(toolCall(selected.name, selected.args));
+      else if (activityPlan.end !== "empty") event({ content: "ACTIVITY-E2E-DELIVERED" });
+      event({}, selected ? "tool_calls" : "stop");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
     if (last === "slow" || last === "disconnect" || (pendingToolResult && /工具后慢流/.test(last))) {
       let ticks = 0;
       const timer = setInterval(() => {
@@ -198,6 +220,93 @@ export async function createFakeModel() {
       if (selected && declaresTool(selected.name)) {
         event(toolCall(selected.name, selected.args)); event({}, "tool_calls"); res.end("data: [DONE]\n\n"); return;
       }
+    }
+    // Activity 活动路径：模拟主 Agent 自主决策登记、多步执行与最终完成
+    if (declaresTool("activity") && /活动交办/.test(last)) {
+      const toolResults = input.messages.slice(lastUserIndex + 1).filter((x) => x.role === "tool");
+      if (toolResults.length === 0) {
+        event({ role: "assistant" });
+        event(toolCall("activity", {
+          action: "start",
+          title: "调研 Pi 生态圈",
+          goal: "梳理生态现状与核心组件",
+          deliverable: "调研报告文档",
+        }));
+        event({}, "tool_calls");
+        res.end("data: [DONE]\n\n");
+        return;
+      }
+      if (toolResults.length === 1 && /活动写文件/.test(last) && declaresTool("write")) {
+        event({ role: "assistant" });
+        event(toolCall("write", { path: "report.md", content: "# Pi 生态报告\n" }));
+        event({}, "tool_calls");
+        res.end("data: [DONE]\n\n");
+        return;
+      }
+      if (toolResults.length === 1 && /活动子代理/.test(last) && declaresTool("subagent")) {
+        event({ role: "assistant" });
+        event(toolCall("subagent", { agent: "worker", task: "子代理完成部分调研" }));
+        event({}, "tool_calls");
+        res.end("data: [DONE]\n\n");
+        return;
+      }
+      if (toolResults.length === 1 && /活动停止/.test(last)) {
+        res.on("close", () => { slowClosed++; });
+        return;
+      }
+      const hasCompleted = toolResults.some((tr) => {
+        const name = toolCallNames.get(String((tr as { tool_call_id?: string }).tool_call_id ?? ""));
+        return name === "activity" && String(tr.content).includes("completionPending");
+      });
+      if (!hasCompleted && !/不声明完成/.test(last)) {
+        event({ role: "assistant" });
+        event(toolCall("activity", {
+          action: "complete",
+          result: "交付成果：已完成调研总结报告",
+        }));
+        event({}, "tool_calls");
+        res.end("data: [DONE]\n\n");
+        return;
+      }
+      event({ role: "assistant" });
+      event({ content: "已为您完成交办工作并交付报告。" });
+      event({}, "stop");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
+    if (declaresTool("activity") && /活动继续/.test(last)) {
+      const match = last.match(/活动继续\s+([a-zA-Z0-9-]+)/);
+      const activityId = match ? match[1] : undefined;
+      const toolResults = input.messages.slice(lastUserIndex + 1).filter((x) => x.role === "tool");
+      if (toolResults.length === 0 && activityId) {
+        event({ role: "assistant" });
+        event(toolCall("activity", {
+          action: "resume",
+          activityId,
+        }));
+        event({}, "tool_calls");
+        res.end("data: [DONE]\n\n");
+        return;
+      }
+      const hasCompleted = toolResults.some((tr) => {
+        const name = toolCallNames.get(String((tr as { tool_call_id?: string }).tool_call_id ?? ""));
+        return name === "activity" && String(tr.content).includes("completionPending");
+      });
+      if (!hasCompleted) {
+        event({ role: "assistant" });
+        event(toolCall("activity", {
+          action: "complete",
+          result: "恢复并完成全部交付",
+        }));
+        event({}, "tool_calls");
+        res.end("data: [DONE]\n\n");
+        return;
+      }
+      event({ role: "assistant" });
+      event({ content: "继续工作完成，成果已交付。" });
+      event({}, "stop");
+      res.end("data: [DONE]\n\n");
+      return;
     }
     // 写文件路径：触发词"写入" → write 工具（内容含标记串，测试在审批后断言落盘）。
     if (declaresTool("write") && /写入/.test(last) && !/子代理/.test(last) && !pendingToolResult) {

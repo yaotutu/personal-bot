@@ -69,6 +69,7 @@ const declaredTools = (request: ModelRequest) =>
     .filter(Boolean)
     .sort();
 const expectedTools = [
+  "activity",
   "currentTime",
   "edit",
   "find",
@@ -1119,18 +1120,18 @@ test("P4 scheduled jobs: chat-created reminder fires into history; missed one-sh
   assert.equal(tasks.length, 1);
   assert.equal(tasks[0].status, "scheduled");
   assert.equal(tasks[0].prompt, "提醒喝水");
-  // 等调度器到点触发（2s 扫表 + 15s 任务 → 最多 ~20s）。必须同时等待
-  // 定时 user 与最终 assistant：pi 在 prompt 完成后才把 assistant 写入历史，
-  // 只看到 user 就提前退出会在慢机器上产生竞态。
+  // 聊天历史先落盘，scheduler 随后才保存 job 终态；同时观察两个权威状态，
+  // 不能把 assistant 已出现当作 markRun 已完成。
   let history: Message[] = [];
   for (let i = 0; i < 22; i++) {
     await sleep(2000);
     history = await h.getHistory();
+    tasks = (await h.request("/api/agent").then((x) => x.json())).tasks as typeof tasks;
     if (
       history.some((x) => x.role === "user" && String(x.content).includes("⏰")) &&
       history.some(
         (x) => x.role === "assistant" && String(x.content).includes("JOB-RAN"),
-      )
+      ) && tasks[0]?.status === "succeeded"
     )
       break;
   }

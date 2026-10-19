@@ -31,6 +31,10 @@ import { createTools, skillToToolsMap, registeredToolNames } from "./tools/index
 import { loadSubagentRoles } from "../storage/subagent-roles.js";
 import { createSubagentExtension, SUBAGENT_TOOL_NAME, type SubagentRole } from "./subagent/extension.js";
 import { projectExecutionEvent } from "./execution.js";
+import type { ActivityRun, ActivityObservation } from "../../features/activities/types.js";
+import { createActivityObserver } from "./activity-observer.js";
+import { createToolPresentation, type ToolPresentation } from "../ag-ui/tool-presentation.js";
+import { ACTIVITY_TOOL_INSTRUCTIONS } from "./tools/activity.js";
 
 /**
  * pi 装配的依赖集合。全部经由组合入口显式注入；可选能力（goals/actions/
@@ -55,10 +59,14 @@ export type PiDeps = {
   monitors?: MonitorService;
   web?: WebService;
   weather?: WeatherService;
+  activity?: ActivityRun;
+  activityPrefix?: string;
+  activityParentId?: string;
   skills?: SkillsService;
+  presentation?: ToolPresentation;
 };
 
-const subagentBlockedTools = new Set([SUBAGENT_TOOL_NAME, "schedule", "monitor", "instructions", "bash"]);
+const subagentBlockedTools = new Set([SUBAGENT_TOOL_NAME, "activity", "schedule", "monitor", "instructions", "bash"]);
 
 /** 仅装配 pi 运行环境；agent loop 与 JSONL 持久化继续完全交给 SDK。 */
 export async function openPi(deps: PiDeps) {
@@ -110,6 +118,11 @@ export async function openPi(deps: PiDeps) {
     threadId: child?.ownerThreadId ?? deps.threadId,
     runId: child?.ownerRunId ?? deps.runId,
     isSubagent: Boolean(child),
+    activity: child ? undefined : deps.activity,
+    activityObservation: deps.activity ? {
+      observe: (event: ActivityObservation) => deps.activity!.observe(event),
+      prefix: deps.activityPrefix ?? "main",
+    } : undefined,
     memory,
     jobs,
     goals,
@@ -179,15 +192,20 @@ export async function openPi(deps: PiDeps) {
   // 不启动 CLI，也不会从个人 ~/.pi 或可写工作区发现资源。
   if (!child && enabledSkillNames.has("task")) {
     const roles = await loadSubagentRoles(layout.subagentsDir);
-    const extension = createSubagentExtension(roles, async (role, task, signal, update) => {
+    const extension = createSubagentExtension(roles, async (role, task, signal, update, parentToolCallId) => {
       signal?.throwIfAborted();
       const childId = `subagent-${randomUUID()}`;
+      const parentStepId = `main:tool:${parentToolCallId}`;
+      deps.activity?.observe({ id: childId, parentId: parentStepId, kind: "subagent", phase: "start", title: "Subagent executing" });
       await ensureThreadWorkspace(layout, childId);
       signal?.throwIfAborted();
       const manager = SessionManager.inMemory(threadWorkspaceDir(layout, childId));
       const session = await openPi({
         ...deps, sessionManager: manager, threadId: childId,
         child: { role, enabledSkills: [...enabledSkillNames], allowedTools: [...allowedToolNames], ownerThreadId: deps.threadId, ownerRunId: deps.runId },
+        activity: deps.activity,
+        activityPrefix: childId,
+        activityParentId: childId,
       });
       const abort = () => { void session.abort().catch(() => undefined); };
       signal?.addEventListener("abort", abort, { once: true });
@@ -205,10 +223,28 @@ export async function openPi(deps: PiDeps) {
         await session.waitForIdle();
         signal?.throwIfAborted();
         const failed = !reason || reason === "error" || reason === "aborted";
+        deps.activity?.observe({
+          id: childId,
+          parentId: parentStepId,
+          kind: "subagent",
+          phase: "end",
+          status: failed ? "failed" : "succeeded",
+          title: failed ? "Subagent failed" : "Subagent completed",
+          result: failed ? "Subagent execution failed" : "Subagent completed task",
+        });
         return { agent: role.name, task, output: failed ? "Subagent execution failed" : output || "(no output)", isError: failed };
       } catch {
         await session.abort();
         await session.waitForIdle();
+        deps.activity?.observe({
+          id: childId,
+          parentId: parentStepId,
+          kind: "subagent",
+          phase: "end",
+          status: signal?.aborted ? "cancelled" : "failed",
+          title: "Subagent aborted or failed",
+          result: "Subagent execution failed",
+        });
         signal?.throwIfAborted();
         return { agent: role.name, task, output: "Subagent execution failed", isError: true };
       } finally {
@@ -233,6 +269,7 @@ export async function openPi(deps: PiDeps) {
   const instructionsFile = !child && deps.threadId ? threadInstructionsFile(layout, deps.threadId) : undefined;
   const threadInstructions = instructionsFile ? await readThreadInstructions(instructionsFile) : undefined;
   const systemPrompt = await buildSystemPrompt(layout, memory, web !== undefined, weather !== undefined, goals, threadInstructions) +
+    (!child ? `\n\n## Work activity management\n${ACTIVITY_TOOL_INSTRUCTIONS}` : "") +
     (child ? `\n\n## Subagent role\n${child.role.systemPrompt}\nYou have an isolated context and private workspace. Return the result to the parent agent. You cannot delegate or schedule work. Use shared/... for shared materials; never assume access to the parent's private files.` : "");
   const resourceLoader = createResourceLoader(systemPrompt, activeSkills, extensionResult);
 
@@ -264,5 +301,14 @@ export async function openPi(deps: PiDeps) {
       retry: { enabled: false },
     }),
   });
+  if (deps.activity) {
+    const observer = createActivityObserver(
+      (event) => deps.activity!.observe(event),
+      deps.presentation ?? createToolPresentation(config.presentation),
+      deps.activityPrefix ?? "main",
+      deps.activityParentId,
+    );
+    session.subscribe(observer);
+  }
   return session;
 }

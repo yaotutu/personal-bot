@@ -1,6 +1,7 @@
 import { z } from "zod";
 import * as req from "./rest.js";
 import * as resp from "./responses.js";
+import * as activity from "./activities.js";
 import { sseEvents, SSE_EVENT_ORDER } from "./sse-events.js";
 import { workspaceEvents, WORKSPACE_SSE_DESCRIPTION } from "./workspace-events.js";
 
@@ -130,6 +131,31 @@ export const endpoints: EndpointSpec[] = [
       "subagent 是主模型的一次工具调用，不会产生此处的任务记录，结果回到来源聊天；旧 tasks.json 不读取或执行。快照目前仍全量返回定时任务，不做7天过滤或分页。" +
       "审批横幅独立读取 GET /api/actions/pending。",
     auth: true, response: resp.agentSnapshot,
+  },
+  // ---- 执行活动（只读；登记与推进由对话工具完成）----
+  {
+    method: "get", path: "/api/activities", tag: "活动", summary: "列出执行活动（按创建时间倒序分页）",
+    hint:
+      "执行活动是主模型在决定开始推进用户交办的工作时通过对话工具显式登记的记录，不是每轮消息自动生成，" +
+      "也不是后端解析回复或按关键词/工具次数机械分类；普通交流、解释、澄清和简单查询通常没有记录。" +
+      "本接口只读：没有创建/更新/完成活动的 HTTP 写入口，活动的登记、进展、等待与完成只能由对话工具在真实执行中产生；" +
+      "步骤是工具、模型、子代理、审批与文件提交等真实执行事件的安全投影，不含模型内部思维、凭据、原始工具参数或未脱敏日志。" +
+      "排序为 createdAt 降序、同一时间按 id 降序；limit 默认 20、范围 1–100。" +
+      "cursor 是上一页返回的不透明 base64url，原样回传即可；它绑定生成时的 threadId/status 过滤条件，改变过滤后必须从第一页重新开始。" +
+      "严格校验：未声明参数、重复参数、非法 limit、非法游标（结构/时间/过滤不匹配）一律 400。" +
+      "分页不冻结：每次请求读取当前投影，执行中的状态与步骤会更新，期间新增活动只可能出现在第一页，已读页不保证与首次读取一致。" +
+      "completed 表示主模型已明确声明完成且结果已交付；单次工具结束、子代理返回或一轮回复结束都不会自动完成。" +
+      "awaiting_continuation 表示本轮结束但工作未完成，需用户明确要求继续；继续同一工作时更新原活动（runIds 追加新 run），不新建活动。" +
+      "活动随来源会话删除而删除；本接口不新增 SSE 事件，状态变化由客户端重新读取本接口获取。",
+    auth: true, query: activity.activitiesQuerySchema, response: activity.activitiesResponse,
+  },
+  {
+    method: "get", path: "/api/activities/:id", tag: "活动", summary: "读取活动详情（概览＋逐步明细）",
+    hint:
+      "返回 activity 概览与 steps 逐步明细；steps 按真实执行顺序，失败、拒绝、取消、过期与中断如实保留，" +
+      "是安全投影而非原始工具载荷或模型思维。只读，不提供修改/完成入口；活动不存在或来源会话已删除返回 404。" +
+      "本接口不新增 SSE 事件，客户端在收到工作区通知或用户操作后重新读取。",
+    auth: true, response: activity.activityDetailResponse,
   },
   // ---- 定时任务 ----
   // 仅保留定时任务（job）域：详情读取与控制（pause/resume/cancel/retry）。

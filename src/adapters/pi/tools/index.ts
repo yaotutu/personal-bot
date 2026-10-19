@@ -12,10 +12,12 @@ import { scheduleTool } from "./schedule.js";
 import { goalTool } from "./goal.js";
 import { monitorTool } from "./monitor.js";
 import { createFileTools } from "./files.js";
-import { createWritableFileTools } from "./files-writable.js";
+import { createWritableFileTools, type ActivityToolObservation } from "./files-writable.js";
 import { createWebTools } from "./web.js";
 import { weatherTool } from "./weather.js";
 import { instructionsTool } from "./instructions.js";
+import { createActivityTool, ACTIVITY_TOOL_NAME } from "./activity.js";
+import type { ActivityRun } from "../../../features/activities/types.js";
 import { SUBAGENT_TOOL_NAME } from "../subagent/extension.js";
 
 type ToolDependencies = {
@@ -25,6 +27,8 @@ type ToolDependencies = {
   memory: MemoryService;
   jobs: JobService;
   isSubagent?: boolean;
+  activity?: ActivityRun;
+  activityObservation?: ActivityToolObservation;
   goals?: GoalService;
   actions?: ActionService;
   actionTimeoutMs?: number;
@@ -57,6 +61,7 @@ export const skillToToolsMap: Record<string, string[]> = {
 
 const registrations = [
   { names: ["currentTime"], create: (_deps: ToolDependencies) => [currentTimeTool] },
+  { names: [ACTIVITY_TOOL_NAME], create: (deps: ToolDependencies) => deps.activity && !isSubagent(deps) ? [createActivityTool(deps.activity)] : [] },
   { names: ["instructions"], create: (deps: ToolDependencies) => isSubagent(deps) || !deps.layout ? [] : [instructionsTool(deps.layout, deps.threadId)] },
   { names: ["memory"], create: (deps: ToolDependencies) => [memoryTool(deps.memory)] },
   { names: ["schedule"], create: (deps: ToolDependencies) => isSubagent(deps) ? [] : [scheduleTool(deps.jobs, deps.threadId)] },
@@ -67,7 +72,7 @@ const registrations = [
   {
     names: ["write", "edit"],
     create: (deps: ToolDependencies) =>
-      deps.actions ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { threadId: deps.threadId, runId: deps.runId }, deps.sharedDir, deps.layout?.workspaceDir) : [],
+      deps.actions ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { threadId: deps.threadId, runId: deps.runId }, deps.sharedDir, deps.layout?.workspaceDir, deps.activityObservation) : [],
   },
   { names: ["search_web", "web_fetch"], create: (deps: ToolDependencies) => deps.web ? createWebTools(deps.web) : [] },
   { names: ["get_weather"], create: (deps: ToolDependencies) => deps.weather ? [weatherTool(deps.weather)] : [] },

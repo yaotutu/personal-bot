@@ -6,6 +6,8 @@ import { RESULT_ENTRY_TYPE, TURN_ENTRY_TYPE, type ConversationTurn } from "../..
 import { createNotificationMessage, notificationIdOf } from "./notification-message.js";
 import { collectConversationRecords, projectConversationHistory } from "./history-projection.js";
 import type { ToolPresentation } from "../ag-ui/tool-presentation.js";
+import { createActivityHistory } from "./activity-history.js";
+import { createActivitySession } from "../../features/activities/activity-session.js";
 
 const turnIndex = (branch: readonly SessionEntry[], runId: string) =>
   branch.findLastIndex((entry) =>
@@ -73,6 +75,8 @@ export const createSessionHistory = async (
       else manager.resetLeaf();
     },
   };
+  const activityHistory = createActivityHistory(manager);
+  const activities = createActivitySession(threadId, activityHistory);
   // manager 只提供给同一 pi adapter 的执行装配，不暴露到 feature 或协议层。
-  return { manager, history };
+  return { manager, history, activities };
 };

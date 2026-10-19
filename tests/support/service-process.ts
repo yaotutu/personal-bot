@@ -9,10 +9,10 @@ import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { TestContext } from "node:test";
 
-export type ServiceProcessOptions = { modelBaseUrl: string; runTimeoutMs?: number; webTimeoutMs?: number };
+export type ServiceProcessOptions = { modelBaseUrl: string; runTimeoutMs?: number; webTimeoutMs?: number; actionTimeoutMs?: number; hiddenTools?: string[] };
 export type ServiceProcessHandle = {
   cwd: string; dataDir: string; baseUrl: string; accessKey: string;
-  start(): Promise<void>; stop(): Promise<void>; restart(): Promise<void>; close(): Promise<void>;
+  start(): Promise<void>; stop(): Promise<void>; restart(): Promise<void>; crash(): Promise<void>; close(): Promise<void>;
 };
 export const builtServiceEntry = fileURLToPath(new URL("../../dist/index.js", import.meta.url));
 
@@ -55,6 +55,15 @@ export const createServiceProcess = async (t: TestContext, options: ServiceProce
     })();
     return stopped;
   };
+  // crash 是专门的异常终止场景，不走正常 stop，也绝不能把 SIGKILL 当成优雅退出证据。
+  const crash = async () => {
+    const process = child;
+    const ending = exit;
+    if (!process || !ending) throw new Error("service fixture is not running");
+    process.kill("SIGKILL");
+    try { assert.deepEqual(await ending, { code: null, signal: "SIGKILL" }); }
+    finally { child = undefined; stopped = undefined; }
+  };
   const close = () => closed ??= (async () => {
     try { await stop(); }
     finally { if (cwd) await rm(cwd, { recursive: true, force: true }); }
@@ -72,7 +81,11 @@ export const createServiceProcess = async (t: TestContext, options: ServiceProce
       server: { host: "127.0.0.1", port, accessKey },
       model: { baseUrl: options.modelBaseUrl, id: "e2e-model", apiKey: "isolated-fake-model-key" },
       runtime: { dataDir: ".", runTimeoutMs: options.runTimeoutMs ?? 30_000, schedulerIntervalMs: 60_000, monitorScanIntervalMs: 60_000 },
-      tools: { web: { allowPrivateTargets: true, timeoutMs: options.webTimeoutMs ?? 30_000 }, weather: { enabled: false }, presentation: { default: "summary" } },
+      tools: {
+        writable: { actionTimeoutMs: options.actionTimeoutMs ?? 300_000 },
+        web: { allowPrivateTargets: true, timeoutMs: options.webTimeoutMs ?? 30_000 }, weather: { enabled: false },
+        presentation: { default: "summary", overrides: Object.fromEntries((options.hiddenTools ?? []).map((name) => [name, "hidden"])) },
+      },
     };
     await writeFile(join(cwd, ".pi-muse/config.json"), JSON.stringify(config), { mode: 0o600 });
     const process = spawn(globalThis.process.execPath, [builtServiceEntry], { cwd, stdio: ["ignore", "pipe", "pipe"] });
@@ -109,6 +122,6 @@ export const createServiceProcess = async (t: TestContext, options: ServiceProce
   } catch (error) { await close().catch(() => undefined); throw error; }
   return {
     get cwd() { return cwd; }, get dataDir() { return join(cwd, ".pi-muse"); }, get baseUrl() { return baseUrl; }, accessKey,
-    start, stop, restart: async () => { await stop(); await start(); }, close,
+    start, stop, restart: async () => { await stop(); await start(); }, crash, close,
   };
 };

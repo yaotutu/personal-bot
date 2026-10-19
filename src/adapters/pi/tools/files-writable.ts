@@ -5,6 +5,7 @@ import { constants } from "node:fs";
 import { link, lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ActionService } from "../../../features/actions/action-service.js";
+import type { ActivityObservation } from "../../../features/activities/types.js";
 import { resolveWorkspacePath, safeWorkspacePath } from "./workspace-path.js";
 
 const MAX_BYTES = 100_000;
@@ -12,6 +13,7 @@ const POLL_INTERVAL_MS = 2_000;
 type ApprovalContext = { threadId?: string; runId?: string };
 type Actions = Pick<ActionService, "submit" | "poll" | "cancel">;
 type Snapshot = { content: string; version: string };
+export type ActivityToolObservation = { observe: (event: ActivityObservation) => void; prefix: string };
 
 /** 同一物理 workspace 的不同工具工厂共用队列；审批等待不占锁，只有提交串行化。 */
 const commits = new Map<string, Promise<void>>();
@@ -67,6 +69,7 @@ const readSnapshot = async (target: string): Promise<Snapshot | undefined> => {
 const awaitApproval = async (
   actions: Actions, kind: "file_write" | "file_edit", title: string,
   payload: Record<string, string>, timeoutMs: number, signal?: AbortSignal, context?: ApprovalContext,
+  observe?: (event: ActivityObservation) => void,
 ): Promise<number | undefined> => {
   if (signal?.aborted) return undefined;
   let wakeAbort!: () => void;
@@ -75,12 +78,61 @@ const awaitApproval = async (
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const action = await actions.submit(kind, title, payload, { ...context, timeoutMs });
+    observe?.({
+      id: `approval:${action.id}`,
+      kind: "approval",
+      phase: "start",
+      title: "Approval requested",
+    });
     for (;;) {
-      if (signal?.aborted) { await actions.cancel(action.id); return undefined; }
+      if (signal?.aborted) {
+        await actions.cancel(action.id);
+        observe?.({
+          id: `approval:${action.id}`,
+          kind: "approval",
+          phase: "end",
+          status: "cancelled",
+          title: "Approval cancelled",
+          result: "Operation aborted by user",
+        });
+        return undefined;
+      }
       const decision = await Promise.race([actions.poll(action.id), interrupted]);
-      if (signal?.aborted) { await actions.cancel(action.id); return undefined; }
-      if (decision?.status === "approved") return Date.parse(action.expiresAt);
-      if (decision?.status !== "pending") return undefined;
+      if (signal?.aborted) {
+        await actions.cancel(action.id);
+        observe?.({
+          id: `approval:${action.id}`,
+          kind: "approval",
+          phase: "end",
+          status: "cancelled",
+          title: "Approval cancelled",
+          result: "Operation aborted by user",
+        });
+        return undefined;
+      }
+      if (decision?.status === "approved") {
+        observe?.({
+          id: `approval:${action.id}`,
+          kind: "approval",
+          phase: "end",
+          status: "succeeded",
+          title: "Approval granted",
+          result: "Action was approved",
+        });
+        return Date.parse(action.expiresAt);
+      }
+      if (decision?.status !== "pending") {
+        const status = decision?.status === "denied" ? "denied" : decision?.status === "expired" ? "expired" : "cancelled";
+        observe?.({
+          id: `approval:${action.id}`,
+          kind: "approval",
+          phase: "end",
+          status,
+          title: `Approval ${decision?.status ?? "refused"}`,
+          result: `Approval was ${decision?.status ?? "refused"}`,
+        });
+        return undefined;
+      }
       // 休眠可被 signal 立即唤醒，finally 清除计时器和监听器，不遗留轮询资源。
       await Promise.race([
         new Promise<void>((resolve) => { timer = setTimeout(resolve, POLL_INTERVAL_MS); }),
@@ -138,6 +190,7 @@ const commitFile = async (
 /** 每次 run 由组合方传入新的上下文；此工厂不推断或缓存当前 runId。 */
 export const createWritableFileTools = (
   root: string, actions: Actions, timeoutMs: number, context?: ApprovalContext, sharedDir?: string, boundaryDir?: string,
+  observation?: ActivityToolObservation,
 ) => [
   defineTool({
     name: "write", label: "Write file",
@@ -158,7 +211,9 @@ export const createWritableFileTools = (
       const approved = await awaitApproval(actions, "file_write", `写入 ${params.path}`, {
         path: params.path, content: params.content, originalContent: original?.content ?? "",
         baseVersion: original?.version ?? "missing",
-      }, timeoutMs, signal, context);
+      }, timeoutMs, signal, context, observation ? (event) => observation.observe({
+        ...event, id: `${observation.prefix}:${event.id}`, parentId: `${observation.prefix}:tool:${_id}`,
+      }) : undefined);
       if (approved === undefined) return denied("Write not approved (denied, expired or cancelled); nothing was written.");
       return commitFile(root, params.path, target, original, params.content, approved, signal, sharedDir, boundaryDir);
     },
@@ -191,7 +246,9 @@ export const createWritableFileTools = (
       const approved = await awaitApproval(actions, "file_edit", `编辑 ${params.path}`, {
         path: params.path, oldText: params.oldText, newText: params.newText,
         originalContent: original.content, content, baseVersion: original.version,
-      }, timeoutMs, signal, context);
+      }, timeoutMs, signal, context, observation ? (event) => observation.observe({
+        ...event, id: `${observation.prefix}:${event.id}`, parentId: `${observation.prefix}:tool:${_id}`,
+      }) : undefined);
       if (approved === undefined) return denied("Edit not approved (denied, expired or cancelled); nothing was written.");
       return commitFile(root, params.path, target, original, content, approved, signal, sharedDir, boundaryDir);
     },

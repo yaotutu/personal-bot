@@ -7,6 +7,7 @@ export type SubagentResult = { agent: string; task: string; output: string; isEr
 export type SubagentRunner = (
   role: SubagentRole, task: string, signal: AbortSignal | undefined,
   update: (result: SubagentResult) => void,
+  parentToolCallId?: string,
 ) => Promise<SubagentResult>;
 type Details = { mode: "single" | "parallel" | "chain"; results: SubagentResult[] };
 
@@ -69,7 +70,7 @@ export const createSubagentTool = (roles: readonly SubagentRole[], run: Subagent
         result = await run(role, task, signal, () => {
           // 仅报告进度，不把未结束的子会话原始消息/诊断塞入父会话。
           update?.({ content: [{ type: "text", text: `Subagent ${role.name} is working` }], details: { mode, results: results.filter(Boolean) } });
-        });
+        }, _id);
       } catch {
         signal?.throwIfAborted();
         result = { agent: role.name, task, output: "Subagent execution failed", isError: true };

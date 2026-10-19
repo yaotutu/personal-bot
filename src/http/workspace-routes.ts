@@ -6,6 +6,7 @@ import { createGoalsRoutes } from "./routes/goals.js";
 import { createMemoryRoutes } from "./routes/memory.js";
 import { createMonitorsRoutes } from "./routes/monitors.js";
 import { createActionsRoutes } from "./routes/actions.js";
+import { createActivitiesRoutes } from "./routes/activities.js";
 import { createConversationRoutes } from "./routes/conversation.js";
 
 /**
@@ -20,6 +21,7 @@ export const createWorkspaceRoutes = (dependencies: HttpDependencies) => {
   app.route("/", createMemoryRoutes(dependencies));
   app.route("/", createMonitorsRoutes(dependencies));
   app.route("/", createActionsRoutes(dependencies));
+  app.route("/", createActivitiesRoutes(dependencies));
   app.route("/", createConversationRoutes(dependencies));
   return app;
 };

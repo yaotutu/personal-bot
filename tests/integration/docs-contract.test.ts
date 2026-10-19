@@ -19,6 +19,123 @@ import { healthResponse } from "../../src/http/contracts/responses.js";
  *    实现改了 schema 没跟（或反之），这里立刻红。
  */
 
+// Activity 的枚举与字段集合是协议契约，测试直接固定预期值；新增/删除状态时必须同步
+// features/activities/types.ts、contracts/activities.ts 与本文件，避免生成文档静默漂移。
+const ACTIVITY_STATUSES = [
+  "running",
+  "waiting_approval",
+  "waiting_user",
+  "awaiting_continuation",
+  "completed",
+  "failed",
+  "stopped",
+  "interrupted",
+];
+const STEP_STATUSES = [
+  "running",
+  "succeeded",
+  "failed",
+  "denied",
+  "cancelled",
+  "expired",
+  "interrupted",
+];
+const STEP_KINDS = ["execution", "model", "tool", "subagent", "approval", "file_commit"];
+const OVERVIEW_FIELDS = [
+  "id",
+  "threadId",
+  "title",
+  "goal",
+  "deliverable",
+  "status",
+  "progress",
+  "result",
+  "runIds",
+  "currentRunId",
+  "createdAt",
+  "updatedAt",
+  "finishedAt",
+];
+const STEP_FIELDS = [
+  "id",
+  "runId",
+  "parentId",
+  "kind",
+  "title",
+  "status",
+  "startedAt",
+  "finishedAt",
+  "result",
+];
+
+type JsonSchema = {
+  type?: string | string[];
+  description?: string;
+  enum?: string[];
+  default?: unknown;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  format?: string;
+  anyOf?: JsonSchema[];
+  items?: JsonSchema;
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  additionalProperties?: boolean;
+};
+
+type OpenApiOperation = {
+  summary?: string;
+  description?: string;
+  tags?: string[];
+  security?: unknown[];
+  parameters?: { name: string; in: string; required: boolean; schema: JsonSchema }[];
+  responses: Record<
+    string,
+    {
+      description?: string;
+      content?: Record<string, { schema?: JsonSchema }>;
+      "x-sse-events"?: Record<string, unknown>;
+    }
+  >;
+};
+
+const activityOperations = () => {
+  const doc = buildOpenApiDocument();
+  const paths = doc.paths as unknown as Record<string, Record<string, OpenApiOperation>>;
+  const list = paths["/api/activities"]?.get;
+  const detail = paths["/api/activities/{id}"]?.get;
+  assert.ok(list, "generated OpenAPI must include GET /api/activities");
+  assert.ok(detail, "generated OpenAPI must include GET /api/activities/{id}");
+  return { doc, paths, list, detail };
+};
+
+const responseSchema = (operation: OpenApiOperation): JsonSchema => {
+  const schema = operation.responses["200"]?.content?.["application/json"]?.schema;
+  assert.ok(schema, "200 response must expose an application/json schema");
+  return schema;
+};
+
+const queryParameter = (operation: OpenApiOperation, name: string) => {
+  const parameter = operation.parameters?.find((item) => item.name === name);
+  assert.ok(parameter, `missing query parameter ${name}`);
+  return parameter;
+};
+
+/**
+ * 可空字段在 JSON Schema 中有两种等价写法：`type: ["string","null"]`（zod nullable）
+ * 或 `anyOf: [{type:"string"}, {type:"null"}]`（zod optional+nullable 等组合）。
+ * 统一归一成排序后的类型集合，测试只关心“确实允许 null”，不锁定生成器的具体写法。
+ */
+const nullableTypes = (schema: JsonSchema | undefined): string[] => {
+  assert.ok(schema, "nullable schema must exist");
+  const collect = (item: JsonSchema): string[] =>
+    Array.isArray(item.type) ? [...item.type] : item.type ? [item.type] : (item.anyOf ?? []).flatMap(collect);
+  return collect(schema).sort();
+};
+
 test("docs: generated OpenAPI document is structurally complete", () => {
   const doc = buildOpenApiDocument();
   assert.equal(doc.openapi, "3.1.0");
@@ -37,6 +154,304 @@ test("docs: generated OpenAPI document is structurally complete", () => {
       assert.ok((ok as Record<string, unknown>)["x-sse-events"], `${path} SSE response has no event contract`);
     }
   }
+});
+
+test("docs: activity GET endpoints are authenticated read-only JSON operations with no new SSE events", () => {
+  const { paths, list, detail } = activityOperations();
+
+  for (const [path, operation] of [
+    ["/api/activities", list],
+    ["/api/activities/{id}", detail],
+  ] as const) {
+    // 鉴权写在 operation.security，而不是只靠实现里的中间件；客户端从文档即可知道必须带 Bearer。
+    assert.deepEqual(operation.security, [{ bearerAuth: [] }], `${path} must require bearer auth in generated docs`);
+    assert.deepEqual(operation.tags, ["活动"], `${path} must stay in the activity tag`);
+    assert.ok(operation.summary, `${path} must have a summary`);
+    // 两个接口都是普通 JSON GET：200 只有 application/json，不能挂 SSE 事件表。
+    assert.deepEqual(Object.keys(operation.responses["200"]?.content ?? {}), ["application/json"], `${path} must be JSON-only`);
+    assert.equal(Object.hasOwn(operation.responses["200"] ?? {}, "x-sse-events"), false, `${path} must not expose x-sse-events`);
+    assert.match(operation.description ?? "", /不新增 SSE 事件/, `${path} must state that no SSE event is added`);
+    assert.match(operation.description ?? "", /只读/, `${path} must be documented as read-only`);
+  }
+
+  // 活动域只能有这两个 GET；出现 POST/PUT/DELETE 就说明文档/实现多出了写入口。
+  const activityPaths = Object.entries(paths).filter(
+    ([path]) => path === "/api/activities" || path.startsWith("/api/activities/"),
+  );
+  assert.deepEqual(
+    Object.fromEntries(activityPaths.map(([path, operations]) => [path, Object.keys(operations).sort()])),
+    { "/api/activities": ["get"], "/api/activities/{id}": ["get"] },
+    "activity domain must expose GET endpoints only",
+  );
+
+  // 本轮不新增活动事件：工作区通知事件表保持原三种，不混入 activity 命名空间。
+  const workspaceEvents = paths["/api/events"]?.get?.responses["200"]?.["x-sse-events"];
+  assert.deepEqual(Object.keys(workspaceEvents ?? {}).sort(), ["actions_updated", "ready", "workspace_updated"]);
+  assert.equal(Object.keys(workspaceEvents ?? {}).some((name) => /activit/i.test(name)), false);
+});
+
+test("docs: activity list pins limit range, filter enums, cursor binding and no time-window filtering", () => {
+  const { list } = activityOperations();
+  const operationDescription = list.description ?? "";
+  const parameters = list.parameters ?? [];
+
+  // 参数集合必须精确：多一个未声明过滤（如 since/days）就会让客户端误以为有留存窗口。
+  assert.deepEqual(parameters.map((parameter) => parameter.name).sort(), ["cursor", "limit", "status", "threadId"]);
+  for (const parameter of parameters) {
+    assert.equal(parameter.in, "query", `${parameter.name} must be a query parameter`);
+    assert.equal(parameter.required, false, `${parameter.name} must be optional`);
+  }
+
+  const limit = queryParameter(list, "limit").schema;
+  assert.equal(limit.type, "integer", "limit must be documented as integer, not string");
+  assert.equal(limit.default, 20);
+  assert.equal(limit.minimum, 1);
+  assert.equal(limit.maximum, 100);
+  assert.match(limit.description ?? "", /默认 20/);
+  assert.match(limit.description ?? "", /1–100/);
+  assert.match(limit.description ?? "", /400/);
+
+  const cursor = queryParameter(list, "cursor").schema;
+  assert.equal(cursor.type, "string");
+  assert.equal(cursor.minLength, 1);
+  assert.equal(cursor.maxLength, 1024);
+  assert.match(cursor.description ?? "", /不透明 base64url/);
+  assert.match(cursor.description ?? "", /threadId\/status/);
+  assert.match(cursor.description ?? "", /过滤条件与本次不一致返回 400/);
+
+  const threadId = queryParameter(list, "threadId").schema;
+  assert.equal(threadId.minLength, 1);
+  assert.equal(threadId.maxLength, 64);
+  assert.equal(threadId.pattern, "^[a-zA-Z0-9][a-zA-Z0-9_-]*$");
+  assert.match(threadId.description ?? "", /只返回该来源会话的活动/);
+
+  const status = queryParameter(list, "status").schema;
+  assert.deepEqual(status.enum, ACTIVITY_STATUSES);
+  assert.match(status.description ?? "", /只返回该状态的活动/);
+
+  // 行为语义同样属于契约：排序、分页不冻结、严格 400、游标绑定过滤条件。
+  for (const rule of [
+    /createdAt 降序、同一时间按 id 降序/,
+    /limit 默认 20、范围 1–100/,
+    /cursor 是上一页返回的不透明 base64url/,
+    /绑定生成时的 threadId\/status 过滤条件/,
+    /改变过滤后必须从第一页重新开始/,
+    /未声明参数、重复参数、非法 limit、非法游标/,
+    /一律 400/,
+    /分页不冻结/,
+    /每次请求读取当前投影/,
+    /期间新增活动只可能出现在第一页/,
+  ])
+    assert.match(operationDescription, rule, `missing list rule in generated docs: ${rule}`);
+
+  // 无 7 天/留存期过滤：参数集合已固定为上面四项，不存在 since/after/before/days 等时间窗口，
+  // 且文档明确每次请求读取当前投影，不按留存期裁剪；文档也不得声称存在留存期。
+  assert.doesNotMatch(
+    parameters.map((parameter) => parameter.name).join(","),
+    /since|after|before|days|window|retention/i,
+  );
+  assert.doesNotMatch(operationDescription, /7\s*天|七天|保留期|retention/i);
+  assert.match(operationDescription, /每次请求读取当前投影/);
+});
+
+test("docs: activity detail has only the path id parameter and no list-style filters", () => {
+  const { detail } = activityOperations();
+  assert.deepEqual(
+    detail.parameters?.map(({ name, in: location, required }) => ({ name, in: location, required })),
+    [{ name: "id", in: "path", required: true }],
+    "detail must not accept threadId/status/limit/cursor or any time-window filter",
+  );
+});
+
+test("docs: activity overview pins eight statuses, explicit registration, delayed completion, resume and deletion semantics", () => {
+  const { list } = activityOperations();
+  const page = responseSchema(list);
+  const overview = page.properties?.activities?.items;
+  assert.ok(overview, "list response must embed the activity overview schema");
+
+  // 字段集合与必填项必须精确，nullable 字段也必须显式出现在 required 中。
+  assert.deepEqual(Object.keys(overview.properties ?? {}).sort(), [...OVERVIEW_FIELDS].sort());
+  assert.deepEqual([...(overview.required ?? [])].sort(), [...OVERVIEW_FIELDS].sort());
+  assert.equal(overview.additionalProperties, false, "overview must reject unknown fields");
+
+  const status = overview.properties?.status;
+  assert.deepEqual(status?.enum, ACTIVITY_STATUSES, "activity status enum must pin all eight states");
+  for (const value of ACTIVITY_STATUSES)
+    assert.match(status?.description ?? "", new RegExp(`${value}=`), `status ${value} must be described`);
+  // 延迟完成：完成声明不是一轮结束/工具结束的自动结果。
+  assert.match(status?.description ?? "", /单次工具结束、子代理返回或一轮回复结束都不会自动置为 completed/);
+
+  const result = overview.properties?.result;
+  assert.deepEqual(nullableTypes(result), ["null", "string"]);
+  assert.match(result?.description ?? "", /仅在 completed 时非 null/);
+  const currentRunId = overview.properties?.currentRunId;
+  assert.deepEqual(nullableTypes(currentRunId), ["null", "string"]);
+  assert.match(currentRunId?.description ?? "", /无执行中 run 时为 null/);
+  const finishedAt = overview.properties?.finishedAt;
+  assert.deepEqual(nullableTypes(finishedAt), ["null", "string"]);
+  assert.match(finishedAt?.description ?? "", /completed\/failed\/stopped\/interrupted/);
+  assert.match(finishedAt?.description ?? "", /未结束时为 null/);
+  assert.match(finishedAt?.description ?? "", /崩溃遗留执行无法确定结束时刻时也为 null/);
+
+  for (const field of ["createdAt", "updatedAt"]) {
+    const timeSchema: JsonSchema | undefined = overview.properties?.[field];
+    assert.equal(timeSchema?.format, "date-time");
+    assert.match(timeSchema?.description ?? "", /UTC/);
+    assert.match(timeSchema?.description ?? "", /Z 后缀/);
+  }
+
+  // 继续原记录：活动 ID 不变，runIds 追加新 run，不新建活动。
+  assert.match(overview.properties?.id?.description ?? "", /保持不变，不新建活动/);
+  assert.match(overview.properties?.runIds?.description ?? "", /追加新 run，不新建活动/);
+  // 删除级联：来源会话删除后活动随之消失。
+  assert.match(overview.properties?.threadId?.description ?? "", /随该会话删除而删除/);
+
+  // 显式登记而非每轮自动生成，且概览是只读投影。
+  const overviewDescription = overview.description ?? "";
+  assert.match(overviewDescription, /显式登记/);
+  assert.match(overviewDescription, /不是每轮消息自动创建/);
+  assert.match(overviewDescription, /普通交流、解释、澄清和简单查询通常没有记录/);
+  assert.match(overviewDescription, /只读投影/);
+
+  const operationDescription = list.description ?? "";
+  assert.match(operationDescription, /不是每轮消息自动生成/);
+  assert.match(operationDescription, /显式登记/);
+  assert.match(operationDescription, /completed 表示主模型已明确声明完成且结果已交付/);
+  assert.match(operationDescription, /单次工具结束、子代理返回或一轮回复结束都不会自动完成/);
+  assert.match(operationDescription, /awaiting_continuation/);
+  assert.match(operationDescription, /需用户明确要求继续/);
+  assert.match(operationDescription, /继续同一工作时更新原活动（runIds 追加新 run），不新建活动/);
+  assert.match(operationDescription, /活动随来源会话删除而删除/);
+
+  // 列表响应外壳：三字段必填、严格对象，nextCursor 与 hasMore 的互斥语义明确。
+  assert.deepEqual(Object.keys(page.properties ?? {}).sort(), ["activities", "hasMore", "nextCursor"]);
+  assert.deepEqual([...(page.required ?? [])].sort(), ["activities", "hasMore", "nextCursor"]);
+  assert.equal(page.additionalProperties, false);
+  assert.deepEqual(nullableTypes(page.properties?.nextCursor), ["null", "string"]);
+  assert.match(page.properties?.nextCursor?.description ?? "", /改变过滤后必须从第一页重新开始/);
+  assert.match(page.properties?.nextCursor?.description ?? "", /没有更多时为 null/);
+  assert.match(page.properties?.hasMore?.description ?? "", /true 时 nextCursor 非 null/);
+  assert.match(page.description ?? "", /分页不冻结/);
+});
+
+test("docs: activity detail pins overview plus real-step schema, nullable fields and safe projection", () => {
+  const { list, detail } = activityOperations();
+  const page = responseSchema(list);
+  const detailSchema = responseSchema(detail);
+
+  assert.deepEqual(Object.keys(detailSchema.properties ?? {}).sort(), ["activity", "steps"]);
+  assert.deepEqual([...(detailSchema.required ?? [])].sort(), ["activity", "steps"]);
+  assert.equal(detailSchema.additionalProperties, false);
+  // 列表与详情必须复用同一概览 schema，避免两边字段漂移。
+  assert.deepEqual(detailSchema.properties?.activity, page.properties?.activities?.items);
+
+  const steps = detailSchema.properties?.steps;
+  const step = steps?.items;
+  assert.ok(step, "detail response must embed the step schema");
+  assert.match(steps?.description ?? "", /按真实执行顺序/);
+  assert.match(steps?.description ?? "", /失败、拒绝、取消、过期与中断/);
+  assert.deepEqual(Object.keys(step.properties ?? {}).sort(), [...STEP_FIELDS].sort());
+  assert.deepEqual([...(step.required ?? [])].sort(), [...STEP_FIELDS].sort());
+  assert.equal(step.additionalProperties, false, "step must reject unknown fields");
+
+  const kind = step.properties?.kind;
+  assert.deepEqual(kind?.enum, STEP_KINDS);
+  for (const value of STEP_KINDS) assert.match(kind?.description ?? "", new RegExp(`${value}=`), `kind ${value} must be described`);
+  const stepStatus = step.properties?.status;
+  assert.deepEqual(stepStatus?.enum, STEP_STATUSES);
+  for (const value of STEP_STATUSES)
+    assert.match(stepStatus?.description ?? "", new RegExp(`${value}=`), `step status ${value} must be described`);
+
+  assert.deepEqual(nullableTypes(step.properties?.parentId), ["null", "string"]);
+  assert.match(step.properties?.parentId?.description ?? "", /顶层执行步骤为 null/);
+  assert.deepEqual(nullableTypes(step.properties?.finishedAt), ["null", "string"]);
+  assert.match(step.properties?.finishedAt?.description ?? "", /仍在运行时为 null/);
+  assert.match(step.properties?.finishedAt?.description ?? "", /崩溃中断[\s\S]*也为 null/);
+  assert.match(step.properties?.finishedAt?.description ?? "", /继续原活动保留旧中断步骤/);
+  assert.deepEqual(nullableTypes(step.properties?.result), ["null", "string"]);
+  assert.match(step.properties?.result?.description ?? "", /脱敏/);
+  assert.match(step.properties?.result?.description ?? "", /不包含模型内部思维、凭据、原始工具载荷/);
+
+  // 步骤是真实执行事件的安全投影，不允许模型事后编造，也不透出原始参数全文。
+  assert.match(step.description ?? "", /真实执行事件/);
+  assert.match(step.description ?? "", /不允许模型事后编造/);
+  assert.match(step.properties?.title?.description ?? "", /不包含原始工具参数全文/);
+
+  const detailDescription = detail.description ?? "";
+  assert.match(detailDescription, /activity 概览与 steps 逐步明细/);
+  assert.match(detailDescription, /失败、拒绝、取消、过期与中断如实保留/);
+  assert.match(detailDescription, /安全投影/);
+  assert.match(detailDescription, /活动不存在或来源会话已删除返回 404/);
+  assert.match(detailDescription, /不新增 SSE 事件/);
+  assert.match(detailSchema.description ?? "", /活动不存在或所属会话已删除时返回 404/);
+});
+
+test("docs: activity endpoints enforce auth and list query/cursor behavior matches the generated contract", async (t) => {
+  const model = await createFakeModel();
+  const dataDir = await mkdtemp(join(tmpdir(), "personal-bot-activity-docs-"));
+  t.after(async () => {
+    await service?.close();
+    await model.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+  let service: Awaited<ReturnType<typeof createService>> | undefined;
+  service = await createService(
+    createConfig({
+      schemaVersion: 1,
+      server: {},
+      model: { baseUrl: model.baseUrl, id: "test-model", apiKey: "k" },
+      runtime: { dataDir, runTimeoutMs: 3000, schedulerIntervalMs: 60000, monitorScanIntervalMs: 60000 },
+    }),
+  );
+
+  // 未带 token 时两个 GET 都必须 401，不能返回空列表或 404 掩盖鉴权。
+  for (const path of ["/api/activities", "/api/activities/missing"]) {
+    const response = await service.app.request(path);
+    assert.equal(response.status, 401, `${path} must require auth`);
+  }
+  const wrongToken = await service.app.request("/api/activities", {
+    headers: { Authorization: "Bearer wrong-token" },
+  });
+  assert.equal(wrongToken.status, 401);
+
+  const headers = { Authorization: `Bearer ${service.auth.login()}` };
+  const listEndpoint = endpoints.find((endpoint) => endpoint.method === "get" && endpoint.path === "/api/activities")!;
+
+  const ok = await service.app.request("/api/activities", { headers });
+  assert.equal(ok.status, 200);
+  assert.ok(listEndpoint.response.safeParse(await ok.json()).success, "empty activity list must match response schema");
+
+  // limit 只接受十进制整数 1–100；重复、未知、空值和越界参数都按契约 400。
+  for (const query of ["limit=1", "limit=100", "threadId=local-main", "status=completed"]) {
+    const response = await service.app.request(`/api/activities?${query}`, { headers });
+    assert.equal(response.status, 200, `${query} should be accepted`);
+  }
+  for (const query of ["limit=0", "limit=101", "limit=1.5", "limit=abc", "limit=", "limit=1&limit=2", "unknown=1", "threadId=-bad", "status=bogus"]) {
+    const response = await service.app.request(`/api/activities?${query}`, { headers });
+    assert.equal(response.status, 400, `${query} should be rejected`);
+    assert.equal(typeof ((await response.json()) as { error?: unknown }).error, "string");
+  }
+
+  // 游标绑定生成时的过滤条件：结构非法、时间非法或与本次 threadId/status 不一致都 400。
+  const encode = (payload: unknown) => Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  const bound = encode({ createdAt: "2026-10-18T10:00:00.000Z", id: "act-x", threadId: "local-main", status: "completed" });
+  const matched = await service.app.request(`/api/activities?threadId=local-main&status=completed&cursor=${bound}`, { headers });
+  assert.equal(matched.status, 200, "cursor with matching filters must be accepted");
+  for (const query of [
+    `threadId=local-main&cursor=${bound}`,
+    `cursor=${bound}`,
+    `threadId=local-main&status=completed&cursor=not-a-cursor`,
+    `threadId=local-main&status=completed&cursor=${encode({ createdAt: "not-a-date", id: "act-x" })}`,
+    `threadId=local-main&status=completed&cursor=${encode({ createdAt: "2026-10-18T10:00:00.000Z", id: "act-x", extra: true })}`,
+  ]) {
+    const response = await service.app.request(`/api/activities?${query}`, { headers });
+    assert.equal(response.status, 400, `cursor mismatch must be rejected: ${query}`);
+  }
+
+  // 详情不存在或来源会话已删除时 404，不返回空壳记录。
+  const missing = await service.app.request("/api/activities/missing", { headers });
+  assert.equal(missing.status, 404);
+  assert.equal(typeof ((await missing.json()) as { error?: unknown }).error, "string");
 });
 
 test("docs: source routing, deletion, safe errors and deployed code identity are explicit", async () => {

@@ -91,6 +91,7 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 - **慢 Web 与子模型 Stop**：父 Stop 后 RUN_ERROR，provider 及真实 HTTP socket 关闭，不等待 transport 超时；稳定 E2E fixture 持续挂起，live 使用 55 秒慢 fixture，后续轮可用。
 - **隔离与删除不复活**：shared 跨 thread 显式可读，私有标记不泄露；删除后 GET 空历史、迟到 Stop false、目录不存在。
 - **工作区 SSE 与退出**：`/api/events` 首帧 ready、记忆提交触发 workspace_updated；持有 SSE 时 SIGTERM 自然 code 0。
+- **Activity 专项**（`tests/e2e/activity.test.ts`）：普通对话不登记、鉴权/只读查询无文件或 revision 副作用、显式登记与幂等重放、完成声明/最终交付保护、等待用户、Stop/断流/超时/优雅关闭/故意崩溃后的诚实状态及原活动继续；父/子审批、实际提交、拒绝/过期/冲突不写，子代理层级、安全隐藏、过滤/同时间游标/留存、删除不复活与损坏记录失败关闭。此层只模拟模型决策，不能称作自主分类真实验收。
 - **旧队列不恢复**：`/api/agent/tasks` 不出现在文档且 POST 501，快照无 worker，不因测试或重启创建旧任务数据。
 - **范围之外**：浏览器 UI、PWA 安装、移动端锁屏等不在本层；HTTP 版本断言或 fake provider 通过不是这些行为的验收。
 
