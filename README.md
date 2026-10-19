@@ -42,7 +42,7 @@
 
 自有 `web/` 是开发与页面验收入口，直接复用 HTTP 消息/事件契约；不保留历史接口与占位字段。
 聊天先读取 `{messages, revision}`，再向 `/api/conversation/run` 提交单条消息和 `expectedRevision`。版本冲突返回 409，页面同步历史并恢复草稿；Stop 同时绑定 threadId/runId。
-审批独立读取 `/api/actions/pending` 的完整预览，历史摘要与单项详情分开查询。后台行为只有定时 jobs 与网页 monitors；subagent 在父聊天轮内运行，不使用旧 worker 队列，子工具权限只能收窄父会话上限。完整接入规则以服务端 `/docs` 与 `/openapi.json` 为准。
+审批独立读取 `/api/approvals/pending` 的完整预览；`/api/approvals` 分页返回终态历史摘要，单项详情保留申请时的完整内容。审批与预览长期保留，不按时间或条数自动裁剪；`approved` 仅代表授权，真实提交结果另见 `execution`。后台行为只有定时 jobs 与网页 monitors；subagent 在父聊天轮内运行，不使用旧 worker 队列，子工具权限只能收窄父会话上限。完整接入规则以服务端 `/docs` 与 `/openapi.json` 为准。
 
 ## 启动真实模型
 

@@ -16,6 +16,7 @@
 | `src/http/contracts/rest.ts` | 请求 schema，字段约束与含义 |
 | `src/http/contracts/responses.ts` | 响应 schema、状态与空值语义 |
 | `src/http/contracts/activities.ts` | 活动概览、逐步明细、列表分页与查询 schema |
+| `src/http/contracts/approvals.ts` | 审批决定、执行回执、完整预览与终态历史分页 schema |
 | `src/http/contracts/sse-events.ts` | AG-UI 聊天事件、数据与顺序 |
 | `src/http/contracts/workspace-events.ts` | 工作区通知事件与客户端同步规则，不与聊天混用 |
 | `src/http/openapi.ts` | 从契约生成 OpenAPI 3.1，不维护独立字段定义 |

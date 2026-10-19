@@ -6,7 +6,7 @@ import { z } from "zod";
  * 协议要点：
  * - Authorization: Bearer；与聊天 SSE 完全独立，不复用 AG-UI 命名空间。
  * - 三种事件均只承载触发信号（无业务正文、无 id、无 Last-Event-ID、无重放）。
- * - 客户端在 `ready` 之后读取 /api/agent 与 /api/actions/pending 获取正文。
+ * - 客户端在 `ready` 之后读取 /api/agent 与 /api/approvals/pending 获取正文。
  * - 30 秒注释行 `: keep-alive` 用于降低代理空闲超时风险，不作为事件 schema。
  *
  * workspace 涵盖：jobs / goals / memories / monitors / identity；
@@ -17,7 +17,7 @@ export const workspaceEvents = {
   ready: z
     .object({})
     .strict()
-    .describe("首帧 event: ready / data: {}；首次连接及重连收到后均读取 /api/agent 与 /api/actions/pending。"),
+    .describe("首帧 event: ready / data: {}；首次连接及重连收到后均读取 /api/agent 与 /api/approvals/pending。"),
   workspace_updated: z
     .object({})
     .strict()
@@ -25,7 +25,7 @@ export const workspaceEvents = {
   actions_updated: z
     .object({})
     .strict()
-    .describe("审批集合变化（新增/批准/拒绝/过期/撤销），重读 /api/actions/pending；刷新中再次收到时在本次完成后补刷。"),
+    .describe("审批集合变化（新增/批准/拒绝/过期/撤销或执行回执），重读 /api/approvals/pending；刷新中再次收到时在本次完成后补刷。"),
 } as const;
 
 export const WORKSPACE_SSE_DESCRIPTION = [
@@ -47,8 +47,8 @@ export const WORKSPACE_SSE_DESCRIPTION = [
     "每 30 秒发送注释心跳 : keep-alive，完整帧为 `: keep-alive\\n\\n`。心跳不是业务事件，不按 JSON 解析，也不触发刷新。" +
     "慢连接背压时心跳可能延后发送；心跳只降低代理空闲超时风险，不保证网络永不断线。",
   "### 客户端同步与刷新合并\n\n" +
-    "1. 首次连接及每次重连都必须等待 ready，然后读取 GET /api/agent 与 GET /api/actions/pending；不能只使用断线前的缓存。\n" +
-    "2. workspace_updated 表示定时任务 jobs、目标 goals、记忆 memories、监控 monitors 或身份 identity 可能变化，刷新 /api/agent；actions_updated 表示审批新增、批准、拒绝、过期或撤销，刷新 /api/actions/pending。仅以查询响应作为事实，允许复用现有聚合刷新方法；打开的审批历史或详情应同时刷新对应查询。\n" +
+    "1. 首次连接及每次重连都必须等待 ready，然后读取 GET /api/agent 与 GET /api/approvals/pending；不能只使用断线前的缓存。\n" +
+    "2. workspace_updated 表示定时任务 jobs、目标 goals、记忆 memories、监控 monitors 或身份 identity 可能变化，刷新 /api/agent；actions_updated 表示审批新增、批准、拒绝、过期、撤销或执行回执变化，刷新 /api/approvals/pending。仅以查询响应作为事实，允许复用现有聚合刷新方法；打开的审批历史或详情应同时刷新对应查询。\n" +
     "3. 同范围的通知可以合并；刷新请求进行中若再次收到通知，必须保留待刷新标记，在当前请求完成后至少再补刷一次，不能因已有在途请求而丢弃通知。不同范围均须处理。读取失败不能当作已同步，恢复连接或再次刷新时应重新读取。\n" +
     "4. 现有轮询可以保留，事件流作为可选加速通道。只有完成上述首次同步、重连和补刷处理后，客户端才可自行替换原有 5 秒盲轮询；仍需保留用户操作后刷新和手动刷新。本接口不会自动修改客户端轮询。",
   "### 断线、重连与结束\n\n" +

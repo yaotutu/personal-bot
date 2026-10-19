@@ -52,7 +52,7 @@ const execute = (tools: Tools, name: "write" | "edit", params: Params, signal?: 
 const approving = (
   actions: ActionService,
   beforeApprove: (action: PendingAction) => Promise<void> = async () => {},
-): Pick<ActionService, "submit" | "poll" | "cancel"> => ({
+): Pick<ActionService, "submit" | "poll" | "cancel" | "markExecuting" | "finishExecution"> => ({
   ...actions,
   submit: async (...args) => {
     const action = await actions.submit(...args);
@@ -71,7 +71,7 @@ test("approval records explicit deadline and run ownership; late approve cannot 
   assert.equal(action.threadId, "thread-a");
   assert.equal(action.runId, "run-a");
   t.mock.timers.tick(500);
-  assert.equal(await actions.decide(action.id, "approve"), undefined);
+  assert.equal((await actions.decide(action.id, "approve")).ok, false);
   assert.deepEqual(await actions.poll(action.id), { status: "expired" });
   assert.equal((await actions.list())[0].decidedAt, new Date(1_500).toISOString());
 });
@@ -84,7 +84,7 @@ test("approval decision respects the stored deadline and fails closed for invali
   assert.deepEqual(await actions.poll(action.id), { status: "expired" });
   const { expiresAt: _, ...invalid } = action;
   const restored = createActionService(memoryRepository([invalid as PendingAction]));
-  assert.equal(await restored.decide(action.id, "approve"), undefined);
+  assert.equal((await restored.decide(action.id, "approve")).ok, false);
   assert.deepEqual(await restored.poll(action.id), { status: "expired" });
 });
 
@@ -99,7 +99,7 @@ test("approval cancellation is terminal and startup cleanup preserves settled de
   await actions.cancel(cancelled.id);
   await actions.cancel(cancelled.id);
   await actions.cancel("unknown");
-  assert.equal(await actions.decide(cancelled.id, "approve"), undefined);
+  assert.equal((await actions.decide(cancelled.id, "approve")).ok, false);
   await actions.cancelPending();
   const once = await actions.list();
   await actions.cancelPending();
@@ -129,9 +129,42 @@ test("write approval exposes full content, version and execution context", async
   assert.notEqual(action.payload.baseVersion, "missing");
   assert.equal(action.threadId, "thread");
   assert.equal(action.runId, "run");
+  assert.equal(action.toolCallId, "test-call");
+  assert.equal(action.status, "approved");
+  assert.equal(action.execution?.status, "succeeded");
+  assert.ok(action.execution?.finishedAt);
   assert.equal(Date.parse(action.expiresAt) - Date.parse(action.createdAt), 5_000);
   assert.equal(await readFile(join(root, "note.md"), "utf8"), content);
   assert.deepEqual(await readdir(root), ["note.md"]);
+});
+
+test("execution claim failure stops file effects and receipt failure never reports that a committed file is absent", async (t) => {
+  const { root, actions } = await fixture(t);
+  const refused = { ...approving(actions), markExecuting: async () => false };
+  const noClaim = await execute(createWritableFileTools(root, refused, 5_000), "write", { path: "nested/file", content: "no claim" });
+  assert.equal(noClaim.isError, true);
+  assert.deepEqual(await readdir(root), []);
+
+  const failedClaim = { ...approving(actions), markExecuting: async () => { throw new Error("private storage error"); } };
+  await assert.rejects(execute(createWritableFileTools(root, failedClaim, 5_000), "write", { path: "nested/file", content: "claim failed" }));
+  assert.deepEqual(await readdir(root), []);
+
+  const lostReceipt = { ...approving(actions), finishExecution: async () => { throw new Error("private storage error"); } };
+  const committed = await execute(createWritableFileTools(root, lostReceipt, 5_000), "write", { path: "committed.md", content: "saved" });
+  assert.equal(committed.isError, true);
+  assert.equal(await readFile(join(root, "committed.md"), "utf8"), "saved");
+  assert.deepEqual(await readdir(root), ["committed.md"]);
+  const text = committed.content[0];
+  assert.equal(text.type, "text");
+  if (text.type === "text") {
+    assert.match(text.text, /File was committed/);
+    assert.doesNotMatch(text.text, /nothing was written|private storage error/);
+  }
+  const last = (await actions.list()).at(-1)!;
+  assert.equal(last.status, "approved");
+  assert.equal(last.execution?.status, "running");
+  await actions.cancelPending();
+  assert.equal((await actions.get(last.id))?.execution?.status, "unknown");
 });
 
 test("edit approval exposes complete before/after and treats replacement syntax literally", async (t) => {
@@ -170,7 +203,7 @@ test("approval abort during polling cancels immediately without waiting the two-
   controller.abort();
   assert.equal((await bounded(result)).isError, true);
   assert.equal((await actions.list())[0].status, "cancelled");
-  assert.equal(await actions.decide((await actions.list())[0].id, "approve"), undefined);
+  assert.equal((await actions.decide((await actions.list())[0].id, "approve")).ok, false);
   assert.deepEqual(await readdir(root), []);
 });
 
@@ -258,6 +291,10 @@ for (const name of ["write", "edit"] as const) {
     const result = await execute(createWritableFileTools(root, wrapped, 5_000), name, params);
     assert.equal(result.isError, true);
     assert.equal(await readFile(join(root, "file"), "utf8"), "external");
+    const [approval] = await actions.list();
+    assert.equal(approval.status, "approved");
+    assert.equal(approval.execution?.status, "failed");
+    assert.match(approval.execution?.result ?? "", /File changed since approval/);
   });
 }
 

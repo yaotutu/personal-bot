@@ -7,7 +7,8 @@ import test, { type TestContext } from "node:test";
 import { createFakeModel } from "../support/fake-model.js";
 import { createServiceProcess } from "../support/service-process.js";
 import { createTestClient, waitForTest } from "../support/http-client.js";
-import { agentSnapshot, pendingActionsResponse } from "../../src/http/contracts/responses.js";
+import { agentSnapshot } from "../../src/http/contracts/responses.js";
+import { pendingApprovalsResponse } from "../../src/http/contracts/approvals.js";
 
 const fixture = async (t: TestContext) => {
   let model: Awaited<ReturnType<typeof createFakeModel>> | undefined;
@@ -89,7 +90,7 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
   test(`e2e: subagent file approval ${decision} preserves ownership and filesystem truth`, { timeout: 90_000 }, async (t) => {
     const { service, client } = await fixture(t);
     const running = await client.startRun("请子代理写入", "e2e-approval");
-    const action = await waitForTest(async () => pendingActionsResponse.parse(await client.json("/api/actions/pending")).actions.find((item) => item.runId === running.runId), "child approval");
+    const action = await waitForTest(async () => pendingApprovalsResponse.parse(await client.json("/api/approvals/pending")).approvals.find((item) => item.runId === running.runId), "child approval");
     assert.equal(action.threadId, running.threadId);
     assert.match(action.payload.content, /DRAFT-CONTENT/);
     const childDir = (await readdir(join(service.dataDir, "workspace/threads"))).find((name) => name.startsWith("subagent-"));
@@ -101,13 +102,13 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
       const events = await running.done;
       assert.equal(events.at(-1)?.type, "RUN_ERROR");
     } else {
-      assert.equal((await client.request(`/api/actions/${action.id}/decide`, { decision })).status, 200);
+      assert.equal((await client.request(`/api/approvals/${action.id}/decision`, { decision })).status, 200);
       terminalSuccess(await running.done);
     }
-    assert.equal((await client.json(`/api/actions/${action.id}`)).status, decision === "approve" ? "approved" : decision === "deny" ? "denied" : "cancelled");
+    assert.equal((await client.json(`/api/approvals/${action.id}`)).status, decision === "approve" ? "approved" : decision === "deny" ? "denied" : "cancelled");
     if (decision === "approve") assert.equal(await readFile(target, "utf8"), action.payload.content);
     else await assert.rejects(stat(target), { code: "ENOENT" });
-    assert.deepEqual((await client.json("/api/actions/pending")).actions, []);
+    assert.deepEqual((await client.json("/api/approvals/pending")).approvals, []);
     terminalSuccess(await client.run("现在几点", running.threadId));
   });
 }

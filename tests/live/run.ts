@@ -138,18 +138,18 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       const name = "approval-" + decision;
       const path = `shared/live-${decision}.txt`; const content = "LIVE-" + decision.toUpperCase() + "-CONTENT";
       const running = await begin(name, delegate({ agent: "worker", task: `只调用一次write，path=${path}，content精确为${content}。等待人工审批，不假设批准，不改路径，不重试；如实返回工具结果。` }));
-      const action = await wait(async () => (await client.json("/api/actions/pending")).actions.find((item: { runId: string }) => item.runId === running.runId), "child approval");
+      const action = await wait(async () => (await client.json("/api/approvals/pending")).approvals.find((item: { runId: string }) => item.runId === running.runId), "child approval");
       assert.equal(action.threadId, running.threadId); assert.equal(action.payload.path, path); assert.equal(action.payload.content, content);
       await absent(join(dataDir, "workspace", path));
       if (decision === "cancel") {
         const start = Date.now(); assert.equal((await client.json("/api/conversation/stop", { threadId: running.threadId, runId: running.runId })).stopped, true);
         const elapsedMs = Date.now() - start; assert.ok(elapsedMs < 3000); await finish(running, "RUN_ERROR");
-        assert.equal((await client.json(`/api/actions/${action.id}`)).status, "cancelled"); await absent(join(dataDir, "workspace", path));
+        assert.equal((await client.json(`/api/approvals/${action.id}`)).status, "cancelled"); await absent(join(dataDir, "workspace", path));
         record(name, { elapsedMs, noWrite: true });
       } else {
-        assert.equal((await client.request(`/api/actions/${action.id}/decide`, { decision })).status, 200);
+        assert.equal((await client.request(`/api/approvals/${action.id}/decision`, { decision })).status, 200);
         rows = await finish(running); assert.ok(rows.some((row) => row.child && row.calls.some((call) => call.name === "write")));
-        assert.equal((await client.json(`/api/actions/${action.id}`)).status, decision === "approve" ? "approved" : "denied");
+        assert.equal((await client.json(`/api/approvals/${action.id}`)).status, decision === "approve" ? "approved" : "denied");
         if (decision === "approve") assert.equal(await readFile(join(dataDir, "workspace", path), "utf8"), content); else await absent(join(dataDir, "workspace", path));
         record(name, { written: decision === "approve", ownedByParentRun: true });
       }
@@ -202,7 +202,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       const content = `LIVE-ACTIVITY-${decision.toUpperCase()}`;
       const prompt = `隔离验收：请先调用 activity start，登记目标“创建验收文档”、交付“${path}”。随后只调用一次 write，path=${path}，content 精确为 ${content}。等真实审批与工具结果，不重试，不改路径。批准并真正写成后才可调用 activity complete；拒绝或取消不能宣称完成。最后简短如实报告。`;
       const running = await begin(name, prompt);
-      const action = await wait(async () => (await client.json("/api/actions/pending")).actions.find((item: { runId: string }) => item.runId === running.runId), "activity write approval");
+      const action = await wait(async () => (await client.json("/api/approvals/pending")).approvals.find((item: { runId: string }) => item.runId === running.runId), "activity write approval");
       assert.equal(action.threadId, running.threadId);
       const page = await client.json(`/api/activities?threadId=${running.threadId}`);
       assert.equal(page.activities.length, 1);
@@ -218,7 +218,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         await client.json("/api/conversation/stop", { threadId: running.threadId, runId: running.runId });
         await finish(running, "RUN_ERROR");
       } else {
-        await client.json(`/api/actions/${action.id}/decide`, { decision });
+        await client.json(`/api/approvals/${action.id}/decision`, { decision });
         await finish(running);
       }
       const after = await client.json(`/api/activities/${id}`);
@@ -279,7 +279,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     await stopService(); await startService();
     for (const thread of threads) assert.deepEqual(await client.history(thread.id), histories[thread.id]);
     assert.equal(await readFile(join(dataDir, "actions.json"), "utf8"), actions); assert.deepEqual(await sharedHashes(), hashes);
-    assert.deepEqual((await client.json("/api/actions/pending")).actions, []); assert.equal(proxy.traces.length, requestCount);
+    assert.deepEqual((await client.json("/api/approvals/pending")).approvals, []); assert.equal(proxy.traces.length, requestCount);
     record(scenario, { threads: threads.length, historiesAndFilesEqual: true, automaticModelRequests: 0 });
   } catch {
     results.push({ name: scenario, passed: false }); process.stdout.write(`[FAIL] ${scenario}: expected tool/state evidence was not observed; no automatic retry.\n`); process.exitCode = 1;

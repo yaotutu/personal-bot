@@ -4,17 +4,17 @@ import { JobsView } from "../jobs/JobsView";
 import { GoalsView } from "../goals/GoalsView";
 import { SettingsView } from "../settings/SettingsView";
 import {
-  decideAction,
-  listPendingActions,
+  decideApproval,
+  listPendingApprovals,
   subscribeAuth,
   isLoggedIn,
   listThreads,
   login,
-  type ActionDto,
+  type ApprovalDto,
 } from "../lib/api";
 
 /** 审批必须呈现真实负载；React 文本节点转义文件内容，绝不把不可信文本当 HTML 渲染。 */
-const ActionApproval = ({ action, onDecided }: { action: ActionDto; onDecided: () => void }) => {
+const ActionApproval = ({ action, onDecided }: { action: ApprovalDto; onDecided: () => void }) => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const requestRef = useRef<AbortController | null>(null);
@@ -43,7 +43,7 @@ const ActionApproval = ({ action, onDecided }: { action: ActionDto; onDecided: (
     setBusy(true);
     setError("");
     try {
-      await decideAction(action.id, decision, controller.signal);
+      await decideApproval(action.id, decision, controller.signal);
       if (!controller.signal.aborted) onDecided();
     } catch (e) {
       // 409/网络错误不能伪装为决定成功；保留卡片与错误，后续快照负责移除已取消/过期项。
@@ -116,7 +116,7 @@ export const App = () => {
   const [view, setView] = useState<View>("chat");
   // 小屏（<768px）侧栏变为抽屉；默认开抽屉选会话，选完自动收起。
   const [drawer, setDrawer] = useState(false);
-  const [pendingActions, setPendingActions] = useState<ActionDto[]>([]);
+  const [pendingActions, setPendingActions] = useState<ApprovalDto[]>([]);
   const actionRevision = useRef(0);
 
   // 审批轮询只读取 pending 操作；切换认证状态时取消旧请求，避免返回迟到卡片。
@@ -129,7 +129,7 @@ export const App = () => {
       polling = true;
       const revision = actionRevision.current;
       try {
-        const actions = await listPendingActions(controller.signal);
+        const actions = await listPendingApprovals(controller.signal);
         // 决定之前发出的旧快照不得把已处理项重新显示；取消/过期等终态统一不再提供按钮。
         if (!controller.signal.aborted && revision === actionRevision.current) {
           setPendingActions(actions);

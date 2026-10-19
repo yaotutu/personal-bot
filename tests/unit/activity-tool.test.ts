@@ -37,6 +37,7 @@ const fakeRun = () => {
     update: (progress) => record("update", progress),
     wait: (question) => record("wait", question),
     complete: (result) => record("complete", result),
+    getCurrentActivityId: () => undefined,
     observe: () => undefined,
     finish: () => undefined,
     close: () => undefined,

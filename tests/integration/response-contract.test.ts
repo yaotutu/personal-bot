@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createService } from "../../src/bootstrap/create-service.js";
 import { createConfig } from "../../src/config/load-config.js";
-import { agentSnapshot, pendingAction, taskDetail, taskView } from "../../src/http/contracts/responses.js";
+import { agentSnapshot, taskDetail, taskView } from "../../src/http/contracts/responses.js";
+import { approval } from "../../src/http/contracts/approvals.js";
 import { presentJob, presentJobDetail } from "../../src/http/job-presenters.js";
 import { createMonitorSchema, taskControlSchema } from "../../src/http/contracts/rest.js";
 import { endpoints } from "../../src/http/contracts/endpoints.js";
@@ -93,17 +94,18 @@ test("approval contract preserves complete text, cancellation and optional execu
   const legacy = {
     id: "approval", kind: "file_write", title: "Write notes", payload,
     createdAt: "2026-01-01T00:00:00.000Z", expiresAt: "2026-01-01T00:05:00.000Z",
+    execution: null,
   };
   for (const status of ["pending", "approved", "denied", "expired", "cancelled"] as const) {
     const action = { ...legacy, status };
-    assert.deepEqual(pendingAction.strict().parse(action), action);
+    assert.deepEqual(approval.strict().parse(action), action);
     const contextual = {
       ...action, expiresAt: "2026-01-01T00:05:00.000Z", threadId: "local-main", runId: "run-1",
       decidedAt: "2026-01-01T00:01:00.000Z",
     };
-    assert.deepEqual(pendingAction.strict().parse(contextual), contextual);
+    assert.deepEqual(approval.strict().parse(contextual), contextual);
   }
-  assert.equal(pendingAction.safeParse({ ...legacy, status: "unknown" }).success, false);
+  assert.equal(approval.safeParse({ ...legacy, status: "unknown" }).success, false);
 });
 
 test("HTTP snapshot matches contract with job-only tasks and no worker projection", async (t) => {
@@ -172,18 +174,20 @@ test("approval queries isolate pending previews from workspace failures and hist
   await new Promise((resolve) => setTimeout(resolve, 5));
   t.mock.method(service.memory, "list", async () => { throw new Error("unrelated failure"); });
   assert.equal((await service.app.request("/api/agent", { headers })).status, 500);
-  const waiting = await service.app.request("/api/actions/pending", { headers });
+  const waiting = await service.app.request("/api/approvals/pending", { headers });
   assert.equal(waiting.status, 200);
   const body = await waiting.json();
-  assert.deepEqual(body.actions.map((action: { id: string }) => action.id), [pending.id]);
-  assert.equal(body.actions[0].payload.content, content);
-  const history = await (await service.app.request("/api/actions", { headers })).json();
-  assert.equal(history.actions.length, 3);
-  assert.ok(history.actions.every((action: object) => !Object.hasOwn(action, "payload")));
-  const detail = await service.app.request(`/api/actions/${historical.id}`, { headers });
+  assert.deepEqual(body.approvals.map((action: { id: string }) => action.id), [pending.id]);
+  assert.equal(body.approvals[0].payload.content, content);
+  const history = await (await service.app.request("/api/approvals", { headers })).json();
+  assert.equal(history.approvals.length, 1);
+  assert.ok(history.approvals.every((action: object) => !Object.hasOwn(action, "payload")));
+  const detail = await service.app.request(`/api/approvals/${historical.id}`, { headers });
   assert.equal((await detail.json()).payload.content, content);
-  const decision = await service.app.request(`/api/actions/${expired.id}/decide`, {
+  const decision = await service.app.request(`/api/approvals/${expired.id}/decision`, {
     method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ decision: "approve" }),
   });
   assert.equal(decision.status, 409);
+  const historyAfter = await (await service.app.request("/api/approvals", { headers })).json();
+  assert.equal(historyAfter.approvals.length, 2);
 });

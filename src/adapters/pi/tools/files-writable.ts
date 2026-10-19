@@ -10,10 +10,14 @@ import { resolveWorkspacePath, safeWorkspacePath } from "./workspace-path.js";
 
 const MAX_BYTES = 100_000;
 const POLL_INTERVAL_MS = 2_000;
-type ApprovalContext = { threadId?: string; runId?: string };
-type Actions = Pick<ActionService, "submit" | "poll" | "cancel">;
+type ApprovalContext = { threadId?: string; runId?: string; activityId?: string; toolCallId?: string };
+type Actions = Pick<ActionService, "submit" | "poll" | "cancel" | "markExecuting" | "finishExecution">;
 type Snapshot = { content: string; version: string };
-export type ActivityToolObservation = { observe: (event: ActivityObservation) => void; prefix: string };
+export type ActivityToolObservation = {
+  observe: (event: ActivityObservation) => void;
+  prefix: string;
+  getActivityId?: () => string | undefined;
+};
 
 /** 同一物理 workspace 的不同工具工厂共用队列；审批等待不占锁，只有提交串行化。 */
 const commits = new Map<string, Promise<void>>();
@@ -70,7 +74,7 @@ const awaitApproval = async (
   actions: Actions, kind: "file_write" | "file_edit", title: string,
   payload: Record<string, string>, timeoutMs: number, signal?: AbortSignal, context?: ApprovalContext,
   observe?: (event: ActivityObservation) => void,
-): Promise<number | undefined> => {
+): Promise<{ id: string; expiresAt: number } | undefined> => {
   if (signal?.aborted) return undefined;
   let wakeAbort!: () => void;
   const interrupted = new Promise<undefined>((resolve) => { wakeAbort = () => resolve(undefined); });
@@ -119,7 +123,7 @@ const awaitApproval = async (
           title: "Approval granted",
           result: "Action was approved",
         });
-        return Date.parse(action.expiresAt);
+        return { id: action.id, expiresAt: Date.parse(action.expiresAt) };
       }
       if (decision?.status !== "pending") {
         const status = decision?.status === "denied" ? "denied" : decision?.status === "expired" ? "expired" : "cancelled";
@@ -153,35 +157,47 @@ const awaitApproval = async (
  */
 const commitFile = async (
   root: string, path: string, target: string, original: Snapshot | undefined,
-  content: string, expiresAt: number, signal?: AbortSignal, sharedDir?: string, boundaryDir?: string,
+  content: string, approval: { id: string; expiresAt: number }, actions: Actions, signal?: AbortSignal, sharedDir?: string, boundaryDir?: string,
 ) => serialCommit(target, async () => {
+  // 先持久化真实执行开始，避免文件已提交后才第一次登记执行；写失败时不执行副作用。
+  if (!await actions.markExecuting(approval.id)) {
+    return denied("Approval cannot execute (expired or already used); nothing was written.");
+  }
   const unchanged = async () =>
     await safeTarget(root, path, sharedDir, boundaryDir) === target && (await readSnapshot(target))?.version === original?.version;
-  const expired = () => !Number.isFinite(expiresAt) || Date.now() >= expiresAt;
+  const expired = () => !Number.isFinite(approval.expiresAt) || Date.now() >= approval.expiresAt;
   let temporary: string | undefined;
+  let committed = false;
+  const refused = async (text: string, cancelled = false) => {
+    await actions.finishExecution(approval.id, cancelled ? "cancelled" : "failed", text);
+    return denied(text);
+  };
   try {
-    if (signal?.aborted) return aborted();
-    if (expired()) return denied("Approval expired before commit; nothing was written.");
-    if (!await unchanged()) return denied("File changed since approval was requested; request a new approval.");
-    if (signal?.aborted) return aborted();
+    if (signal?.aborted) return await refused("Operation aborted; nothing was written.", true);
+    if (expired()) return await refused("Approval expired before commit; nothing was written.");
+    if (!await unchanged()) return await refused("File changed since approval was requested; request a new approval.");
+    if (signal?.aborted) return await refused("Operation aborted; nothing was written.", true);
     await mkdir(dirname(target), { recursive: true });
-    if (await safeTarget(root, path, sharedDir, boundaryDir) !== target) return denied("Access denied: unsafe file path.");
-    if (signal?.aborted) return aborted();
+    if (await safeTarget(root, path, sharedDir, boundaryDir) !== target) return await refused("Access denied: unsafe file path.");
+    if (signal?.aborted) return await refused("Operation aborted; nothing was written.", true);
     temporary = join(dirname(target), `.approval-${randomUUID()}.tmp`);
     const file = await open(temporary, "wx", 0o600);
     try {
-      if (signal?.aborted) return aborted();
+      if (signal?.aborted) return await refused("Operation aborted; nothing was written.", true);
       await file.writeFile(content, "utf8");
     } finally { await file.close(); }
-    if (!await unchanged()) return denied("File changed since approval was requested; request a new approval.");
-    if (signal?.aborted) return aborted();
-    if (expired()) return denied("Approval expired before commit; nothing was written.");
+    if (!await unchanged()) return await refused("File changed since approval was requested; request a new approval.");
+    if (signal?.aborted) return await refused("Operation aborted; nothing was written.", true);
+    if (expired()) return await refused("Approval expired before commit; nothing was written.");
     if (original) await rename(temporary, target);
     else await link(temporary, target);
+    committed = true;
+    // 结果保存失败不能把真实落盘伪装成“什么也没写”；保留running供重启诚实标记unknown。
+    await actions.finishExecution(approval.id, "succeeded", "File committed after approval and version checks");
     return { content: [{ type: "text" as const, text: `Saved ${path}.` }], details: undefined };
   } catch {
-    // 文件路径和底层 I/O 细节不透给模型；冲突、链接逃逸和写失败一律不自动重试。
-    return denied("File commit refused: the file changed, the path is unsafe, or writing failed.");
+    if (committed) return denied("File was committed, but its execution receipt could not be saved. Verify the file before repeating.");
+    return refused("File commit refused: the file changed, the path is unsafe, or writing failed.");
   } finally {
     if (temporary) await unlink(temporary).catch((error) => { if (!isMissing(error)) throw error; });
   }
@@ -211,11 +227,11 @@ export const createWritableFileTools = (
       const approved = await awaitApproval(actions, "file_write", `写入 ${params.path}`, {
         path: params.path, content: params.content, originalContent: original?.content ?? "",
         baseVersion: original?.version ?? "missing",
-      }, timeoutMs, signal, context, observation ? (event) => observation.observe({
+      }, timeoutMs, signal, { ...context, toolCallId: _id, activityId: observation?.getActivityId?.() ?? context?.activityId }, observation ? (event) => observation.observe({
         ...event, id: `${observation.prefix}:${event.id}`, parentId: `${observation.prefix}:tool:${_id}`,
       }) : undefined);
       if (approved === undefined) return denied("Write not approved (denied, expired or cancelled); nothing was written.");
-      return commitFile(root, params.path, target, original, params.content, approved, signal, sharedDir, boundaryDir);
+      return commitFile(root, params.path, target, original, params.content, approved, actions, signal, sharedDir, boundaryDir);
     },
   }),
   defineTool({
@@ -246,11 +262,11 @@ export const createWritableFileTools = (
       const approved = await awaitApproval(actions, "file_edit", `编辑 ${params.path}`, {
         path: params.path, oldText: params.oldText, newText: params.newText,
         originalContent: original.content, content, baseVersion: original.version,
-      }, timeoutMs, signal, context, observation ? (event) => observation.observe({
+      }, timeoutMs, signal, { ...context, toolCallId: _id, activityId: observation?.getActivityId?.() ?? context?.activityId }, observation ? (event) => observation.observe({
         ...event, id: `${observation.prefix}:${event.id}`, parentId: `${observation.prefix}:tool:${_id}`,
       }) : undefined);
       if (approved === undefined) return denied("Edit not approved (denied, expired or cancelled); nothing was written.");
-      return commitFile(root, params.path, target, original, content, approved, signal, sharedDir, boundaryDir);
+      return commitFile(root, params.path, target, original, content, approved, actions, signal, sharedDir, boundaryDir);
     },
   }),
 ];

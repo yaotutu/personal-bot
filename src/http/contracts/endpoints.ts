@@ -2,6 +2,7 @@ import { z } from "zod";
 import * as req from "./rest.js";
 import * as resp from "./responses.js";
 import * as activity from "./activities.js";
+import * as approval from "./approvals.js";
 import { sseEvents, SSE_EVENT_ORDER } from "./sse-events.js";
 import { workspaceEvents, WORKSPACE_SSE_DESCRIPTION } from "./workspace-events.js";
 
@@ -81,7 +82,7 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     method: "delete", path: "/api/threads/:threadId", tag: "会话", summary: "删除会话（不可删除主会话）",
-    hint: "不可删除 local-main（409）；关闭旧会话并取消其当前轮，级联删除该会话名下的定时任务与监控，取消其排队/运行中后台任务。删除等待已接纳的来源绑定与规则/技能写入完成后清理，期间同 ID 的写操作/来源绑定返回 409 THREAD_DELETING，不自动重试。迟到历史 GET/Stop 不重建会话；已完成任务的迟到通知不改投主会话或新同名会话，结果仍可读任务详情。成功后客户端取消本地请求、屏蔽迟到结果并刷新 threads/agent/actions/pending。删除非事务，失败不承诺回滚；404 表示不存在且无活跃绑定。删除成功后显式 run/规则/技能保存或来源绑定可建立全新同名会话，不恢复旧历史。",
+    hint: "不可删除 local-main（409）；关闭旧会话并取消其当前轮，级联删除该会话名下的定时任务与监控，取消其排队/运行中后台任务。删除等待已接纳的来源绑定与规则/技能写入完成后清理，期间同 ID 的写操作/来源绑定返回 409 THREAD_DELETING，不自动重试。迟到历史 GET/Stop 不重建会话；已完成任务的迟到通知不改投主会话或新同名会话，结果仍可读任务详情。成功后客户端取消本地请求、屏蔽迟到结果并刷新 threads/agent/approvals/pending。删除非事务，失败不承诺回滚；404 表示不存在且无活跃绑定。删除成功后显式 run/规则/技能保存或来源绑定可建立全新同名会话，不恢复旧历史。",
     auth: true, response: resp.deleteThreadResponse,
   },
   {
@@ -129,7 +130,7 @@ export const endpoints: EndpointSpec[] = [
     hint:
       "工作台首屏读取定时任务/目标/监控/记忆/身份；tasks 数组仅包含 kind=job 的定时任务，不再返回后台任务或 worker 字段。不提供 POST /api/agent/tasks 创建入口；旧调用按未知 API 返回501。" +
       "subagent 是主模型的一次工具调用，不会产生此处的任务记录，结果回到来源聊天；旧 tasks.json 不读取或执行。快照目前仍全量返回定时任务，不做7天过滤或分页。" +
-      "审批横幅独立读取 GET /api/actions/pending。",
+      "审批横幅独立读取 GET /api/approvals/pending。",
     auth: true, response: resp.agentSnapshot,
   },
   // ---- 执行活动（只读；登记与推进由对话工具完成）----
@@ -222,23 +223,44 @@ export const endpoints: EndpointSpec[] = [
   },
   // ---- 审批 ----
   {
-    method: "get", path: "/api/actions/pending", tag: "审批", summary: "读取当前待审批操作（完整预览）",
-    auth: true, response: resp.pendingActionsResponse,
-  },
-  {
-    method: "get", path: "/api/actions", tag: "审批", summary: "读取审批历史摘要（不含文件正文）",
-    auth: true, response: resp.actionsResponse,
-  },
-  {
-    method: "get", path: "/api/actions/:id", tag: "审批", summary: "读取单个审批详情",
-    auth: true, response: resp.pendingAction,
-  },
-  {
-    method: "post", path: "/api/actions/:id/decide", tag: "审批", summary: "审批写操作（approve/deny）",
+    method: "get", path: "/api/approvals", tag: "审批", summary: "列出审批历史（终态摘要分页）",
     hint:
-      "模型调用 write/edit 时工具挂起等此决定：approve 才落盘，deny 返回受控拒绝。" +
-      "5 分钟不决定自动 expired。只有 pending 状态可决定（重复决定 409）。",
-    auth: true, request: req.actionDecisionSchema, response: resp.pendingAction,
+      "只返回已进入终态（approved/denied/expired/cancelled）的审批摘要，不含 pending；当前待审批请读 GET /api/approvals/pending。" +
+      "摘要保留归属、决定时间与 execution，但省略 payload，完整预览只能从 pending 或单项详情取得。" +
+      "排序为 decidedAt 降序、同一时间按 id 降序；limit 默认 20、范围 1–100。" +
+      "可选 status（仅终态；传 pending 返回 400）、threadId、activityId 过滤。" +
+      "cursor 是上一页返回的不透明 base64url，原样回传即可；它绑定生成时的三个过滤条件，改变过滤后必须从第一页重新开始。" +
+      "严格校验：未声明参数、重复参数、非法 limit、非法游标（结构/时间/非规范编码/过滤不匹配）一律 400。" +
+      "approved 只表示授权一次提交，不代表文件已成功写入；execution=null 表示尚未观察到执行，不能推断成功。" +
+      "历史与登记时的完整预览长期保留，不按时间或条数自动裁剪；分页不冻结快照。" +
+      "本接口不新增 SSE 事件；收到既有 actions_updated 通知后，打开的历史或详情需重新读取。",
+    auth: true, query: approval.approvalsQuerySchema, response: approval.approvalsResponse,
+  },
+  {
+    method: "get", path: "/api/approvals/pending", tag: "审批", summary: "读取当前待审批操作（完整预览）",
+    hint:
+      "只返回当前仍可决定的 pending 审批，已过期项不返回；每项含完整 payload 与固定 expiresAt，供审批横幅渲染。" +
+      "可作为 SSE ready 后的初始化供给，也可单独拉取；不是历史列表。读取不会触发决定、文件写入或过期状态落盘；" +
+      "过期记录在工具轮询、决定或显式对齐后进入历史，此前详情仍可能保存 pending，但已不可批准。",
+    auth: true, response: approval.pendingApprovalsResponse,
+  },
+  {
+    method: "get", path: "/api/approvals/:id", tag: "审批", summary: "读取单个审批详情（含 pending）",
+    hint:
+      "返回单项完整记录，包括 pending 与终态；payload 为登记时的完整预览，不随后续文件变化更新。" +
+      "execution 字段始终存在：null 表示尚未观察到执行（pending、denied 或 approved 后尚未开始），不能当作成功。" +
+      "不存在返回 404。",
+    auth: true, response: approval.approval,
+  },
+  {
+    method: "post", path: "/api/approvals/:id/decision", tag: "审批", summary: "审批写操作（approve/deny）",
+    hint:
+      "模型调用 write/edit 时工具挂起等待此决定：approve 才允许受控工具继续提交，deny 返回受控拒绝给模型。" +
+      "请求体严格为 {decision:'approve'|'deny'}，非法或带额外字段返回 400。" +
+      "同一决定重复提交幂等返回 200 当前记录，不重新执行、不延长期限；相反决定、已过期或已取消返回 409；不存在返回 404。" +
+      "有效期由 expiresAt 决定（默认5分钟），过期后不得批准；过期状态在工具轮询、决定或显式状态对齐时落盘，没有后台 TTL 或历史清理。" +
+      "批准只授权一次提交，实际写入结果由工具回报在 execution 中；并发修改、路径不安全或期限已过仍会被工具拒绝。",
+    auth: true, request: approval.approvalDecisionSchema, response: approval.approval,
   },
   // ---- 工作区变更通知（独立命名 SSE，不与聊天流共用事件）----
   {
@@ -248,7 +270,7 @@ export const endpoints: EndpointSpec[] = [
     sse: {
       description:
         "命名 SSE：event: ready / workspace_updated / actions_updated，data: {}，每帧以空行结束。" +
-        "首帧 ready 后读取 /api/agent 与 /api/actions/pending；刷新期间收到新通知须在当前请求完成后补刷；重连后再次同步。" +
+        "首帧 ready 后读取 /api/agent 与 /api/approvals/pending；刷新期间收到新通知须在当前请求完成后补刷；重连后再次同步。" +
         "每30秒注释 : keep-alive 为心跳，无事件ID或重放；断开通知连接不取消聊天或后台任务。完整接入规则见本接口描述。",
       events: workspaceEvents,
     },

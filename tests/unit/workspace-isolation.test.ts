@@ -340,7 +340,9 @@ test("two sessions approving the same shared file only let one commit, even when
   // 两个动作并发提交审批；同时落定后 commitFile 的共享队列让第一个提交，第二个因版本号变化被拒。
   const ready = deferred<void>();
   let count = 0;
-  const approving: Pick<ActionService, "submit" | "poll" | "cancel"> = {
+  const approving: Pick<ActionService, "submit" | "poll" | "cancel" | "markExecuting" | "finishExecution"> = {
+    markExecuting: actions.markExecuting,
+    finishExecution: actions.finishExecution,
     submit: async (...args: Parameters<ActionService["submit"]>) => {
       const action = await actions.submit(...args);
       if (++count === 2) ready.resolve();

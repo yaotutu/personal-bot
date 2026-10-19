@@ -166,12 +166,12 @@ test("approval notifications cover new, approved, denied, cancelled and expired 
       await changed(() => service.actions.cancel(id));
     } else {
       await changed(async () => {
-        const response = await post(service, headers, `/api/actions/${id}/decide`, { decision });
+        const response = await post(service, headers, `/api/approvals/${id}/decision`, { decision });
         assert.equal(response.status, 200);
       });
     }
-    const pending = await (await service.app.request("/api/actions/pending", { headers })).json();
-    assert.deepEqual(pending.actions, []);
+    const pending = await (await service.app.request("/api/approvals/pending", { headers })).json();
+    assert.deepEqual(pending.approvals, []);
   }
   const invalidated: string[] = [];
   const unsubscribe = service.workspaceEvents.subscribe({ notify: (event) => invalidated.push(event), close: () => {} });

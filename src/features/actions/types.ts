@@ -1,46 +1,65 @@
 /**
- * 审批域：写类操作的人工闸门。工具执行前登记 pending action 并轮询等待
- * 决定（approve → 执行；deny → 受控拒绝；超时 → expired；中止 → cancelled）。
- * 决定只能由人通过 REST 发出；本域不执行任何写操作，只记录决定。
+ * 人工审批仅授权一次操作，执行事实由真实工具回报；两类状态分别保存。
+ * 文件版本、授权期限和取消校验仍由受控工具在提交前执行，查询历史不会恢复授权。
  */
 export type ActionKind = "file_write" | "file_edit";
 export type ActionStatus = "pending" | "approved" | "denied" | "expired" | "cancelled";
+export type SettledActionStatus = Exclude<ActionStatus, "pending">;
+export type ApprovalExecutionStatus = "running" | "succeeded" | "failed" | "cancelled" | "unknown";
+export type ApprovalExecution = {
+  status: ApprovalExecutionStatus;
+  startedAt: string;
+  finishedAt: string | null;
+  result: string | null;
+};
 
-/** 调用方显式传入执行上下文；审批域不依赖会话/工具适配器。 */
 export type ActionSubmitOptions = {
   timeoutMs?: number;
   threadId?: string;
   runId?: string;
+  activityId?: string;
+  toolCallId?: string;
 };
 
 export type PendingAction = {
   id: string;
   kind: ActionKind;
-  /** 人类可读的一句话摘要，如 "写入 workspace/notes.md"。 */
   title: string;
-  /** 结构化负载：待写入路径/内容或编辑前后文本（用于 Web 展示 diff 预览）。 */
+  /** 登记时的完整预览，之后不以当前文件或新版本替换。 */
   payload: Record<string, string>;
   status: ActionStatus;
   createdAt: string;
-  /** 登记时固定的授权截止时间；不能由轮询方延长。 */
   expiresAt: string;
-  /** 仅作审批归属展示/审计，不代替 HTTP 鉴权。 */
   threadId?: string;
   runId?: string;
+  activityId?: string;
+  toolCallId?: string;
   decidedAt?: string;
+  /** 未开始/未观察到执行时省略；不得从 approved 推断成功。 */
+  execution?: ApprovalExecution;
 };
 
-/** 决定结果轮询的返回：pending 继续等，其余为终态。 */
-export type ActionDecision =
-  | { status: "pending" }
-  | { status: "approved" }
-  | { status: "denied" }
-  | { status: "expired" }
-  | { status: "cancelled" };
+export type ActionDecision = { status: ActionStatus };
+export type ApprovalDecisionResult =
+  | { ok: true; approval: PendingAction }
+  | { ok: false; code: "not_found" | "conflict"; message: string };
+export type ApprovalCursor = { decidedAt: string; id: string };
+export type ApprovalHistoryQuery = {
+  limit: number;
+  cursor?: ApprovalCursor;
+  threadId?: string;
+  activityId?: string;
+  status?: SettledActionStatus;
+};
+export type ApprovalHistoryPage = {
+  approvals: PendingAction[];
+  hasMore: boolean;
+  nextCursor: ApprovalCursor | null;
+};
 
+/** 订阅事件在提交成功后产生，不包含SSE编码，不可阻塞业务。 */
+export type ApprovalChange = { approval: PendingAction };
 export type ActionRepository = {
   read: () => Promise<PendingAction[]>;
-  update: <T>(
-    change: (items: PendingAction[]) => { items?: PendingAction[]; result: T },
-  ) => Promise<T>;
+  update: <T>(change: (items: PendingAction[]) => { items?: PendingAction[]; result: T }) => Promise<T>;
 };

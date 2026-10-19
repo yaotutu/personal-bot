@@ -83,6 +83,7 @@ export const createActivitySession = (threadId: string, history: ActivityHistory
         return next;
       };
       return {
+        getCurrentActivityId: () => boundId,
         start: (input) => {
           writable();
           if (boundId) return record().activity;

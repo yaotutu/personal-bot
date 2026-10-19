@@ -234,7 +234,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
           "/api/profile",
           "/api/agent",
           "/api/conversation",
-          "/api/actions/pending",
+          "/api/approvals/pending",
           "/api/files",
         ]) {
           await jsonError(await app.request(path), 401);

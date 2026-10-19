@@ -1,6 +1,5 @@
 // 服务端契约类型（仅 import type，不进入打包产物）：字段变化即编译报错。
 import type {
-  ActionDto,
   AgentSnapshotDto,
   ChatMessageDto,
   ConversationSnapshotDto,
@@ -10,11 +9,12 @@ import type {
   TaskDto,
   ThreadDto,
 } from "../../../src/http/contracts/responses.js";
+import { pendingApprovalsResponse, type ApprovalDto } from "../../../src/http/contracts/approvals.js";
 import type { RunRequestDto } from "../../../src/http/contracts/rest.js";
 import { sseEventSchema, type SseEvent } from "../../../src/http/contracts/sse-events.js";
 export type { SseEvent };
 
-export type { TaskDto, MemoryDto, MonitorDto, GoalDto, ActionDto, ThreadDto };
+export type { TaskDto, MemoryDto, MonitorDto, GoalDto, ApprovalDto, ThreadDto };
 export type IdentityDto = NonNullable<AgentSnapshotDto["identity"]>;
 export type MilestoneDto = GoalDto["milestones"][number];
 /**
@@ -292,12 +292,12 @@ export const removeGoal = async (id: string): Promise<void> => {
 // ---------------------------------------------------------------------------
 // 审批闸门（写操作的人工批准）
 // ---------------------------------------------------------------------------
-export const decideAction = async (
+export const decideApproval = async (
   id: string,
   decision: "approve" | "deny",
   signal?: AbortSignal,
 ): Promise<boolean> => {
-  const response = await request(`/api/actions/${id}/decide`, {
+  const response = await request(`/api/approvals/${id}/decision`, {
     method: "POST",
     body: JSON.stringify({ decision }),
     signal,
@@ -342,10 +342,10 @@ export const controlMonitor = async (
 };
 
 /** 审批高频查询仅访问审批域；完整正文只随当前 pending 返回。 */
-export const listPendingActions = async (signal?: AbortSignal): Promise<ActionDto[]> => {
-  const response = await request("/api/actions/pending", { signal });
+export const listPendingApprovals = async (signal?: AbortSignal): Promise<ApprovalDto[]> => {
+  const response = await request("/api/approvals/pending", { signal });
   if (!response.ok) throw new ApiError(response.status, "无法加载待审批操作");
-  return (await response.json()).actions;
+  return pendingApprovalsResponse.parse(await response.json()).approvals;
 };
 
 /** 显式停止必须等待服务端完成取消，随后读取的 revision 才是稳定终态。 */

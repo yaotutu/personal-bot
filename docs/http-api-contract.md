@@ -16,8 +16,8 @@
 - 监控仅省略 `originThreadId` 时默认主会话；显式新 ID 在接纳前建立会话，不因来源消失改投主会话。删除中的来源绑定/规则或技能保存返回409 `THREAD_DELETING`，客户端不自动重试旧ID。
 - 删除等待已接纳的来源写入收尾再级联清理定时任务与监控；迟到 GET/Stop 不重建会话。删除成功后显式 run/规则或技能保存/监控来源绑定仍可建立全新同名会话；删除非事务，不承诺失败回滚。
 - `subagent` 是主模型的工具调用，不是 REST 创建的后台任务。single/parallel/chain 三选一，最多8项、4并发，链式失败停止；子结果回到父模型，父聊天继续。父Stop、超时或断开聊天流会取消子会话，写入仍逐次审批且绑定父thread/run；不落 tasks.json 或子会话历史，不自动重试/续跑。完整接入与展示边界已生成到聊天 run 接口描述中。
-- `GET /api/actions/pending` 仅返回当前未过期 pending 的完整预览；`GET /api/actions` 仅摘要；`GET /api/actions/:id` 返回单项完整详情。
-- `POST /api/actions/:id/decide` 只决定人的批准/拒绝，批准不代表实际文件提交成功；实际结果看工具执行。任何过期/取消/版本变化均不能复用授权。
+- `GET /api/approvals/pending` 仅返回当前未过期 pending 的完整预览；`GET /api/approvals` 分页返回终态摘要；`GET /api/approvals/:id` 返回登记时的单项完整详情。历史与预览长期保留，不按条数或时间自动裁剪。
+- `POST /api/approvals/:id/decision` 只决定人的批准/拒绝；同一决定幂等返回，相反决定或过期/取消冲突。批准不代表实际文件提交成功，独立 `execution` 回报工具执行事实；未观察到结果时为 null，重启中断的在途提交标记 unknown。任何过期/取消/版本变化均不能复用授权。
 
 ## 部署版本与错误诊断
 
@@ -37,8 +37,8 @@
 
 客户端约定：
 
-1. 拿到 `ready` 帧后再读取 `/api/agent` 与 `/api/actions/pending` 拉一次最新快照，避免先读后订阅的漏通知窗口。
-2. 收到 `workspace_updated` 表示 jobs / goals / memories / monitors / identity 的数据可能变化，重读 `/api/agent`；收到 `actions_updated` 表示审批新增、批准、拒绝、过期或撤销，重读 `/api/actions/pending`。按这两个读取范围合并刷新即可，允许客户端复用现有聚合刷新方法。
+1. 拿到 `ready` 帧后再读取 `/api/agent` 与 `/api/approvals/pending` 拉一次最新快照，避免先读后订阅的漏通知窗口。
+2. 收到 `workspace_updated` 表示 jobs / goals / memories / monitors / identity 的数据可能变化，重读 `/api/agent`；收到 `actions_updated` 表示审批新增、批准、拒绝、过期或撤销，重读 `/api/approvals/pending`。按这两个读取范围合并刷新即可，允许客户端复用现有聚合刷新方法。
 3. 刷新期间到来的新通知不能丢：一次刷新未完成时若再收到同范围通知，必须在本次刷新完成后至少再补刷一次；不同范围按各自路径单独合并。
 4. 断线、回前台重连：再次收到 `ready` 帧即视为一次同步边界，按 1-3 重新拉取；不要依赖本地缓存判断"是否漏通知"。
 5. 本轮未修改客户端轮询。客户端完成连接、重连和补刷处理后，可以替换原有 5 秒盲轮询；保留首次同步、操作后刷新和手动刷新。建议前台保留一条连接，退后台可断开，非主动断线后适度退避重连；锁屏系统推送不在本接口范围内。握手 401 应重新登录，服务关闭期间 503 可稍后重连。

@@ -1,79 +1,165 @@
 import { randomUUID } from "node:crypto";
-import type { ActionDecision, ActionKind, ActionRepository, ActionSubmitOptions, PendingAction } from "./types.js";
+import type {
+  ActionDecision,
+  ActionKind,
+  ActionRepository,
+  ActionSubmitOptions,
+  PendingAction,
+  ApprovalChange,
+  ApprovalDecisionResult,
+  ApprovalExecutionStatus,
+  ApprovalHistoryPage,
+  ApprovalHistoryQuery,
+  SettledActionStatus,
+} from "./types.js";
 
-/** 审批只记录人的决定，不执行副作用；所有状态迁移共用 repository 的串行更新。 */
-export const createActionService = (repository: ActionRepository) => {
-  /** 截止时间无效时失败关闭，不能变成永久授权。 */
-  const hasExpired = (action: PendingAction) =>
-    !Number.isFinite(Date.parse(action.expiresAt)) || Date.now() >= Date.parse(action.expiresAt);
-  const settle = (action: PendingAction, status: PendingAction["status"]) => {
+type ApprovalUpdate<T> = {
+  items?: PendingAction[];
+  result: T;
+  changed?: PendingAction[];
+};
+
+/** 审批决定和工具执行共用同一写队列；订阅只观察提交后的副本，不拥有执行权限。 */
+export const createActionService = (repository: ActionRepository, onChanged?: (change: ApprovalChange) => void) => {
+  const listeners = new Set<(change: ApprovalChange) => void>();
+  const hasExpired = (action: PendingAction) => {
+    const deadline = Date.parse(action.expiresAt);
+    return !Number.isFinite(deadline) || Date.now() >= deadline;
+  };
+  const settle = (action: PendingAction, status: SettledActionStatus) => {
     action.status = status;
     action.decidedAt = new Date().toISOString();
   };
+  const notify = (approval: PendingAction) => {
+    for (const listener of [...listeners, ...(onChanged ? [onChanged] : [])]) {
+      try { listener({ approval: structuredClone(approval) }); }
+      catch { /* 展示通知失败不能回滚已提交的决定或副作用。 */ }
+    }
+  };
+  const update = <T>(change: (items: PendingAction[]) => ApprovalUpdate<T>): Promise<T> =>
+    repository.update((items) => {
+      const next = change(items);
+      return {
+        items: next.items,
+        result: { value: next.result, changed: next.changed?.map((item) => structuredClone(item)) ?? [] },
+      };
+    }).then(({ value, changed }) => {
+      changed.forEach(notify);
+      return value;
+    });
+
   return {
     list: (): Promise<PendingAction[]> => repository.read(),
-    /** 截止时间在登记时固定；工具显式传入配置值，直接调用使用默认五分钟。 */
-    submit: (
-      kind: ActionKind,
-      title: string,
-      payload: Record<string, string>,
-      options: ActionSubmitOptions = {},
-    ): Promise<PendingAction> => {
+    /** 显式对齐过期状态，不增加后台计时器，也不清理历史或预览。 */
+    reconcileExpired: (): Promise<void> => update((items) => {
+      const expired = items.filter((item) => item.status === "pending" && hasExpired(item));
+      expired.forEach((item) => settle(item, "expired"));
+      return { ...(expired.length ? { items, changed: expired } : {}), result: undefined };
+    }),
+    listPending: (): Promise<PendingAction[]> => repository.read()
+      .then((items) => items.filter((item) => item.status === "pending" && !hasExpired(item))),
+    get: (id: string): Promise<PendingAction | undefined> => repository.read()
+      .then((items) => items.find((item) => item.id === id)),
+    history: async (query: ApprovalHistoryQuery): Promise<ApprovalHistoryPage> => {
+      // 决定时间是分页排序的权威字段；损坏记录不能用申请时间补齐，伪造其处理时刻。
+      const records = (await repository.read()).filter((item) => item.status !== "pending").map((item) => {
+        if (!item.decidedAt || !Number.isFinite(Date.parse(item.decidedAt)))
+          throw new Error("Invalid approval decision time");
+        return { ...item, decidedAt: item.decidedAt };
+      });
+      const sorted = records.filter((item) =>
+        (!query.status || item.status === query.status) &&
+        (!query.threadId || item.threadId === query.threadId) &&
+        (!query.activityId || item.activityId === query.activityId))
+        .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt) || b.id.localeCompare(a.id));
+      const { cursor } = query;
+      const candidates = cursor ? sorted.filter((item) => item.decidedAt < cursor.decidedAt ||
+        (item.decidedAt === cursor.decidedAt && item.id < cursor.id)) : sorted;
+      const approvals = candidates.slice(0, query.limit);
+      const hasMore = candidates.length > approvals.length;
+      const last = approvals.at(-1);
+      return { approvals, hasMore, nextCursor: hasMore && last ? { decidedAt: last.decidedAt, id: last.id } : null };
+    },
+    subscribe: (listener: (change: ApprovalChange) => void) => {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
+    submit: (kind: ActionKind, title: string, payload: Record<string, string>, options: ActionSubmitOptions = {}): Promise<PendingAction> => {
       const timeoutMs = options.timeoutMs ?? 300_000;
       if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
         return Promise.reject(new Error("Approval timeout must be positive and finite"));
-      return repository.update((items) => {
+      return update((items) => {
         const createdAt = Date.now();
         const action: PendingAction = {
-          id: randomUUID(), kind, title, payload, status: "pending",
-          createdAt: new Date(createdAt).toISOString(),
-          expiresAt: new Date(createdAt + timeoutMs).toISOString(),
+          id: randomUUID(), kind, title, payload: { ...payload }, status: "pending",
+          createdAt: new Date(createdAt).toISOString(), expiresAt: new Date(createdAt + timeoutMs).toISOString(),
           ...(options.threadId === undefined ? {} : { threadId: options.threadId }),
           ...(options.runId === undefined ? {} : { runId: options.runId }),
+          ...(options.activityId === undefined ? {} : { activityId: options.activityId }),
+          ...(options.toolCallId === undefined ? {} : { toolCallId: options.toolCallId }),
         };
-        const all = [...items, action];
-        return {
-          items: [...all.filter((x) => x.status === "pending"), ...all.filter((x) => x.status !== "pending").slice(-100)],
-          result: action,
-        };
+        // 历史和完整预览长期保留，不能通过条数上限静默裁剪。
+        return { items: [...items, action], result: action, changed: [action] };
       });
     },
-    /** 决定与过期检查在同一个更新中，避免无人轮询时仍能批准已经过期的请求。 */
-    decide: (id: string, decision: "approve" | "deny"): Promise<PendingAction | undefined> =>
-      repository.update((items) => {
-        const action = items.find((x) => x.id === id);
-        if (!action || action.status !== "pending") return { result: undefined };
-        if (hasExpired(action)) {
-          settle(action, "expired");
-          return { items, result: undefined };
-        }
-        settle(action, decision === "approve" ? "approved" : "denied");
-        return { items, result: action };
-      }),
-    /** 取消仅撤销尚未决定的授权；重复取消不改变终态，也不伪造人的批准/拒绝。 */
-    cancel: (id: string): Promise<void> => repository.update((items) => {
-      const action = items.find((x) => x.id === id);
+    decide: (id: string, decision: "approve" | "deny"): Promise<ApprovalDecisionResult> => update<ApprovalDecisionResult>((items) => {
+      const approval = items.find((item) => item.id === id);
+      if (!approval) return { result: { ok: false, code: "not_found", message: "Approval not found" } };
+      const desired = decision === "approve" ? "approved" : "denied";
+      // 同决定重发只返回已有记录，不能重新放行、延长期限或重执行。
+      if (approval.status === desired) return { result: { ok: true, approval } };
+      if (approval.status !== "pending") return { result: { ok: false, code: "conflict", message: "Approval already settled" } };
+      if (hasExpired(approval)) {
+        settle(approval, "expired");
+        return { items, changed: [approval], result: { ok: false, code: "conflict", message: "Approval expired" } };
+      }
+      settle(approval, desired);
+      return { items, changed: [approval], result: { ok: true, approval } };
+    }),
+    cancel: (id: string): Promise<void> => update((items) => {
+      const action = items.find((item) => item.id === id);
       if (!action || action.status !== "pending") return { result: undefined };
       settle(action, "cancelled");
-      return { items, result: undefined };
+      return { items, result: undefined, changed: [action] };
     }),
-    /** 启动时等待本操作完成后再接收工具调用；仅撤销旧进程 pending，不改审计终态。 */
-    cancelPending: (): Promise<void> => repository.update((items) => {
-      const pending = items.filter((action) => action.status === "pending");
-      pending.forEach((action) => settle(action, "cancelled"));
-      return pending.length ? { items, result: undefined } : { result: undefined };
-    }),
-    /** 有效期只能由登记时持久化的 expiresAt 决定，轮询不能延长授权。 */
-    poll: (id: string): Promise<ActionDecision> =>
-      repository.update((items): { items?: PendingAction[]; result: ActionDecision } => {
-        const action = items.find((x) => x.id === id);
-        if (!action) return { result: { status: "denied" } };
-        if (action.status === "pending" && hasExpired(action)) {
-          settle(action, "expired");
-          return { items, result: { status: "expired" } };
+    /** 仅撤销旧进程授权和标记无法确定的在途提交，不重跑文件操作或推断成功/失败。 */
+    cancelPending: (): Promise<void> => update((items) => {
+      const changed: PendingAction[] = [];
+      for (const action of items) {
+        if (action.status === "pending") {
+          settle(action, "cancelled");
+          changed.push(action);
+        } else if (action.execution?.status === "running") {
+          action.execution = {
+            ...action.execution, status: "unknown", finishedAt: null,
+            result: "Execution was interrupted; verify the current file before repeating",
+          };
+          changed.push(action);
         }
-        return { result: { status: action.status } };
-      }),
+      }
+      return { ...(changed.length ? { items, changed } : {}), result: undefined };
+    }),
+    poll: (id: string): Promise<ActionDecision> => update((items) => {
+      const action = items.find((item) => item.id === id);
+      if (!action) return { result: { status: "denied" } };
+      if (action.status === "pending" && hasExpired(action)) {
+        settle(action, "expired");
+        return { items, changed: [action], result: { status: "expired" } };
+      }
+      return { result: { status: action.status } };
+    }),
+    markExecuting: (id: string): Promise<boolean> => update((items) => {
+      const action = items.find((item) => item.id === id);
+      if (!action || action.status !== "approved" || action.execution || hasExpired(action)) return { result: false };
+      action.execution = { status: "running", startedAt: new Date().toISOString(), finishedAt: null, result: null };
+      return { items, result: true, changed: [action] };
+    }),
+    finishExecution: (id: string, status: Exclude<ApprovalExecutionStatus, "running">, result: string): Promise<void> => update((items) => {
+      const action = items.find((item) => item.id === id);
+      if (!action || action.status !== "approved" || action.execution?.status !== "running") return { result: undefined };
+      action.execution = { ...action.execution, status, finishedAt: new Date().toISOString(), result };
+      return { items, result: undefined, changed: [action] };
+    }),
   };
 };
 

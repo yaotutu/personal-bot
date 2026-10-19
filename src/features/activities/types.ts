@@ -49,6 +49,8 @@ export type ActivityObservation = {
 };
 export type ActivityOutcome = "completed" | "failed" | "stopped" | "interrupted";
 export type ActivityRun = {
+  /** 只读关联现有活动，不创建另一份活动状态或推断归属。 */
+  getCurrentActivityId: () => string | undefined;
   start: (input: { title: string; goal: string; deliverable: string }) => ActivityOverview;
   resume: (id: string) => ActivityOverview;
   update: (progress: string) => ActivityOverview;

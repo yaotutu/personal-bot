@@ -122,6 +122,7 @@ export async function openPi(deps: PiDeps) {
     activityObservation: deps.activity ? {
       observe: (event: ActivityObservation) => deps.activity!.observe(event),
       prefix: deps.activityPrefix ?? "main",
+      getActivityId: () => deps.activity!.getCurrentActivityId(),
     } : undefined,
     memory,
     jobs,

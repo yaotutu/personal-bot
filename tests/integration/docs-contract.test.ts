@@ -507,7 +507,7 @@ test("docs: notification stream documents the client sync protocol and keeps eve
   const description = operation.description;
   for (const rule of [
     /Authorization: Bearer/, /event:[\s\S]*data:/, /data: \{\}/, /UTF-8/, /空行/,
-    /ready[\s\S]*\/api\/agent[\s\S]*\/api\/actions\/pending/,
+    /ready[\s\S]*\/api\/agent[\s\S]*\/api\/approvals\/pending/,
     /workspace_updated/, /actions_updated/, /刷新请求进行中[\s\S]*补刷/,
     /首次连接[\s\S]*重连/, /回到前台[\s\S]*ready/, /30 秒[\s\S]*keep-alive/,
     /不发送事件 id/, /不支持历史重放/, /忽略 Last-Event-ID/,

@@ -149,20 +149,6 @@ export const memoryItem = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
-export const pendingAction = z.object({
-  id: z.string(),
-  kind: z.enum(["file_write", "file_edit"]),
-  title: z.string().describe("人类可读摘要，如：写入 notes.md"),
-  // 审批必须展示完整待执行内容；此处不截断，避免用户批准的文本与实际执行不同。
-  payload: z.record(z.string(), z.string()).describe("完整审批文本：待写入路径/内容或编辑前后文本，不截断"),
-  status: z.enum(["pending", "approved", "denied", "expired", "cancelled"]),
-  createdAt: z.string(),
-  decidedAt: z.string().optional(),
-  // 有效期必须存在；会话关联仅在由工具发起时提供。
-  expiresAt: z.string().describe("审批失效时间"),
-  threadId: z.string().optional().describe("发起审批的会话"),
-  runId: z.string().optional().describe("发起审批的运行"),
-});
 export const identityView = z.object({
   name: z.string(),
   tone: z.string(),
@@ -184,13 +170,8 @@ export type RunEventDto = z.infer<typeof runEvent>;
 export type MemoryDto = z.infer<typeof memoryItem>;
 export type GoalDto = z.infer<typeof goalView>;
 export type MonitorDto = z.infer<typeof monitorView>;
-export type ActionDto = z.infer<typeof pendingAction>;
 export type AgentSnapshotDto = z.infer<typeof agentSnapshot>;
 export type ThreadDto = z.infer<typeof threadSnapshot>;
-
-export const pendingActionsResponse = z.object({ actions: z.array(pendingAction) });
-export const actionSummary = pendingAction.omit({ payload: true });
-export const actionsResponse = z.object({ actions: z.array(actionSummary) });
 
 // 技能 -----------------------------------------------------------------
 export const skillItem = z.object({

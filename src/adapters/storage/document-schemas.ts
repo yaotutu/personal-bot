@@ -75,26 +75,34 @@ export const readGoalsDocument = (
   return goals;
 };
 
-/** actions 裸数组；状态机形状校验，payload 保留字符串键值（diff 预览用）。 */
+/** actions 保留裸数组和完整字符串预览；决定与执行分别校验，不能补造缺失的决定时间。 */
 export const readActionsDocument = (
   value: unknown,
 ): import("../../features/actions/types.js").PendingAction[] => {
-  if (!Array.isArray(value)) throw new InvalidDocumentError("actions");
   const statuses = ["pending", "approved", "denied", "expired", "cancelled"];
   const kinds = ["file_write", "file_edit"];
-  const list = value.filter(
-    (item): item is import("../../features/actions/types.js").PendingAction =>
-      isObject(item) &&
-      typeof item.id === "string" &&
-      typeof item.title === "string" &&
-      typeof item.kind === "string" &&
-      kinds.includes(item.kind) &&
-      typeof item.status === "string" &&
-      statuses.includes(item.status) &&
-      isObject(item.payload),
-  );
-  if (list.length !== value.length) throw new InvalidDocumentError("actions");
-  return list;
+  const executionStatuses = ["running", "succeeded", "failed", "cancelled", "unknown"];
+  const isApprovalTime = (time: unknown): time is string => isDate(time) && new Date(time).toISOString() === time;
+  if (!Array.isArray(value) || !value.every((item) => {
+    if (!isObject(item) || typeof item.id !== "string" || !item.id || typeof item.title !== "string" ||
+      typeof item.kind !== "string" || !kinds.includes(item.kind) ||
+      typeof item.status !== "string" || !statuses.includes(item.status) ||
+      !isObject(item.payload) || !Object.values(item.payload).every((text) => typeof text === "string") ||
+      !isApprovalTime(item.createdAt) || !isApprovalTime(item.expiresAt) ||
+      (item.status === "pending" ? item.decidedAt !== undefined : !isApprovalTime(item.decidedAt)) ||
+      ![item.threadId, item.runId, item.activityId, item.toolCallId].every(optionalString)) return false;
+    if (item.execution === undefined) return true;
+    const execution = item.execution;
+    if (item.status !== "approved" || !isObject(execution) ||
+      typeof execution.status !== "string" || !executionStatuses.includes(execution.status) ||
+      !isApprovalTime(execution.startedAt) ||
+      !(execution.result === null || typeof execution.result === "string")) return false;
+    if (execution.status === "running") return execution.finishedAt === null && execution.result === null;
+    return execution.status === "unknown"
+      ? execution.finishedAt === null || isApprovalTime(execution.finishedAt)
+      : isApprovalTime(execution.finishedAt);
+  })) throw new InvalidDocumentError("actions");
+  return value;
 };
 
 /** monitors 裸数组；条件/状态形状校验。 */
