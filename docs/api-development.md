@@ -6,7 +6,7 @@
 
 **前端只阅读服务端 `/docs` 与 `/openapi.json`，就能正确接入本次新增或修改的接口，不需要另读源码、Markdown 或聊天记录来补齐关键规则。**
 
-接口能调用、路由已登记或 schema 校验通过，都不等于文档交付完成。所有 Agent 必须主动同步实现、契约、自动文档与契约测试，不等待用户提醒。`docs/http-api-contract.md`、HANDOFF 及给前端的说明仅作辅助，不得成为关键接入规则的唯一出处。
+接口能调用、路由已登记或 schema 校验通过，都不等于文档交付完成。所有 Agent 必须主动同步实现、契约、自动文档与契约测试，不等待用户提醒。`docs/http-api-contract.md` 及给前端的说明仅作辅助，不得成为关键接入规则的唯一出处。
 
 ## 契约唯一来源
 
@@ -17,6 +17,7 @@
 | `src/http/contracts/responses.ts` | 响应 schema、状态与空值语义 |
 | `src/http/contracts/activities.ts` | 活动概览、逐步明细、列表分页与查询 schema |
 | `src/http/contracts/approvals.ts` | 审批决定、执行回执、完整预览与终态历史分页 schema |
+| `src/http/contracts/agent-status.ts` | 单次运行最新状态查询与 SSE 运行状态投影 schema |
 | `src/http/contracts/sse-events.ts` | AG-UI 聊天事件、数据与顺序 |
 | `src/http/contracts/workspace-events.ts` | 工作区通知事件与客户端同步规则，不与聊天混用 |
 | `src/http/openapi.ts` | 从契约生成 OpenAPI 3.1，不维护独立字段定义 |

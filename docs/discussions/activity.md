@@ -2,7 +2,9 @@
 
 记录日期：2026-10-18。
 
-**状态：业务规则、接口及本轮生命周期方案已确认并授权在 `feat/activity-records` 独立 worktree 实施。** 本文保留决策依据，不是第二份接口契约；当前字段与接入规则以运行时 `/docs`、`/openapi.json` 为准。带版本与范围的验收记录见 `../archive/2026-10-19-activity-e2e-acceptance.md`。
+**状态：业务规则、接口及本轮生命周期方案已确认并实施于 main 分支。** 本文保留决策依据，不是第二份接口契约；当前字段与接入规则以运行时 `/docs`、`/openapi.json` 为准。带版本与范围的验收记录见 `../archive/2026-10-19-activity-e2e-acceptance.md`。
+
+本轮统一范围见[工作区接口已确认方案与暂缓清单](workspace-api-design.md)，实施时同步契约源、自动生成文档和测试。
 
 ## 已确认：什么进入活动记录
 

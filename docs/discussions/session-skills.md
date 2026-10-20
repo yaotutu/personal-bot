@@ -2,7 +2,7 @@
 
 > **项目：pi-muse**
 >
-> 状态：下文保留 2026-10-17 的原始讨论；2026-10-18 已推进实现，当前约定以 README、architecture.md 和 HANDOFF.md 为准。
+> 状态：下文保留 2026-10-17 的原始讨论；2026-10-18 已推进实现，当前约定以 [README](../../README.md)、[架构规范](../architecture.md)及实际源码为准。
 >
 > **后续定案优先于下文旧稿：** 每个会话（包括 local-main 与 task-*）的 cwd/文件根固定为
 > `workspace/threads/<threadId>/`，共享区为 `workspace/shared/`（用 shared/ 显式访问），

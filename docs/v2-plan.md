@@ -1,5 +1,7 @@
 # Personal Bot v2 方案：对齐 OpenMuse 服务端（pi 内核）
 
+> **历史方案，不再作为当前实施入口。** 下文保留 2026-10-11 讨论原文，其中的 PGlite、src-v2、worker 队列、CopilotRuntime、连接器桩及“只做服务端验收”等选择不代表当前实现，也不是继续实施的授权。当前方向与安全/交付规则见 [AGENTS.md](../AGENTS.md)及 [架构规范](architecture.md)，未实施需求见 [backlog](backlog.md)。
+
 > 状态：方案讨论稿（2026-10-11）。产品定位已变更：从"复刻 nanobot 聊天助手"转向
 > **自托管的 OpenMuse 服务端完整实现，agent 内核用 pi**。v1（src/）保留可跑，v2 渐进替换。
 

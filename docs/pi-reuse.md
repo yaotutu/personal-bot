@@ -1,136 +1,68 @@
-# pi 复用清单与选型边界
+# pi 集成与复用边界
 
-当前已采用并锁定 `@earendil-works/pi-coding-agent@1.3.0`，本地安装包是 API 核对依据。2026-10-10 的初始选型和 2026-10-14 的生态复查保留在下文，均为当时的历史结论；不能据此推荐退回 1.1.0 或再次执行旧升级计划。
-真实模型子代理、工具、审批、取消和重启验收见 `archive/2026-10-18-subagent-live-acceptance.md`；当前客户端是自有 Web，不以早期 OpenMuse 联调替代本轮验收。
+本文说明当前代码复用了哪些 pi 能力，以及哪些职责必须留在本项目。修改 pi 集成或子代理前，与 [架构规范](architecture.md)一起阅读；详细权限与生命周期规则只在架构规范维护，接口交付和验收分别遵守 [API 开发规范](api-development.md)与 [测试规范](testing.md)。
 
-## 1. 优先复用什么
+## 版本与核对依据
 
-| 能力 | pi 提供的边界 | 我们仍需做的工作 | 计划 |
-| --- | --- | --- | --- |
-| 模型调用/流式解析 | pi-ai 及 SDK ModelRuntime；兼容endpoint可配置已有API类型 | 只暴露一个baseURL/model/key配置；验证目标endpoint行为 | P1 |
-| agent loop | pi-agent-core，经coding-agent SDK使用 | 产品prompt、工具允许列表、客户端事件适配 | P1 |
-| 会话保存/重开 | SessionManager、session文件 | owner/thread到session文件映射、稳定UI消息ID、单writer | P1 |
-| 取消/运行终态 | session.abort / waitForIdle / 生命周期事件 | stop和断流传播；锁直到idle，不提前发送成功终态 | P1 |
-| 上下文压缩/重试 | SDK会话能力 | 不把压缩后模型上下文当完整UI聊天历史；确认重试不会重复UI事件 | P1/P2 |
-| system prompt/resources | DefaultResourceLoader，覆盖prompt/指定资源 | personal assistant身份；不要保留默认coding定位或自动读取个人全局资源 | P1 |
-| 读文件/写文件/bash等 | 内置工具与自定义工具接口 | 权限策略、输出大小、路径边界、确认和UI工具卡片 | P2 |
-| skills | SKILL.md发现与加载 | 选择实际有用且可信的技能，限制资源目录 | P2 |
-| MCP | v1.1.0 SDK可显式加载MCP扩展 | 选一个已审核服务；连接生命周期、超时、取消、secret和权限配置 | P2以后 |
-| 扩展机制 | 官方extensions/resources | 信任列表和可控加载；不需要自造通用插件市场 | 按需 |
+- `package.json` 直接锁定 `@earendil-works/pi-coding-agent` 与 `@earendil-works/pi-ai` 为 `1.3.0`；API 以 lockfile、本地安装包及当前源码为准，不混用旧命名空间、旧版本或上游 main 的接口。
+- 执行层使用进程内 coding-agent SDK。底层模型调用与循环由 pi-ai / pi-agent-core 承担，本项目不直接装配 pi-agent-core，也不解析 CLI 终端输出或另起 RPC 执行层。
+- SDK 名称中的 coding 不代表必须使用默认 coding prompt、全部文件工具或个人 CLI 资源；本项目显式注入个人助手 prompt、模型、工具、资源和 SessionManager。
+- 本文不是 npm latest 或生态现状调查，不把历史升级排期当作当前待办。2026-10-10 / 2026-10-14 调研及整理前原文见 [历史快照](archive/2026-10-18-pi-reuse-before-cleanup.md)，其中计划、包评价和旧实现描述不作为当前接入依据。
 
-关键区别：会话压缩是模型上下文管理，不是长期记忆；pi工具接入是执行能力，不是OpenMuse的任务产品语义。
+## 当前复用清单
 
-## 2. 为什么优先选 coding-agent SDK
-
-虽然名称含coding，但官方SDK允许替换system prompt、工具集合、模型、session和resource loader。可将它作为personal agent运行宿主，不必把默认CLI交互和工具全部带进服务端。
-
-它能减少我们需要维护的session、compaction、skills/resources代码。先通过P1a确认嵌入、取消和历史能力，再落最终决定。
-
-使用agent-core更轻，但会让我们自行承担上述持久化和资源管理。只有遇到明确SDK阻碍才降到这一层，不因为名字就先放弃复用。
-
-调用方式优先in-process SDK，不解析终端输出，不在首期增加RPC子进程。以后如果执行隔离需要worker，重新讨论进程边界。
-
-## 3. 版本与生态注意事项
-
-2026-10-10 npm registry 核实时的历史快照（不是当前 latest 查询）：
-
-| 包 | 当时 latest 标记 | 备注 |
+| 能力 | 实际复用 | 本项目负责的边界 |
 | --- | --- | --- |
-| @earendil-works/pi-coding-agent | 1.1.0 | 当前项目已锁定 1.3.0，见第 9 节 |
-| @earendil-works/pi-agent-core | 1.1.0 | 当前随同一命名空间 SDK 使用 1.3.0，不直接装配 agent loop |
-| @mariozechner/pi-coding-agent | 0.73.1 | 旧命名空间；不能把这版API与1.x文档混用 |
+| 模型配置与流解析 | `ModelRuntime`、SDK 模型调用与 pi-ai 流解析 | 单 endpoint/model，bootstrap 注册 provider 与内存 key，不把凭据写进历史 |
+| 执行循环 | `createAgentSession`、`session.prompt` | 对话接纳、run/thread 标识、互斥锁、超时和产品提示词；不手写第二套 loop |
+| 取消与收尾 | `session.abort`、`waitForIdle`、`dispose` | Stop/断流传播至工具与子会话，等待执行收尾才释放锁，不提前报告成功 |
+| 会话历史 | `SessionManager`、JSONL、branch/custom entry/context edit | thread 与私有 cwd 映射、revision、展示投影及通知去重，不维护另一份聊天历史 |
+| 上下文压缩 | SDK compaction 与 `SettingsManager` | 压缩参数按模型窗口收缩；展示读完整 branch，不拿压缩摘要替代长期记忆或完整 UI 历史 |
+| 只读文件工具 | `createReadToolDefinition`、`createGrepToolDefinition`、`createFindToolDefinition`、`createLsToolDefinition` | 入口 guard 和 operations 路径复核，私有/shared 边界、符号链接拒绝、技能精确读取例外 |
+| 写入工具接入 | SDK `defineTool` 与工具执行机制 | write/edit 是本项目实现，不直接开放 SDK 默认 write/edit；完整预览、版本绑定、逐次审批与提交检查由项目控制 |
+| 技能解析与加载 | `loadSkillsFromDir`，将生效技能传给 ResourceLoader | 内置 assets 与实例 skills 发现、会话开关与诊断，不自动加载个人或父目录资源 |
+| Extension 宿主 | SDK 扩展加载与运行机制、内联 extension factory | 仅装配已启用技能的显式 extension 路径和受控 subagent factory，不自造通用插件框架 |
+| Subagent 编排 | 官方 1.3.0 示例的 single/parallel/chain 语义 | CLI runner 改为注入的独立 SDK session，权限继承与收窄、父取消、审批归属和展示适配 |
 
-新实现建议选已发布版本并提交lockfile，不跟main滚动升级，不混用新旧namespace。
-SDK最终完成按选定版本核对：v1.1.0文档区分agent_end与agent_settled；前者之后可能还有自动恢复/队列工作，不能每个agent_end都发RUN_FINISHED。
+自动压缩已开启，模型/工具自动重试关闭（`retry.enabled: false`）。显式用户重试与 pi context edit 不是自动重试，也不恢复未完成执行；具体规则见架构与生成契约。
 
-## 4. 已找到的相关现成方案
+## 主要源码落点
 
-### pi 官方 experimental server
+- `src/bootstrap/create-service.ts`：唯一 `ModelRuntime`、provider 与内存凭据的初始化；不同 thread 共享 runtime，不共享执行锁和上下文。
+- `src/adapters/pi/session-factory.ts`：每轮会话装配、模型选择、技能/工具裁剪、压缩设置、subagent child runner。
+- `src/adapters/pi/resource-loader.ts`：向 SDK 提供明确的 system prompt、已启用技能和扩展，不发现个人 CLI 的 context files、prompt templates 或 themes。
+- `src/adapters/pi/session-history.ts`、`history-projection.ts`：权威 JSONL 读取、custom entry/context edit、revision 与展示历史投影。
+- `src/adapters/pi/execution.ts`：SDK 事件投影、取消/idle port，以及进入模型上下文和 JSONL 前的错误脱敏。
+- `src/adapters/pi/tools/files.ts`、`path-guard.ts`、`workspace-path.ts`：只读工具复用及路径收口；`src/adapters/pi/tools/files-writable.ts`：本项目逐次审批写入。
+- `src/adapters/pi/tools/index.ts`：显式工具注册及技能映射；`src/adapters/storage/skill-repository.ts`：会话技能覆盖与诊断。
 
-@earendil-works/pi-server 的v1.1.0 README明确标为experimental，主要是应用托管Session的路由/attachment/facet-service机制；示例为Unix socket，认证策略仍由应用提供。
+## 资源、技能与扩展
 
-它不是OpenMuse的HTTP/AG-UI业务API，也不自动提供workspace、memory、tasks等产品接口。首期不为了“有server包”增加一层私有协议和进程管理；未来有多worker/多presentation需求时再评估。
+- 技能不再为空。会话装配通过 SDK 解析内置 `assets/skills/`（构建后 `dist/assets/skills/`）和实例 `DATA_DIR/skills/`，根据生效开关选择技能；同名实例技能优先。普通会话指令单独从本会话 `INSTRUCTIONS.md` 注入，不交给 SDK 默认目录发现。
+- 已启用技能目录中的 `extension.ts` 通过显式路径装配；保留名或重复工具不会靠加载覆盖已注册工具。全局可选能力、技能开关与子角色约束共同收窄工具，不因发现资源就扩大权限。
+- 技能正文属于模型可读资源，extension 则是可信服务端代码；路径 guard 不是执行 extension 的操作系统沙箱。不能把“复用了 SDK 加载器”表述为恶意代码隔离保证。
+- 子代理只接收父会话许可的资源/工具上限，不加载个人 `~/.pi`，不复制父历史或会话指令。精确例外与隔离细则见 [文件工具与审批](architecture.md#文件工具与审批)和 [子代理](architecture.md#子代理subagent)。
 
-### 社区 pi-web 的 AG-UI bridge
+## Subagent 示例的本地适配
 
-Epsilondelta-ai/pi-web 自身声明有AG-UI SSE bridge，可以参考其session事件映射和测试用例。
+官方包附带 `examples/extensions/subagent`，它是示例扩展，不是自动启用的内置后台任务系统。本项目保留编排语义，但将其启动 CLI 的 runner 改为受限的 `createAgentSession` 调用；子会话使用 `SessionManager.inMemory`，结果回到父工具结果，不引入第二套执行或持久队列。
 
-但该项目同时包含Astro前端和Go后端，不是确认可直接安装到我们TypeScript服务中的轻量SDK。当前仅审阅了README/package metadata，尚未审计bridge源码、取消/去重/恢复行为以及对所选pi版本的兼容性。
+源码来源、MIT 许可和本地差异见 [适配目录说明](../src/adapters/pi/subagent/README.md)。运行权限、并发限制、审批与旧 worker 数据处理统一以 [架构规范](architecture.md#子代理subagent)为准，HTTP 与工具展示以当前生成契约和自有 Web 为准，不复制历史 OpenMuse 报文作为兼容目标。
 
-采用规则：P1实现前做一次有时间边界的源码检查；若有独立、许可明确、版本兼容的适配模块则复用，否则只借鉴事件映射，写满足最小契约的薄适配层。不要为了复用几十行事件映射引入另一套完整服务。
+## 不因 SDK 或依赖存在而引入的能力
 
-### 调度/heartbeat生态
+- memory/identity、jobs 调度、goals、monitors、actions 审批、HTTP 鉴权和 AG-UI 投影是本项目产品职责；SDK 提供执行与资源机制，不自动提供这些业务语义。不得因此将它们迁入第二套 agent loop 或状态系统。
+- pi-mcp、pi-codemode 等可能随 SDK 作为传递依赖安装，不等于产品已经接入 MCP 或沙箱代码执行。当前显式装配不开放这些能力，启用前必须单独定义权限、凭据、生命周期、取消与失败边界，不能把历史候选包清单当作实施授权。
+- 不引入 pi-durable、持久队列或自动恢复来改变“崩了重跑”的已确认原则。不因为 SDK 有重试能力而打开自动重试，不把压缩视为 Dream 或自动记忆提取。
+- HTTP 层仍是项目自有 Hono/契约/AG-UI 适配，不因有 pi-server 或社区 pi-web 而增加另一层宿主或兼容接口。历史包评价只说明当时的选型，不宣称完成了当前生态的全面审计。
 
-到P4再针对durable执行要求评估。没有在本轮选定任何社区cron/heartbeat依赖，也不声称pi SDK已替我们实现重启恢复、审批、任务状态和OpenMuse通知。
+## 升级或改造时的核对清单
 
-## 5. 我们真正需要编写的少量代码
+1. 先核对 `package.json`、lockfile 和本地安装包的 SDK 文档/声明/源码，确认当前版本实际支持的 API；升级同步依赖版本，不直接修改 node_modules、SDK 底层或借升级扩大工具权限。
+2. 核对 prompt/abort/idle/事件顺序，特别是有工具执行、压缩、子会话或取消时的收尾；不能只凭一次 agent_end 或文本输出发出成功终态。
+3. 核对历史 branch/context edit、SessionManager 的 cwd 选择和 JSONL 持久化时序；错误脱敏必须早于模型接收和落盘，不能退化为仅清洗 SSE。
+4. 核对只读工具参数/结果、路径解析与 operations 钩子，重跑越界/符号链接/私有与 shared/技能精确读取回归；write/edit 保留逐次审批，不换回无限制默认工具。
+5. 核对资源发现、扩展钩子和子会话 allowlist；对照官方 subagent 示例更新本地差异，不能悄悄恢复 CLI spawning、个人资源发现或子代理递归权限。
+6. 按 [测试规范](testing.md)补本次回归并运行 `pnpm check`；真实模型适配、子代理、工具、审批与取消关键链路需经费用授权 live 验收，工具展示/API 文档另做适用页面检查。历史报告不是新版本通过证明。
 
-1. OpenMuse业务接口兼容层和诚实的未配置快照。
-2. pi事件到AG-UI事件的转换，消息/toolCall稳定ID和错误终态。
-3. 主会话协调：增量用户输入、运行去重、取消、history投影/写回策略。
-4. 逐步增加个人身份、记忆、任务调度和必要权限策略。
-
-不要重复实现：LLM token流解析、agent循环、通用会话格式、上下文压缩、skills parser、MCP wire protocol。
-
-## 6. 参考来源
-
-- 发布包：https://registry.npmjs.org/@earendil-works/pi-coding-agent/latest
-- 固定版本SDK：https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/sdk.md
-- 兼容endpoint：https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/models.md
-- 安全：https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/security.md
-- session示例：https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/examples/sdk/11-sessions.ts
-- prompt示例：https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/examples/sdk/03-custom-prompt.ts
-- 官方实验server：https://github.com/earendil-works/pi/blob/v1.1.0/packages/server/README.md
-- 社区bridge候选：https://github.com/Epsilondelta-ai/pi-web
-
-## 7. 实现更新
-
-P1 已复用 createAgentSession / ModelRuntime / SessionManager / abort / waitForIdle。业务历史和运行标识通过 custom entry 关联，重试通过 context edit 排除旧条目；不自行实现 agent loop 或模型 token parser。
-
-选择自写薄 AG-UI adapter 和 runner，没有引入 pi-web 的完整服务栈，也没有复制其代码；社区 bridge 仍未完成源码审计，不作为当前可靠性依据。Pi 资源使用完全由宿主提供的 ResourceLoader；P2 再选择可信 skills/工具，避免自动开放执行能力。
-
-## 8. 生态复查（2026-10-14，历史记录）：版本动态与包适配结论
-
-以下状态与建议只对应复查时点，当前版本和实现以本文开头及第 9 节为准。
-
-复查时点：官方包全线发布 1.2.0（2026-10-12），当时本项目仍锁定 1.1.0。monorepo 现有包：pi-ai、pi-agent-core、pi-coding-agent、pi-durable、chord、pi-codemode、pi-mcp、pi-tui、pi-telemetry、pi-server（停在 1.1.0）。项目活跃度：~115k stars，约每周一版。
-
-### 版本策略
-
-当时建议 v1 稳定期锁 1.1.0、v2 动工时升 1.2.x；当前已采用 1.3.0，不再执行这份旧排期。以下为曾需核对的 SDK 变更：
-
-- run 启动期间会话即计入 busy：`isIdle()` 为 false、`sendMessage()` 改为排队、abort 传递到启动中的 run（对取消链路是行为修正）。
-- `before_agent_start` 变 union 且 sendMessage 触发的 run 也会触发；确认 resource-loader 的 `createExtensionRuntime` 未注册受影响 hook。
-- `serializeConversation()`（压缩序列化）不再输出 thinking 块，修复"摘要请求大于被摘要上下文"的故障模式。
-- 1.2.0 起 coding-agent 依赖树移除 chord（仅 pi-durable 依赖它），对我们是净简化。
-- 当前 1.3.0 安装包附带官方 subagent 扩展示例，示例启动独立 pi CLI（并非内置 SDK child 功能）；本项目保留其单/并行/链式语义并适配为受限 SDK 会话。
-
-### 包适配复查：自研功能对照 pi 生态
-
-| 包 / 内置能力 | 对应本项目功能 | 结论 |
-| --- | --- | --- |
-| `pi-mcp` | MCP 接入（P2 以后） | 采用路径：已随 coding-agent 传递依赖存在，真要用时提为直接依赖，不引入第二套 wire 实现 |
-| coding-agent 内置 skills | resource-loader `getSkills()` 现显式为空 | 未来给助手加技能知识时，开受控的 `DATA_DIR/skills` 目录发现，零新依赖；不打开默认发现 |
-| `pi-codemode` | 模型写沙箱 JS 组合只读工具（新能力候选，非现有需求） | 唯一值得排期评估的新包；启用前须单独设计权限与资源边界（CPU/时间/输出大小/审批） |
-| `pi-durable` | tasks/worker、jobs、PGlite records（v2 主线） | 否决维持：官方自标实验性且 API 随版变更；独立于 coding-agent 的第二套持久化体系；与"简单优先，崩了重跑"定论冲突。若未来要求任务断点续跑，应整体评估替换执行层而非混用 |
-| `pi-telemetry` | 工具/模型错误诊断 | 单用户场景过重，不用 |
-| `chord` / `pi-tui` | — | 不用：插件宿主/终端 UI 均超出项目边界 |
-| `pi-server` | HTTP/AG-UI 服务 | 不用：仍 experimental 且未跟进 1.2.0，形状非本项目 API |
-| 社区 pi-web 的 AG-UI 桥 | `src/adapters/ag-ui/` | 不用：桥内嵌于 Astro+Go 单二进制，不可独立安装；维持自研薄适配层 |
-
-其余自研功能——memory 长期记忆、jobs 调度、goals/monitors、actions 审批、文件/web/天气工具、AG-UI 投影、鉴权——在 pi 生态没有对应物，是产品语义层，维持自研。文件工具不复用 pi 内置 read/grep/edit：结果 JSON 结构是 OpenMuse renderer 协议契约，且必须挂接本项目 workspace 边界与审批闸。subagent 子代理改造自官方 1.3.0 示例（见第 9 节），本地 fork 仅做 runner/discovery/渲染适配与本项目上下文（model/key/workspace/审批/工具 allowlist）的收口，不复制示例的 agent loop。
-
-## 9. subagent 子代理（基于官方 1.3.0 示例）
-
-旧实现里的 `delegate_task` / `tasks.json` / 后台 worker 由官方 1.3.0 subagent 示例改造后的 SDK child session 取代，**不属于服务端后台域**，而是父模型直接调用的工具。
-
-- **复用范围**：官方示例的单/并行/链式三种模式、独立上下文、并发限制与结果汇总（最多 8 项、同时 4 个、链式失败即停、无自动重试）。官方示例的 CLI runner 由本项目改为独立 SDK 会话。
-- **本地 fork 范围**：runner 调用、role 提示词发现（`assets/subagents/<role>.md` 内置四个 role，`DATA_DIR/subagents/*.md` 可覆盖）、本项目 AG-UI 渲染与现有工具展示策略对齐；不复制示例的 agent loop、不引入第二套模型/工具管线。
-- **收口边界**（在父 session 内统一注入到子 session）：
-  - model 与 key 继承父，不接受 role 文件的 model 字段；
-  - 工具 allowlist 只收窄：父已启用技能与工具上限是上限，强制剔除 `subagent` / `schedule` / `monitor` / `instructions` / `bash`；
-  - 不读取个人 `~/.pi`，不接受 `cwd` / `agentScope` 等越界参数；
-  - 文件根为 `workspace/threads/subagent-<uuid>/`，`shared/...` 显式访问共享区，写入仍逐次审批；
-  - 子会话不持久化、不复制父历史或 `INSTRUCTIONS.md`；结果作为父工具结果写回父 thread。
-- **HTTP 边界**：`POST /api/agent/tasks` 已下线；`/api/agent` 任务列表仅含定时 `job`；`/control` 仅分发 `target: job`；删除会话 `removed` 只统计 jobs/monitors。
-- **旧数据处理**：`tasks.json` / `task-*` 工作区 / `delegate_task` 工具 / `POST /api/agent/tasks` / `target: task` 仅作历史记录，不读、不迁移、不删除、不执行，不保留旧 reader。
+固定版本上游参考：[SDK 文档](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/sdk.md)、[模型配置](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/models.md)、[安全边界](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/security.md)、[subagent 示例](https://github.com/earendil-works/pi/tree/v1.3.0/packages/coding-agent/examples/extensions/subagent)。引用用于定位来源，实际核对以项目安装包为准。
