@@ -11,7 +11,7 @@
 | `src/index.ts`、`scripts/dev-mock.ts` | 配置加载、监听、信号退出；调用统一组合入口 | 业务规则、工具实现 |
 | `src/config/load-config.ts` | 必需 JSON 配置、直接凭据与校验 | 环境变量回退、创建业务实例 |
 | `src/bootstrap/create-service.ts`、`types.ts` | 唯一实例组装、启动校准、执行源启停、统一关闭 | DTO、agent loop |
-| `src/features/` | conversation/memory/identity/jobs/goals/actions/monitors/skills/web/weather/workspace/activities 的规则与最小 port | Hono、AG-UI、pi SDK、文件系统或具体 adapter |
+| `src/features/` | conversation/memory/identity/dream/jobs/goals/actions/monitors/skills/web/weather/workspace/activities 的规则与最小 port | Hono、AG-UI、pi SDK、文件系统或具体 adapter |
 | `src/adapters/pi/` | session factory、历史投影、activity 记录与安全观察、诊断脱敏、资源隔离、prompt、工具装配与路径 guard | 第二套历史、手写 agent loop |
 | `src/adapters/ag-ui/` | SSE、事件投影、运行与取消适配 | 会话锁或业务域状态 |
 | `src/adapters/storage/` | DataLayout、文件读写、各域 repository | 业务状态机、通用 CRUD 框架 |
@@ -34,16 +34,17 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - 工具副作用不因最终回复失败而回滚，失败不自动重试。停止后的半截 assistant 文本仍受 pi 的 `error/aborted` 历史过滤规则限制，不为恢复半截文本修改 pi。
 - memory/identity 共用一个 repository 与完整读改写队列；其他持久域各有唯一 repository，同一文档不得在路由或工具中另开 writer。
 - 用户会话缓存达到软上限后，只在后续获取时回收已闲置至少五分钟的非主会话，不回收运行中会话。软上限不是严格并发配额；会话列表活动时间取 JSONL 文件 mtime，不能取目录 mtime。
-- 身份文本与会话规则每轮重读；长期记忆只显式写入，不自动提取。会话指令不能扩大工具、文件或审批权限。
+- `SOUL.md`、`USER.md` 与会话 `INSTRUCTIONS.md` 每轮重读注入；`memory.json` 作为沉淀库按需由 `memory_search` 检索，system prompt 仅提示条数而不再全量拼入。长期记忆可通过对话工具、HTTP 管理接口或受限的 Dream 后台整理写入（上限 500 条，满额拒绝新增而不静默截断）；会话指令与 Dream 提示词不能扩大工具、文件或审批权限。
 
 ## 后台调度与通知
 
-当前后台行为只有 jobs / monitors；subagent 是父模型调用的工具，不是后台任务域。
+当前后台行为包含 jobs / monitors / dream；subagent 是父模型调用的工具，不是后台任务域。
 
 | 域 | 执行方式 | 结果与失败 |
 | --- | --- | --- |
 | jobs | 定时到期后在所属会话执行真实 pi 轮，与该会话聊天争锁 | 按 nanobot 重算 daily；过期一次性任务启动不补跑；保存失败只补存同一次已得结果和完成时间，不重跑模型/工具 |
 | monitors | 固定扫表，到期抓取复用 web 安全边界；不启动模型轮 | change 为指纹变化，首检建基线不通知；contains 从未命中进入命中才通知；抓取失败只记 error |
+| dream | 固定 2 小时周期扫描已开启会话（主会话默认开启，其他默认关闭），按游标+约 4k token 重叠窗口读取新消息，在独立内存 SessionManager 中运行仅含 `propose_notes` 的受限整理轮 | 会话忙或无新消息时跳过；写前校验文件版本与 `## 会话用途`，非主会话全局建议及无用途会话指令进 `pending` 待用户确认；仅整轮无跳过/无失败时推进游标，重启遗留 `running` 标为 `failed` |
 
 - monitor 默认每 60 秒扫描到期的 active 项，检查间隔为分钟级；支持 pause/resume/stop。入口为对话 `monitor` 工具与 `POST /api/agent/monitors`，调用结构以生成契约为准。
 - jobs/monitors 仅省略 `originThreadId` 时使用主会话。显式新来源在接纳前建立，删除中的来源绑定返回 409；删除来源后的迟到通知不改投主会话、不复活会话或投向新同名会话。解析目的地后重查绑定，不能执行旧扫描快照。
@@ -105,10 +106,12 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 | 路径 | 内容 |
 | --- | --- |
 | `sessions/<threadId>/*.jsonl` | pi 历史唯一权威来源 |
-| `sessions/<threadId>/INSTRUCTIONS.md` | 本会话专属规则，下一轮注入 |
+| `sessions/<threadId>/INSTRUCTIONS.md` | 本会话专属规则（含 `## 会话用途`），下一轮注入 |
+| `sessions/<threadId>/DREAM.md` | 本会话补充 Dream 提示词，按需存在 |
+| `sessions/<threadId>/dream.json` | 本会话 Dream 开关、游标、最近结果与待确认项，按需存在 |
 | `sessions/<threadId>/skills.json` | 本会话技能开关覆盖，技能资产全局一份 |
-| `SOUL.md` / `USER.md` | 全局自由文本身份，每轮重读 |
-| `memory.json` | 长期记忆与 identity 设置 |
+| `SOUL.md` / `USER.md` / `DREAM.md` | 全局自由文本身份与 Dream 提示词（`DREAM.md` 缺失时回退内置默认） |
+| `memory.json` | 长期记忆（按需检索）与 identity 设置 |
 | `jobs.json` / `goals.json` / `actions.json` / `monitors.json` | 对应域持久状态 |
 | `workspace/threads/<threadId>/` | 会话私有文件工具根；主会话也在此布局内 |
 | `workspace/shared/` | 全局共享区，用 `shared/...` 显式访问 |
@@ -118,8 +121,8 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 
 - pi `continueRecent` 与执行使用同一会话私有 cwd；重启仅恢复相同 cwd 的权威历史，不回退旧路径。sessions 初始化只 mkdir，不探测、搬移或删除旧 workspace 根文件与旧历史；已有数据需停服后单独备份处理。
 - `memory.json` 为 `{ memories: [...], identity: {...} }`，已有文档必须包含完整 identity；jobs/goals/actions/monitors 为裸数组。持久业务文档目前不写 `schemaVersion`，拒绝带版本的对象，等待显式版本 reader；不要与启动配置的 schemaVersion 混淆。
-- 仅文件缺失可返回初始化默认值；JSON 损坏、非法根结构、已知 identity 字段类型错误、未知版本与其他 I/O 错误必须抛错。每个条目都应符合当前 reader，任一坏条目整体拒绝，禁止过滤后静默丢失或填补已有文档字段。
-- 写入先在内存序列化，以 `wx`、`0600` 创建同目录临时文件，再 `rename`；失败清理本次临时文件并保留原始错误。不做 fsync、自动重试、跨进程锁或 durable execution。
+- 仅文件缺失可返回初始化默认值（`SOUL.md`/`USER.md`/`DREAM.md`/`INSTRUCTIONS.md` 同样仅 `ENOENT` 视为空串，其他 I/O 错误抛错）；JSON 损坏、非法根结构、已知字段类型错误、未知版本与其他 I/O 错误必须抛错。每个条目都应符合当前 reader，任一坏条目整体拒绝，禁止过滤后静默丢失或填补已有文档字段。
+- 写入先在内存序列化，以 `wx`、`0600` 创建同目录临时文件，再 `rename`；文本档案与会话指令共用带预期版本比对的原子写入口，防止后台整理覆盖并发编辑。不做 fsync、自动重试、跨进程锁或 durable execution。
 - 损坏文件需停止服务、保留原件并从有效备份恢复，不直接删文件消除报错。未来格式/路径变更单独设计离线迁移与回退，不运行中双写，不保留隐式旧 reader。
 - `runtime.dataDir` 省略或为相对路径时按配置文件目录解析，不按进程 cwd；嵌套目录陷阱与完整实例树见 [配置说明](configuration.md#字段说明)及 [README](../README.md#存储与安全边界)。
 

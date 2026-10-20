@@ -20,6 +20,7 @@ export type DataLayout = {
   monitorsFile: string;
   soulFile: string;
   userFile: string;
+  dreamFile: string;
   authKeyFile: string;
   skillsDir: string;
   subagentsDir: string;
@@ -40,6 +41,7 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     monitorsFile: join(root, "monitors.json"),
     soulFile: join(root, "SOUL.md"),
     userFile: join(root, "USER.md"),
+    dreamFile: join(root, "DREAM.md"),
     authKeyFile: join(root, "auth.key"),
     skillsDir: join(root, "skills"),
     subagentsDir: join(root, "subagents"),
@@ -57,6 +59,14 @@ export const threadSkillsFile = (layout: DataLayout, threadId: string) =>
 /** 每个会话的专属指令文件：sessions/<threadId>/INSTRUCTIONS.md */
 export const threadInstructionsFile = (layout: DataLayout, threadId: string) =>
   join(threadSessionsDir(layout, threadId), "INSTRUCTIONS.md");
+
+/** 每个会话的 Dream 补充提示词：sessions/<threadId>/DREAM.md */
+export const threadDreamPromptFile = (layout: DataLayout, threadId: string) =>
+  join(threadSessionsDir(layout, threadId), "DREAM.md");
+
+/** 每个会话的 Dream 状态文件：sessions/<threadId>/dream.json */
+export const threadDreamFile = (layout: DataLayout, threadId: string) =>
+  join(threadSessionsDir(layout, threadId), "dream.json");
 
 /** workspace/ 与 threads/ 仅为容器；主会话、用户会话和内部任务没有父目录访问特权。 */
 export const threadWorkspaceDir = (layout: DataLayout, threadId: string) => {

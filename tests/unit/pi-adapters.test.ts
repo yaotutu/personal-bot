@@ -49,15 +49,16 @@ const setup = async (t: TestContext) => {
 test("tool registration defines one explicit ordered allowlist and unchanged schemas", async (t) => {
   const { tools } = await setup(t);
   assert.deepEqual(tools.map((tool) => tool.name), [
-    "currentTime", "memory", "schedule", "read", "grep", "find", "ls",
+    "currentTime", "memory", "memory_search", "schedule", "read", "grep", "find", "ls",
     "search_web", "web_fetch", "get_weather",
   ]);
-  assert.equal(new Set(tools.map((tool) => tool.name)).size, 10);
+  assert.equal(new Set(tools.map((tool) => tool.name)).size, 11);
   assert.ok(tools.every((tool) => !["bash", "edit", "write"].includes(tool.name)));
   assert.equal(tools[0].parameters.additionalProperties, false);
   assert.deepEqual(tools[0].parameters.properties, {});
   assert.deepEqual(tools[1].parameters.required, ["action"]);
-  assert.deepEqual(tools[2].parameters.required, ["action", "prompt", "at"]);
+  assert.deepEqual(tools[2].parameters.required, ["query"]);
+  assert.deepEqual(tools[3].parameters.required, ["action", "prompt", "at"]);
 });
 
 test("path guard accepts workspace paths but rejects traversal and prefix siblings", () => {
@@ -109,18 +110,44 @@ test("currentTime tool keeps readable output and structured time metadata", asyn
   assert.match((result.content[0] as { text: string }).text, /ISO 8601:/);
 });
 
-test("memory tool keeps explicit remember/keyword forget behavior and shares service data", async (t) => {
+test("memory tools remember, search, edit and forget strictly by id and share service data", async (t) => {
   const { execute, memory } = await setup(t);
+  const text = (result: { content: unknown[] }) => (result.content[0] as { text: string }).text;
   assert.equal((await execute("memory", { action: "remember", text: " " })).isError, true);
-  assert.equal((await execute("memory", { action: "forget" })).isError, true);
+  assert.equal((await execute("memory", { action: "forget" })).isError, true, "forget without id is rejected");
+  assert.equal((await execute("memory", { action: "forget", keyword: "tea" })).isError, true, "keyword is no longer a selector");
   await execute("memory", { action: "remember", text: "likes tea" });
   await memory.add("tea with milk", "Apps UI");
   await memory.add("likes coffee", "Apps UI");
-  const forgotten = await execute("memory", { action: "forget", keyword: "tea" });
-  assert.equal((forgotten.content[0] as { text: string }).text, 'Forgot 2 memory item(s) matching "tea".');
-  assert.deepEqual((await memory.list()).map((item) => item.text), ["likes coffee"]);
-  const noMatch = await execute("memory", { action: "forget", keyword: "tea" });
-  assert.equal((noMatch.content[0] as { text: string }).text, 'No memory matches "tea".');
+  const found = text(await execute("memory_search", { query: "tea" }));
+  assert.equal(found.split("\n").length, 2);
+  assert.match(found, /^- \[[0-9a-f-]{36}\] /);
+  assert.equal(text(await execute("memory_search", { query: "none" })), 'No memory matches "none".');
+  const [first, second] = await memory.list();
+  assert.match(text(await execute("memory", { action: "edit", id: first.id, text: "likes green tea" })), /^Edited memory /);
+  assert.equal((await execute("memory", { action: "edit", id: first.id, text: " " })).isError, true);
+  assert.equal(text(await execute("memory", { action: "edit", id: "missing", text: "x" })), "No memory with id missing.");
+  // 按 id 精确删除：同样含 tea 的另一条保持不变，不会批量误删。
+  assert.equal(text(await execute("memory", { action: "forget", id: first.id })), `Forgot memory ${first.id}`);
+  assert.deepEqual((await memory.list()).map((entry) => entry.text), [second.text, "likes coffee"]);
+  assert.equal(text(await execute("memory", { action: "forget", id: first.id })), `No memory with id ${first.id}.`);
+});
+
+test("memory tool reports the memory limit as a controlled denial instead of dropping old items", async (t) => {
+  const { execute, memory, layout } = await setup(t);
+  await writeFile(layout.memoryFile, JSON.stringify({
+    memories: Array.from({ length: 500 }, (_, i) => ({
+      id: `m${i}`, text: `fact ${i}`, source: "test",
+      createdAt: "2026-10-10T00:00:00.000Z", updatedAt: "2026-10-10T00:00:00.000Z",
+    })),
+    identity: { name: "Muse", tone: "warm", avatar: "sparkles", showChatUpdates: true },
+  }));
+  const result = await execute("memory", { action: "remember", text: "one too many" });
+  assert.equal(result.isError, true);
+  assert.deepEqual(result.details, { denied: true });
+  assert.match((result.content[0] as { text: string }).text, /Memory limit reached \(500\)/);
+  assert.equal((await memory.list()).length, 500);
+  assert.equal((await memory.list())[0].id, "m0");
 });
 
 test("schedule tool preserves input denials and creates/cancels through the job service", async (t) => {
@@ -181,18 +208,17 @@ test("web tools expose controlled search and fetch projections", async (t) => {
   });
 });
 
-test("system prompt describes explicit memory and schedules without expanding permissions", async (t) => {
+test("system prompt describes searchable memory and schedules without expanding permissions", async (t) => {
   const { layout, memory, execute } = await setup(t);
-  // 使用隔离存储和真实 memory 工具添加条目，验证“列出”确实依靠注入内容，
-  // 不虚构 memory 的 list 动作；能力和安全边界都做正向断言，而非只排除旧文案。
+  // 记忆是沉淀库：prompt 只告知数量与检索入口，条目正文不得进入每轮上下文。
   await execute("memory", { action: "remember", text: "likes tea" });
   const prompt = await buildSystemPrompt(layout, memory);
   const text = prompt.replace(/\s+/g, " ");
-  assert.match(text, /memory to add \(remember\) or delete \(forget, by keyword\) long-term facts only on explicit user requests/);
-  assert.match(text, /List saved memories from the injected Long-term memory section/);
-  assert.match(prompt, /## Long-term memory \(explicit, user-curated\)\n- likes tea/);
-  assert.match(text, /Never automatically extract or store memories/);
-  assert.match(text, /or store credentials, API keys, or secrets/);
+  assert.match(text, /use memory_search to look them up by keyword/);
+  assert.match(text, /edit\/forget take the id from memory_search/);
+  assert.match(prompt, /## Long-term memory\n1 saved item\(s\) are stored but not loaded into this prompt/);
+  assert.doesNotMatch(prompt, /likes tea/);
+  assert.match(text, /Never store credentials, API keys, or secrets/);
   assert.match(text, /schedule to create, list, or cancel one-time or daily tasks on explicit user requests/);
   assert.match(text, /they run later in this conversation/);
   assert.match(text, /Reminders appear only here and may require a refresh or later sync/);
@@ -224,7 +250,7 @@ test("system prompt reads profile files in order, omits blanks and refreshes mem
   assert.equal(prompt, base +
     "\n\n## Your identity (SOUL)\ngentle assistant" +
     "\n\n## The user (USER)\ntea lover" +
-    "\n\n## Long-term memory (explicit, user-curated)\n- likes tea\n" +
+    "\n\n## Long-term memory\n1 saved item(s) are stored but not loaded into this prompt. Use memory_search to look them up when they may matter.\n" +
     "\n## Identity settings\n- Assistant name: Tea Bot\n- Tone: warm\n");
   await writeFile(layout.soulFile, "new soul");
   await writeFile(layout.userFile, "  \n");

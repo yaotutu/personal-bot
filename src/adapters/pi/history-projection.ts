@@ -11,6 +11,7 @@ import {
   type ConversationResult,
   type ConversationTurn,
 } from "../../features/conversation/types.js";
+import type { DreamMessage } from "../../features/dream/types.js";
 import { notificationIdOf } from "./notification-message.js";
 
 /** 从 pi 的文本/内容块中提取可展示文本；非文本内容保持不可见。 */
@@ -152,4 +153,64 @@ export const projectConversationHistory = (
     }
   }
   return messages;
+};
+
+/**
+ * 提取供 Dream 后台整理轮读取的可信对话消息与最新压缩摘要：
+ * - 只保留真实用户与助手文本，排除工具结果、服务端通知及失败/中断的半截回复；
+ * - 尊重 context_edit，被重试替换的旧消息不再参与整理；
+ * - 同一轮的多段助手输出合并为一条，ID 与展示历史一致，确保游标稳定。
+ */
+export const projectDreamTranscript = (
+  branch: readonly SessionEntry[],
+): { messages: DreamMessage[]; summary?: string } => {
+  const omitted = new Set(
+    branch
+      .filter((x) => x.type === "context_edit" && x.replacement === null)
+      .map((x) => (x.type === "context_edit" ? x.targetId : "")),
+  );
+  const messages: DreamMessage[] = [];
+  let summary: string | undefined;
+  let turn: ConversationTurn | undefined;
+  let merged: DreamMessage | undefined;
+
+  for (const entry of branch) {
+    if (entry.type === "compaction" && entry.summary.trim()) {
+      summary = entry.summary.trim();
+      continue;
+    }
+    if (entry.type === "custom" && entry.customType === TURN_ENTRY_TYPE) {
+      turn = entry.data as ConversationTurn;
+      merged = undefined;
+      continue;
+    }
+    if (entry.type !== "message" || omitted.has(entry.id)) continue;
+    const { message } = entry;
+    if (message.role === "user") {
+      const text = textOf(message.content).trim();
+      if (!text) continue;
+      messages.push({ id: turn?.userId || entry.id, role: "user", text });
+      merged = undefined;
+      continue;
+    }
+    if (message.role === "assistant") {
+      if (notificationIdOf(message)) {
+        merged = undefined;
+        turn = undefined;
+        continue;
+      }
+      if (message.stopReason === "error" || message.stopReason === "aborted") {
+        continue;
+      }
+      const text = textOf(message.content).trim();
+      if (!text) continue;
+      if (merged) {
+        merged.text = `${merged.text}\n\n${text}`;
+      } else {
+        merged = { id: turn?.assistantId || entry.id, role: "assistant", text };
+        messages.push(merged);
+      }
+    }
+  }
+  return { messages, ...(summary ? { summary } : {}) };
 };

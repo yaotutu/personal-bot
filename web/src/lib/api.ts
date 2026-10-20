@@ -3,7 +3,12 @@ import type {
   AgentSnapshotDto,
   ChatMessageDto,
   ConversationSnapshotDto,
+  DreamOverviewDto,
+  DreamPendingDto,
+  DreamThreadDto,
   GoalDto,
+  InstructionsDto,
+  MemoriesResponseDto,
   MemoryDto,
   MonitorDto,
   TaskDto,
@@ -29,7 +34,17 @@ export type {
   ApprovalUpdatedEventDto,
   ReadyEventDto,
 };
-export type { TaskDto, MemoryDto, MonitorDto, GoalDto, ThreadDto };
+export type {
+  TaskDto,
+  MemoryDto,
+  MonitorDto,
+  GoalDto,
+  ThreadDto,
+  DreamOverviewDto,
+  DreamPendingDto,
+  DreamThreadDto,
+  InstructionsDto,
+};
 export type IdentityDto = NonNullable<AgentSnapshotDto["identity"]>;
 export type MilestoneDto = GoalDto["milestones"][number];
 /**
@@ -197,6 +212,16 @@ export const controlTask = async (
   return { ok: true };
 };
 
+export const listMemories = async (query?: string, limit?: number): Promise<MemoryDto[]> => {
+  const params = new URLSearchParams();
+  if (query?.trim()) params.set("q", query.trim());
+  if (limit !== undefined) params.set("limit", String(limit));
+  const suffix = params.size ? `?${params.toString()}` : "";
+  const response = await request(`/api/agent/memories${suffix}`);
+  if (!response.ok) throw new ApiError(response.status, "无法加载记忆列表");
+  return ((await response.json()) as MemoriesResponseDto).memories;
+};
+
 export const addMemory = async (text: string): Promise<MemoryDto> => {
   const response = await request("/api/agent/memories", {
     method: "POST",
@@ -247,6 +272,92 @@ export const saveProfile = async (patch: {
     body: JSON.stringify(patch),
   });
   if (!response.ok) throw new ApiError(response.status, "保存失败");
+  return response.json();
+};
+
+export const getThreadInstructions = async (threadId: string): Promise<InstructionsDto> => {
+  const response = await request(`/api/threads/${encodeURIComponent(threadId)}/instructions`);
+  if (!response.ok) throw new ApiError(response.status, "无法加载会话指令");
+  return response.json();
+};
+
+export const saveThreadInstructions = async (
+  threadId: string,
+  instructions: string,
+  purpose?: string,
+): Promise<InstructionsDto> => {
+  const response = await request(`/api/threads/${encodeURIComponent(threadId)}/instructions`, {
+    method: "PUT",
+    body: JSON.stringify({ instructions, ...(purpose !== undefined ? { purpose } : {}) }),
+  });
+  if (!response.ok) throw new ApiError(response.status, "保存会话指令失败");
+  return response.json();
+};
+
+export const getDreamOverview = async (): Promise<DreamOverviewDto> => {
+  const response = await request("/api/agent/dream");
+  if (!response.ok) throw new ApiError(response.status, "无法加载 Dream 概览");
+  return response.json();
+};
+
+export const saveGlobalDreamPrompt = async (globalPrompt: string): Promise<DreamOverviewDto> => {
+  const response = await request("/api/agent/dream", {
+    method: "PUT",
+    body: JSON.stringify({ globalPrompt }),
+  });
+  if (!response.ok) throw new ApiError(response.status, "保存全局 Dream 提示词失败");
+  return response.json();
+};
+
+export const getThreadDream = async (threadId: string): Promise<DreamThreadDto> => {
+  const response = await request(`/api/threads/${encodeURIComponent(threadId)}/dream`);
+  if (!response.ok) throw new ApiError(response.status, "无法加载会话 Dream 配置");
+  return response.json();
+};
+
+export const updateThreadDream = async (
+  threadId: string,
+  patch: { enabled?: boolean; inheritGlobalPrompt?: boolean; prompt?: string },
+): Promise<DreamThreadDto> => {
+  const response = await request(`/api/threads/${encodeURIComponent(threadId)}/dream`, {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+  if (!response.ok) throw new ApiError(response.status, "保存会话 Dream 配置失败");
+  return response.json();
+};
+
+export const runThreadDream = async (threadId: string): Promise<DreamThreadDto> => {
+  const response = await request(`/api/threads/${encodeURIComponent(threadId)}/dream/run`, {
+    method: "POST",
+    body: "{}",
+  });
+  if (!response.ok) {
+    const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
+    throw new ApiError(response.status, failure?.error ?? "立即整理失败");
+  }
+  return response.json();
+};
+
+export const resolveThreadDreamPending = async (
+  threadId: string,
+  pendingId: string,
+  decision: {
+    action: "apply" | "dismiss";
+    target?: "user" | "soul" | "instructions" | "memory";
+  },
+): Promise<DreamThreadDto> => {
+  const response = await request(
+    `/api/threads/${encodeURIComponent(threadId)}/dream/pending/${encodeURIComponent(pendingId)}`,
+    {
+      method: "POST",
+      body: JSON.stringify(decision),
+    },
+  );
+  if (!response.ok) {
+    const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
+    throw new ApiError(response.status, failure?.error ?? "处理待决建议失败");
+  }
   return response.json();
 };
 

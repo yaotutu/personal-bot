@@ -33,6 +33,10 @@ const toolLabel = (call: ToolCallView): string => {
       return "登记工作活动";
     case "memory":
       return "记忆操作";
+    case "memory_search":
+      return "检索记忆";
+    case "instructions":
+      return "会话指令";
     case "schedule":
       return "定时任务";
     case "read":

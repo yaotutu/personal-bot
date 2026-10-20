@@ -3,7 +3,7 @@ import type { Job } from "../../features/jobs/types.js";
 
 /** 固定安全文案，不在错误里附带原文、文件路径或用户资料。 */
 export class InvalidDocumentError extends Error {
-  constructor(kind: "memory" | "jobs" | "goals" | "actions" | "monitors" | "skills-overrides") {
+  constructor(kind: "memory" | "jobs" | "goals" | "actions" | "monitors" | "skills-overrides" | "dream") {
     super(`Invalid ${kind} document; restore a valid backup before writing`);
     this.name = "InvalidDocumentError";
   }
@@ -160,4 +160,67 @@ export const readMonitorsDocument = (
   );
   if (list.length !== value.length) throw new InvalidDocumentError("monitors");
   return list;
+};
+
+/**
+ * 会话级 Dream 状态文档（sessions/<threadId>/dream.json）。
+ * 仅缺失文件由 repository 给出默认值；坏条目、schemaVersion 或未知字段一律拒绝。
+ */
+export const readDreamDocument = (
+  value: unknown,
+): import("../../features/dream/types.js").DreamState => {
+  const targets = ["user", "soul", "instructions", "memory"];
+  const runStatuses = ["running", "completed", "failed", "partial"];
+  const reasons = ["ambiguous", "global_from_session", "no_purpose"];
+  const allowedRoot = new Set(["enabled", "inheritGlobalPrompt", "cursor", "lastRun", "pending"]);
+  if (
+    !isObject(value) ||
+    "schemaVersion" in value ||
+    Object.keys(value).some((key) => !allowedRoot.has(key)) ||
+    typeof value.enabled !== "boolean" ||
+    typeof value.inheritGlobalPrompt !== "boolean" ||
+    !(value.cursor === undefined || (typeof value.cursor === "string" && value.cursor.length > 0)) ||
+    !Array.isArray(value.pending)
+  ) {
+    throw new InvalidDocumentError("dream");
+  }
+  if (value.lastRun !== undefined) {
+    const run = value.lastRun;
+    const allowedRun = new Set(["at", "status", "changed", "processed", "error"]);
+    if (
+      !isObject(run) ||
+      Object.keys(run).some((key) => !allowedRun.has(key)) ||
+      !isDate(run.at) ||
+      typeof run.status !== "string" ||
+      !runStatuses.includes(run.status) ||
+      !Array.isArray(run.changed) ||
+      !run.changed.every((item) => typeof item === "string" && targets.includes(item)) ||
+      typeof run.processed !== "number" ||
+      !Number.isInteger(run.processed) ||
+      run.processed < 0 ||
+      !optionalString(run.error)
+    ) {
+      throw new InvalidDocumentError("dream");
+    }
+  }
+  const allowedPending = new Set(["id", "text", "suggestedTarget", "reason", "createdAt"]);
+  if (
+    !value.pending.every(
+      (item) =>
+        isObject(item) &&
+        Object.keys(item).every((key) => allowedPending.has(key)) &&
+        typeof item.id === "string" &&
+        item.id.length > 0 &&
+        typeof item.text === "string" &&
+        item.text.length > 0 &&
+        typeof item.suggestedTarget === "string" &&
+        targets.includes(item.suggestedTarget) &&
+        typeof item.reason === "string" &&
+        reasons.includes(item.reason) &&
+        isDate(item.createdAt),
+    )
+  ) {
+    throw new InvalidDocumentError("dream");
+  }
+  return value as unknown as import("../../features/dream/types.js").DreamState;
 };

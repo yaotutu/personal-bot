@@ -98,7 +98,7 @@ chmod 600 .pi-muse/config.json
 | `tools.weather.enabled` | `true` | 是否向模型声明 `get_weather` |
 | `tools.weather.defaultCity` | 空 | 用户未指定城市时使用的默认城市；为空时模型会追问城市 |
 | `tools.presentation.default` | `hidden` | 客户端实时流与历史投影的工具展示策略：`hidden` 隐藏工具调用，`summary` 只发送受控摘要 |
-| `tools.presentation.overrides` | `{}` | 按工具名覆盖默认策略；名称以 `src/adapters/pi/tools/index.ts` 的显式注册表为准，包括 `currentTime`、`instructions`、`memory`、`schedule`、`subagent`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`search_web`、`web_fetch`、`get_weather` |
+| `tools.presentation.overrides` | `{}` | 按工具名覆盖默认策略；名称以 `src/adapters/pi/tools/index.ts` 的显式注册表为准，包括 `currentTime`、`instructions`、`memory`、`memory_search`、`schedule`、`subagent`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`search_web`、`web_fetch`、`get_weather` |
 
 默认情况下，`.pi-muse/config.json` 所在的 `.pi-muse/` 同时也是实例数据目录。当前默认实例目录已统一为 `.pi-muse/`，旧目录不会被自动读取或迁移。也就是说 sessions、memory、jobs、workspace 和配置文件保持在同一个实例目录内。
 `runtime.dataDir: "."` 也表示该配置文件目录，与启动进程的 cwd 无关；若在 `.pi-muse/config.json` 中填 `".pi-muse"`，则会指向其下嵌套的 `.pi-muse/`，不是项目根目录下的同名目录。
@@ -106,7 +106,7 @@ chmod 600 .pi-muse/config.json
 
 ## 实例目录改名
 
-旧 `.personal-bot/` 不会自动回退读取。迁移必须先停服务并保留受保护备份，除配置中的绝对 runtime.dataDir 外，还要离线更新pi JSONL会话头的cwd及指向实例内的parentSession路径前缀；仅移动文件会使continueRecent跳过旧会话。消息正文和会话ID不变，文件mtime需保留以免改变最近会话选择；auth.key与accessKey不变才能继续使用原token。本实例迁移记录及回退方式见 `HANDOFF.md`；`.pi-muse-backups/` 含凭据，必须保持0700目录及0600敏感文件权限，不提交或上传。
+旧 `.personal-bot/` 不会自动回退读取。迁移必须先停服务并保留受保护备份，除配置中的绝对 runtime.dataDir 外，还要离线更新pi JSONL会话头的cwd及指向实例内的parentSession路径前缀；仅移动文件会使continueRecent跳过旧会话。消息正文和会话ID不变，文件mtime需保留以免改变最近会话选择；auth.key与accessKey不变才能继续使用原token。迁移与回退须针对实际实例单独核对，不能依赖过期运行记录；`.pi-muse-backups/` 含凭据，必须保持0700目录及0600敏感文件权限，不提交或上传。
 
 ## 文件写入审批
 

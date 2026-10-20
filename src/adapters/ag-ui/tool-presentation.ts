@@ -75,8 +75,8 @@ const summaryResult = (name: string, content: string, isError = false) => {
   if (name === "search_web") return error ? JSON.stringify({ error: "Search failed." }) : searchSummary(content);
   if (error) return error;
   // 自身输出也是合法输入，历史快照的防漏投影可以重复执行而不改变语义。
-  const confirmations = [finished, "已保存记忆", "未找到匹配的记忆", "已创建提醒", "已取消提醒", "未找到该提醒", "未设置提醒", "已查询提醒列表"];
-  if (confirmations.includes(content) || /^已删除 \d+ 条记忆$/.test(content)) return content;
+  const confirmations = [finished, "已保存记忆", "已修改记忆", "已删除记忆", "未找到该记忆", "未找到匹配的记忆", "已检索记忆", "已创建提醒", "已取消提醒", "未找到该提醒", "未设置提醒", "已查询提醒列表"];
+  if (confirmations.includes(content)) return content;
   if (name === "currentTime") {
     const iso = /(?:^|\n)ISO 8601: (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)(?:$|\n)/.exec(content)?.[1];
     return iso ? `ISO 8601: ${iso}` : finished;
@@ -87,9 +87,13 @@ const summaryResult = (name: string, content: string, isError = false) => {
   }
   if (name === "memory") {
     if (content.startsWith("Remembered: ")) return "已保存记忆";
-    const count = /^Forgot (\d+) memory item\(s\) matching /.exec(content)?.[1];
-    if (count) return `已删除 ${count} 条记忆`;
+    if (content.startsWith("Edited memory ")) return "已修改记忆";
+    if (content.startsWith("Forgot memory ")) return "已删除记忆";
+    if (content.startsWith("No memory with id ")) return "未找到该记忆";
+  }
+  if (name === "memory_search") {
     if (content.startsWith("No memory matches ")) return "未找到匹配的记忆";
+    if (content.startsWith("- [")) return "已检索记忆";
   }
   if (name === "schedule") {
     if (content.startsWith("Scheduled (id ")) return "已创建提醒";

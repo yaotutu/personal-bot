@@ -153,6 +153,53 @@ export const memoryItem = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
+export const memoriesResponse = z.object({
+  memories: z.array(memoryItem).describe("长期记忆条目列表；传入 q 时按更新时间倒序返回匹配项"),
+});
+export type MemoriesResponseDto = z.infer<typeof memoriesResponse>;
+export const dreamTargetView = z.enum(["user", "soul", "instructions", "memory"]);
+export const dreamPendingItem = z.object({
+  id: z.string().describe("待决建议 ID"),
+  text: z.string().describe("建议保存的纯文本内容"),
+  suggestedTarget: dreamTargetView.describe("模型建议归属"),
+  reason: z
+    .enum(["ambiguous", "global_from_session", "no_purpose"])
+    .describe(
+      "未直接落盘的原因：ambiguous=模型不确定归属，global_from_session=非主会话提出的全局 USER/SOUL 建议，no_purpose=会话未声明 `## 会话用途`",
+    ),
+  createdAt: z.string().describe("生成时间（ISO 8601）"),
+});
+export const dreamRunView = z.object({
+  at: z.string().describe("本次整理开始时间（ISO 8601）"),
+  status: z
+    .enum(["running", "completed", "failed", "partial"])
+    .describe(
+      "running=执行中，completed=全部成功并已推进游标，partial=部分目标已写入后失败（游标未推进），failed=未产生写入",
+    ),
+  changed: z.array(dreamTargetView).describe("本次实际发生写入的目标"),
+  processed: z.number().int().nonnegative().describe("本次待整理段的新消息条数"),
+  error: z.string().optional().describe("受控错误说明；不含原始模型/文件载荷"),
+});
+export const dreamThreadResponse = z.object({
+  threadId: z.string().describe("会话 ID"),
+  enabled: z.boolean().describe("该会话是否开启周期 Dream 整理"),
+  inheritGlobalPrompt: z.boolean().describe("是否继承全局 DREAM.md 提示词"),
+  cursor: z.string().optional().describe("已整理到的消息 ID；整轮成功后才推进"),
+  lastRun: dreamRunView.optional().describe("最近一次整理结果"),
+  pending: z.array(dreamPendingItem).describe("等待人工确认归属的建议列表"),
+  prompt: z.string().describe("该会话专属补充提示词（DREAM.md）；未设置为空串"),
+  purpose: z.string().describe("从 INSTRUCTIONS.md 提取的 `## 会话用途` 正文；未设置为空串"),
+});
+export const dreamOverviewResponse = z.object({
+  globalPrompt: z.string().describe("全局 DREAM.md 内容；空串表示使用 defaultPrompt"),
+  defaultPrompt: z.string().describe("内置默认整理提示词（只读参考）"),
+  intervalHours: z.number().int().positive().describe("后台周期检查间隔（小时，固定为 2）"),
+  running: z.boolean().describe("当前进程内是否有 Dream 整理轮正在执行"),
+  threads: z.array(dreamThreadResponse).describe("所有已知会话的 Dream 状态与待决项"),
+});
+export type DreamPendingDto = z.infer<typeof dreamPendingItem>;
+export type DreamThreadDto = z.infer<typeof dreamThreadResponse>;
+export type DreamOverviewDto = z.infer<typeof dreamOverviewResponse>;
 export const identityView = z.object({
   name: z.string(),
   tone: z.string(),

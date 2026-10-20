@@ -4,9 +4,20 @@ import {
   editMemory,
   forgetMemory,
   getAgentSnapshot,
+  getDreamOverview,
   getProfile,
+  getThreadDream,
+  getThreadInstructions,
+  listMemories,
+  resolveThreadDreamPending,
+  runThreadDream,
+  saveGlobalDreamPrompt,
   saveIdentity,
   saveProfile,
+  saveThreadInstructions,
+  updateThreadDream,
+  type DreamOverviewDto,
+  type DreamThreadDto,
   type IdentityDto,
   type MemoryDto,
 } from "../lib/api";
@@ -17,13 +28,29 @@ const TONES: { value: string; label: string }[] = [
   { value: "thoughtful", label: "细致" },
 ];
 
-/** 设置页：身份（名字/语气）、记忆 CRUD、SOUL/USER 自由文本；改动下一轮对话生效。 */
-export const SettingsView = () => {
+const TARGET_LABELS: Record<"user" | "soul" | "instructions" | "memory", string> = {
+  user: "USER.md（用户画像）",
+  soul: "SOUL.md（助手人设）",
+  instructions: "本会话 INSTRUCTIONS.md",
+  memory: "memory.json（长期记忆）",
+};
+
+/** 设置页：身份、按需检索记忆、SOUL/USER 人设、会话指令与 Dream 后台记忆整理。 */
+export const SettingsView = ({ threadId = "local-main" }: { threadId?: string }) => {
   const [identity, setIdentity] = useState<IdentityDto | null>(null);
   const [memories, setMemories] = useState<MemoryDto[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const [profile, setProfile] = useState<{ soul: string; user: string } | null>(null);
+  const [instructions, setInstructions] = useState("");
+  const [purpose, setPurpose] = useState("");
+  const [dreamOverview, setDreamOverview] = useState<DreamOverviewDto | null>(null);
+  const [threadDream, setThreadDream] = useState<DreamThreadDto | null>(null);
+  const [pendingTargets, setPendingTargets] = useState<
+    Record<string, "user" | "soul" | "instructions" | "memory">
+  >({});
+  const [runningDream, setRunningDream] = useState(false);
   const [notice, setNotice] = useState("");
 
   const flash = (message: string) => {
@@ -31,15 +58,29 @@ export const SettingsView = () => {
     setTimeout(() => setNotice(""), 2500);
   };
 
+  const reloadMemories = (query = searchQuery) => {
+    void listMemories(query).then(setMemories, (e: Error) => flash(e.message));
+  };
+
   const reload = () => {
     void getAgentSnapshot().then((data) => {
       setIdentity(data.identity);
-      setMemories(data.memories);
     });
+    reloadMemories();
     void getProfile().then(setProfile);
+    void getThreadInstructions(threadId).then((data) => setInstructions(data.instructions));
+    void getDreamOverview().then(setDreamOverview);
+    void getThreadDream(threadId).then((data) => {
+      setThreadDream(data);
+      setPurpose(data.purpose);
+    });
   };
 
-  useEffect(reload, []);
+  useEffect(reload, [threadId]);
+
+  const allPending = (dreamOverview?.threads ?? []).flatMap((item) =>
+    item.pending.map((entry) => ({ ...entry, threadId: item.threadId })),
+  );
 
   return (
     <div className="h-full overflow-y-auto px-6 py-5">
@@ -91,14 +132,288 @@ export const SettingsView = () => {
           </section>
         )}
 
+        {dreamOverview && threadDream && (
+          <section className="rounded-2xl border border-stone-200 bg-white p-5 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-stone-700">
+                  Dream 后台记忆整理（每 {dreamOverview.intervalHours} 小时）
+                </h2>
+                <p className="mt-0.5 text-xs text-stone-400">
+                  当前会话：{threadId}。SOUL/USER/会话指令每轮常驻；memory.json 作为沉淀库按需检索。
+                </p>
+              </div>
+              <button
+                disabled={runningDream}
+                onClick={() => {
+                  setRunningDream(true);
+                  void runThreadDream(threadId)
+                    .then(
+                      () => {
+                        reload();
+                        flash("整理已完成");
+                      },
+                      (e: Error) => flash(e.message),
+                    )
+                    .finally(() => setRunningDream(false));
+                }}
+                className="rounded-lg bg-stone-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-stone-700 disabled:opacity-50"
+              >
+                {runningDream ? "整理中…" : "立即整理此会话"}
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4 text-sm text-stone-700">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={threadDream.enabled}
+                  onChange={(e) =>
+                    void updateThreadDream(threadId, { enabled: e.target.checked }).then(
+                      (next) => {
+                        setThreadDream(next);
+                        flash(next.enabled ? "已开启自动整理" : "已关闭自动整理");
+                      },
+                      (err: Error) => flash(err.message),
+                    )
+                  }
+                />
+                <span>开启此会话自动整理</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={threadDream.inheritGlobalPrompt}
+                  onChange={(e) =>
+                    void updateThreadDream(threadId, {
+                      inheritGlobalPrompt: e.target.checked,
+                    }).then(
+                      (next) => {
+                        setThreadDream(next);
+                        flash("已更新继承设置");
+                      },
+                      (err: Error) => flash(err.message),
+                    )
+                  }
+                />
+                <span>继承全局 Dream 提示词</span>
+              </label>
+            </div>
+
+            {threadDream.lastRun && (
+              <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600">
+                <div>
+                  最近整理：{threadDream.lastRun.at} · 状态：{threadDream.lastRun.status} · 处理新消息：
+                  {threadDream.lastRun.processed} 条
+                  {threadDream.lastRun.changed.length > 0 &&
+                    ` · 已更新：${threadDream.lastRun.changed.join(", ")}`}
+                </div>
+                {threadDream.lastRun.error && (
+                  <div className="mt-1 text-red-600">错误：{threadDream.lastRun.error}</div>
+                )}
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs font-medium text-stone-500">
+                会话指令（sessions/{threadId}/INSTRUCTIONS.md，每轮携带）
+              </label>
+              {!purpose && (
+                <div className="mt-1 flex gap-2">
+                  <input
+                    value={purpose}
+                    onChange={(e) => setPurpose(e.target.value)}
+                    placeholder="可选：声明会话用途（生成 ## 会话用途 段落，供 Dream 归类本会话规则）"
+                    className="flex-1 rounded-lg border border-stone-300 px-2.5 py-1 text-xs outline-none focus:border-stone-500"
+                  />
+                </div>
+              )}
+              <textarea
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+                rows={4}
+                placeholder="例如：## 会话用途\n处理工作邮件草稿\n\n每封回信以 Best regards 结尾。"
+                className="mt-1 w-full resize-y rounded-lg border border-stone-300 px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:border-stone-500"
+              />
+              <button
+                onClick={() =>
+                  void saveThreadInstructions(
+                    threadId,
+                    instructions,
+                    purpose && !instructions.includes("## 会话用途") ? purpose : undefined,
+                  ).then(
+                    (saved) => {
+                      setInstructions(saved.instructions);
+                      void getThreadDream(threadId).then((next) => {
+                        setThreadDream(next);
+                        setPurpose(next.purpose);
+                      });
+                      flash("会话指令已保存");
+                    },
+                    (e: Error) => flash(e.message),
+                  )
+                }
+                className="mt-2 rounded-lg border border-stone-300 px-3 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50"
+              >
+                保存会话指令
+              </button>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-stone-500">
+                此会话 Dream 补充提示词（sessions/{threadId}/DREAM.md）
+              </label>
+              <textarea
+                value={threadDream.prompt}
+                onChange={(e) => setThreadDream({ ...threadDream, prompt: e.target.value })}
+                rows={3}
+                placeholder="仅对当前会话生效的额外整理提示词…"
+                className="mt-1 w-full resize-y rounded-lg border border-stone-300 px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:border-stone-500"
+              />
+              <button
+                onClick={() =>
+                  void updateThreadDream(threadId, { prompt: threadDream.prompt }).then(
+                    (next) => {
+                      setThreadDream(next);
+                      flash("会话 Dream 提示词已保存");
+                    },
+                    (e: Error) => flash(e.message),
+                  )
+                }
+                className="mt-2 rounded-lg border border-stone-300 px-3 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50"
+              >
+                保存会话补充提示词
+              </button>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-stone-500">
+                全局 Dream 提示词（DREAM.md；留空使用内置默认提示词）
+              </label>
+              <textarea
+                value={dreamOverview.globalPrompt}
+                onChange={(e) =>
+                  setDreamOverview({ ...dreamOverview, globalPrompt: e.target.value })
+                }
+                rows={4}
+                placeholder={dreamOverview.defaultPrompt}
+                className="mt-1 w-full resize-y rounded-lg border border-stone-300 px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:border-stone-500"
+              />
+              <button
+                onClick={() =>
+                  void saveGlobalDreamPrompt(dreamOverview.globalPrompt).then(
+                    (next) => {
+                      setDreamOverview(next);
+                      flash("全局 Dream 提示词已保存");
+                    },
+                    (e: Error) => flash(e.message),
+                  )
+                }
+                className="mt-2 rounded-lg border border-stone-300 px-3 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50"
+              >
+                保存全局提示词
+              </button>
+            </div>
+
+            {allPending.length > 0 && (
+              <div className="space-y-2 border-t border-stone-200 pt-3">
+                <h3 className="text-xs font-semibold text-stone-700">
+                  待确认归属的建议（{allPending.length}）
+                </h3>
+                {allPending.map((item) => {
+                  const chosen = pendingTargets[item.id] ?? item.suggestedTarget;
+                  return (
+                    <div
+                      key={item.id}
+                      className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs space-y-2"
+                    >
+                      <div className="flex items-center justify-between text-stone-500">
+                        <span>来源会话：{item.threadId}</span>
+                        <span>原因：{item.reason}</span>
+                      </div>
+                      <p className="whitespace-pre-wrap text-sm text-stone-800">{item.text}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          value={chosen}
+                          onChange={(e) =>
+                            setPendingTargets({
+                              ...pendingTargets,
+                              [item.id]: e.target.value as
+                                | "user"
+                                | "soul"
+                                | "instructions"
+                                | "memory",
+                            })
+                          }
+                          className="rounded border border-stone-300 bg-white px-2 py-1 text-xs"
+                        >
+                          {(["user", "soul", "instructions", "memory"] as const).map((t) => (
+                            <option key={t} value={t}>
+                              {TARGET_LABELS[t]}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() =>
+                            void resolveThreadDreamPending(item.threadId, item.id, {
+                              action: "apply",
+                              target: chosen,
+                            }).then(
+                              () => {
+                                reload();
+                                flash("已确认写入");
+                              },
+                              (e: Error) => flash(e.message),
+                            )
+                          }
+                          className="rounded bg-stone-800 px-2.5 py-1 text-xs font-medium text-white"
+                        >
+                          确认写入
+                        </button>
+                        <button
+                          onClick={() =>
+                            void resolveThreadDreamPending(item.threadId, item.id, {
+                              action: "dismiss",
+                            }).then(
+                              () => {
+                                reload();
+                                flash("已忽略");
+                              },
+                              (e: Error) => flash(e.message),
+                            )
+                          }
+                          className="rounded border border-stone-300 bg-white px-2.5 py-1 text-xs text-stone-600"
+                        >
+                          忽略
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
         <section className="rounded-2xl border border-stone-200 bg-white p-5">
-          <h2 className="text-sm font-semibold text-stone-700">长期记忆</h2>
+          <h2 className="text-sm font-semibold text-stone-700">长期记忆（沉淀库）</h2>
           <p className="mt-1 text-xs text-stone-400">
-            每轮对话自动注入；也可以直接对助手说“记住/忘掉 …”。
+            按需通过 memory_search 检索，不再每轮全量携带；也可对助手说“记住/忘掉 …”。
           </p>
+          <div className="mt-3 flex gap-2">
+            <input
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                reloadMemories(e.target.value);
+              }}
+              placeholder="按关键词检索记忆…"
+              className="flex-1 rounded-lg border border-stone-300 px-3 py-1.5 text-sm outline-none focus:border-stone-500"
+            />
+          </div>
           <div className="mt-3 space-y-2">
             {memories.length === 0 && (
-              <p className="py-2 text-center text-sm text-stone-400">还没有记忆</p>
+              <p className="py-2 text-center text-sm text-stone-400">还没有匹配的记忆</p>
             )}
             {memories.map((memory) => (
               <div
@@ -119,7 +434,7 @@ export const SettingsView = () => {
                           void editMemory(memory.id, editing.text).then(
                             () => {
                               setEditing(null);
-                              reload();
+                              reloadMemories();
                               flash("已修改");
                             },
                             (e: Error) => flash(e.message),
@@ -151,7 +466,7 @@ export const SettingsView = () => {
                         onClick={() =>
                           void forgetMemory(memory.id).then(
                             () => {
-                              reload();
+                              reloadMemories();
                               flash("已删除");
                             },
                             (e: Error) => flash(e.message),
@@ -176,7 +491,7 @@ export const SettingsView = () => {
                   void addMemory(draft.trim()).then(
                     () => {
                       setDraft("");
-                      reload();
+                      reloadMemories();
                       flash("已记住");
                     },
                     (err: Error) => flash(err.message),
@@ -191,7 +506,7 @@ export const SettingsView = () => {
                 void addMemory(draft.trim()).then(
                   () => {
                     setDraft("");
-                    reload();
+                    reloadMemories();
                     flash("已记住");
                   },
                   (err: Error) => flash(err.message),

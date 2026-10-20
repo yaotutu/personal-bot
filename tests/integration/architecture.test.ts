@@ -52,6 +52,7 @@ test("DataLayout describes the current paths without migrating legacy data", () 
     monitorsFile: join(root, "monitors.json"),
     soulFile: join(root, "SOUL.md"),
     userFile: join(root, "USER.md"),
+    dreamFile: join(root, "DREAM.md"),
     authKeyFile: join(root, "auth.key"),
     skillsDir: join(root, "skills"),
     subagentsDir: join(root, "subagents"),

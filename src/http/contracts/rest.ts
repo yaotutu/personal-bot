@@ -11,6 +11,22 @@ import { isThreadId } from "../../features/conversation/validate-input.js";
 // ---------------------------------------------------------------------------
 // 记忆与身份
 // ---------------------------------------------------------------------------
+export const memoriesQuerySchema = z.strictObject({
+  q: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe("按关键词子串检索（忽略大小写）；省略时返回全部记忆"),
+  limit: z
+    .string()
+    .regex(/^[1-9]\d*$/)
+    .transform((value) => Number.parseInt(value, 10))
+    .pipe(z.number().int().min(1).max(10))
+    .optional()
+    .describe("传入 q 时的最大返回条数（1–10，默认 10）"),
+});
 export const createMemorySchema = z.object({
   text: z.string().trim().min(1).max(2000).describe("要记住的事实，用户语言，简明"),
   source: z.string().max(200).optional().describe("来源标记，默认 Apps UI"),
@@ -120,5 +136,52 @@ export const updateSkillsSchema = z.object({
 // 会话专属规则/指令：下一轮对话注入生效；空串等于清空。
 export const saveInstructionsSchema = z.object({
   instructions: z.string().max(20000).describe("会话专属规则/提示词自由文本；空串等于清空"),
+  purpose: z
+    .string()
+    .max(1000)
+    .optional()
+    .describe(
+      "可选会话用途；传入时自动在 INSTRUCTIONS.md 开头生成 `## 会话用途` 段落，供 Dream 后台整理判定本会话专属规则归属",
+    ),
+});
+
+// ---------------------------------------------------------------------------
+// Dream 后台记忆整理
+// ---------------------------------------------------------------------------
+export const dreamTargetSchema = z
+  .enum(["user", "soul", "instructions", "memory"])
+  .describe(
+    "笔记归属目标：user=全局 USER.md，soul=全局 SOUL.md，instructions=本会话 INSTRUCTIONS.md，memory=按需检索的 memory.json",
+  );
+export const saveGlobalDreamSchema = z.object({
+  globalPrompt: z
+    .string()
+    .max(20000)
+    .describe("全局 Dream 整理提示词（DATA_DIR/DREAM.md）；传空串清空覆盖，回退为内置默认提示词"),
+});
+export const updateThreadDreamSchema = z.object({
+  enabled: z
+    .boolean()
+    .optional()
+    .describe("是否开启该会话的每 2 小时周期后台整理；local-main 默认开启，其余会话默认关闭"),
+  inheritGlobalPrompt: z
+    .boolean()
+    .optional()
+    .describe(
+      "true=全局提示词与会话补充叠加；false=仅使用本会话补充提示词（服务端固定安全规则始终生效）",
+    ),
+  prompt: z
+    .string()
+    .max(20000)
+    .optional()
+    .describe("本会话的 Dream 补充提示词（sessions/<threadId>/DREAM.md）；传空串清空"),
+});
+export const resolveDreamPendingSchema = z.object({
+  action: z
+    .enum(["apply", "dismiss"])
+    .describe("apply=按选定归属写入对应存储并移除待决项；dismiss=丢弃该建议不写入"),
+  target: dreamTargetSchema
+    .optional()
+    .describe("apply 时可选改选归属；省略时采用 suggestedTarget"),
 });
 export type RunRequestDto = z.infer<typeof runRequestSchema>;

@@ -2,6 +2,18 @@ import { randomUUID } from "node:crypto";
 import { renderMemoryPrompt } from "./memory-prompt.js";
 import type { MemoryItem, MemoryRepository } from "./types.js";
 
+/** 记忆条数上限。写满后拒绝新增，由用户或 Dream 先合并/删除旧条目，绝不静默丢弃最老的一条。 */
+export const MEMORY_LIMIT = 500;
+/** 单次检索最多返回的条数，防止一次检索把沉淀库整体灌回上下文。 */
+export const MEMORY_SEARCH_MAX = 10;
+
+export class MemoryLimitError extends Error {
+  constructor() {
+    super(`Memory limit reached (${MEMORY_LIMIT}); remove or merge existing items first`);
+    this.name = "MemoryLimitError";
+  }
+}
+
 /**
  * 记忆业务层只处理条目规则和 prompt 渲染；文件格式与串行写入由 repository 负责。
  * 身份有独立的业务入口，但通过组合入口注入的同一个 repository 保存。
@@ -11,8 +23,19 @@ export const createMemoryService = (repository: MemoryRepository) => {
 
   return {
     list: async () => (await repository.read()).memories,
+    /** 按关键词子串（忽略大小写）检索，最近更新优先；记忆不再全量进入每轮上下文，靠它按需取用。 */
+    search: async (query: string, limit = MEMORY_SEARCH_MAX): Promise<MemoryItem[]> => {
+      const needle = query.trim().toLowerCase();
+      if (!needle) return [];
+      const size = Math.max(1, Math.min(MEMORY_SEARCH_MAX, Math.floor(limit)));
+      return (await repository.read()).memories
+        .filter((item) => item.text.toLowerCase().includes(needle))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, size);
+    },
     add: (text: string, source: string): Promise<MemoryItem> =>
       repository.update((state) => {
+        if (state.memories.length >= MEMORY_LIMIT) throw new MemoryLimitError();
         const item: MemoryItem = {
           id: randomUUID(),
           text: text.trim(),
@@ -21,11 +44,7 @@ export const createMemoryService = (repository: MemoryRepository) => {
           updatedAt: now(),
         };
         return {
-          state: {
-            ...state,
-            // 上限 500 条仍在业务层，避免存储 adapter 了解产品规则。
-            memories: [...state.memories, item].slice(-500),
-          },
+          state: { ...state, memories: [...state.memories, item] },
           result: item,
         };
       }),
@@ -47,11 +66,9 @@ export const createMemoryService = (repository: MemoryRepository) => {
     forget: (id: string): Promise<boolean> =>
       repository.update((state) => {
         const memories = state.memories.filter((item) => item.id !== id);
-        // 保留旧行为：即使没有命中也写回文档。读取/错误策略加固留给 R7A。
-        return {
-          state: { ...state, memories },
-          result: memories.length < state.memories.length,
-        };
+        // 未命中不写回文件，避免无变化的写入触发通知或覆盖并发修改。
+        if (memories.length === state.memories.length) return { result: false };
+        return { state: { ...state, memories }, result: true };
       }),
     renderForPrompt: async () => renderMemoryPrompt(await repository.read()),
   };

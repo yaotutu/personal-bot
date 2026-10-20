@@ -4,7 +4,7 @@ import type { Identity } from "./types.js";
 /** SOUL/USER 自由文本的读写 port；实现由 storage adapter 注入，feature 不碰 fs。 */
 type ProfileFiles = {
   read: (which: "soul" | "user") => Promise<string>;
-  write: (which: "soul" | "user", content: string) => Promise<void>;
+  write: (which: "soul" | "user", content: string, expected?: string) => Promise<boolean | void>;
 };
 
 /**
@@ -12,14 +12,9 @@ type ProfileFiles = {
  * 两个 feature 接受同一个 memory repository，patch 只改变 identity 字段。
  * SOUL/USER 自由文本经注入的 profileFiles 读写（下一轮 prompt 注入即生效）。
  */
-/** port 缺省时读为空串，保证 profile API 在任何装配下都可用。 */
-const readProfile = async (files: ProfileFiles | undefined, which: "soul" | "user") => {
-  try {
-    return (await files?.read(which)) ?? "";
-  } catch {
-    return "";
-  }
-};
+/** port 缺省时读为空串；port 自身的读取失败必须向上暴露，不得伪装成空内容。 */
+const readProfile = async (files: ProfileFiles | undefined, which: "soul" | "user") =>
+  (await files?.read(which)) ?? "";
 
 export const createIdentityService = (
   repository: MemoryRepository,
@@ -45,6 +40,15 @@ export const createIdentityService = (
       soul: await readProfile(profileFiles, "soul"),
       user: await readProfile(profileFiles, "user"),
     };
+  },
+  /** Dream 复用同一 profileFiles 入口按读取版本条件写入，冲突时不覆盖用户改动。 */
+  writeIfUnchanged: async (
+    which: "soul" | "user",
+    content: string,
+    expected: string,
+  ): Promise<boolean> => {
+    if (!profileFiles) return false;
+    return (await profileFiles.write(which, content, expected)) !== false;
   },
 });
 

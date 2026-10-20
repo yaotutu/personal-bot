@@ -489,7 +489,7 @@ export const App = () => {
         {view === "chat" && <ChatView key={active} threadId={active} />}
         {view === "jobs" && <JobsView />}
         {view === "goals" && <GoalsView />}
-        {view === "settings" && <SettingsView />}
+        {view === "settings" && <SettingsView threadId={active} />}
         </div>
       </main>
     </div>

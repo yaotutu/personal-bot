@@ -34,6 +34,13 @@ import type { ServiceContainer } from "./types.js";
 import { createToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
 import { createWorkspaceEvents } from "../features/workspace/workspace-events.js";
 import { createActivityService } from "../features/activities/service.js";
+import { createDreamRepository } from "../adapters/storage/dream-repository.js";
+import { readThreadInstructions, writeThreadInstructions } from "../adapters/storage/thread-instructions.js";
+import { threadInstructionsFile } from "../adapters/storage/data-layout.js";
+import { createDreamService } from "../features/dream/service.js";
+import { createDreamScheduler } from "../features/dream/scheduler.js";
+import { createDreamProposer } from "../adapters/pi/dream-runner.js";
+import { readDreamTranscript } from "../adapters/pi/session-history.js";
 
 /**
  * 应用唯一的运行时组装入口。
@@ -79,6 +86,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const actions = createActionService(createActionRepository(layout.actionsFile), { onChange: (action) => workspaceEvents.approvalChanged(action) });
   const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile));
   const skills = createSkillsService(createSkillRepository(layout));
+  const dreamRepository = createDreamRepository(layout);
 
   // 多会话：每个 thread 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
   // pi runtime 全进程一份：provider 与 runtime key 注册一次，所有线程共用；
@@ -174,7 +182,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   );
   // 先完整读取/校验并恢复各域，再启动任何执行源。初始化失败不会遗留 interval。
   try {
-    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list()]);
+    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart()]);
     await actions.cancelPending();
     workspaceEvents.seedApprovals(await actions.list());
   } catch (error) {
@@ -207,7 +215,35 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     },
   };
   const activities = createActivityService(conversationHub);
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, activities };
+  const dream = createDreamService({
+    repository: dreamRepository,
+    notes: {
+      readUser: () => readProfileFile(layout.userFile),
+      writeUser: async (content) => { await identity.saveProfile({ user: content }); },
+      writeUserIfUnchanged: (content, expected) => identity.writeIfUnchanged("user", content, expected),
+      readSoul: () => readProfileFile(layout.soulFile),
+      writeSoul: async (content) => { await identity.saveProfile({ soul: content }); },
+      writeSoulIfUnchanged: (content, expected) => identity.writeIfUnchanged("soul", content, expected),
+      readInstructions: (threadId) => readThreadInstructions(threadInstructionsFile(layout, threadId)),
+      writeInstructions: async (threadId, content) => {
+        await writeThreadInstructions(threadInstructionsFile(layout, threadId), content);
+      },
+      writeInstructionsIfUnchanged: (threadId, content, expected) =>
+        writeThreadInstructions(threadInstructionsFile(layout, threadId), content, expected),
+    },
+    memory,
+    conversations: {
+      listThreadIds: async () => (await conversationHub.threads()).map((item) => item.id),
+      threadExists: async (threadId) =>
+        threadId === "local-main" || (await conversationHub.findThread(threadId)) !== undefined,
+      isThreadBusy: async (threadId) =>
+        (await conversationHub.findThread(threadId))?.isRunning() ?? false,
+      readTranscript: (threadId) => readDreamTranscript(layout, threadId),
+    },
+    propose: createDreamProposer({ config, layout, modelRuntime }),
+  });
+  const dreamScheduler = createDreamScheduler(dream);
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, activities, dream, dreamScheduler };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
@@ -215,7 +251,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     clearInterval(approvalTimer);
     // 全局通知没有执行取消语义；先结束长连接，避免 HTTP server 等待它们而无法退出。
     workspaceEvents.close();
-    const stopped = [scheduler.close(), monitorScheduler.close(), conversationHub.closeAll()];
+    const stopped = [scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), conversationHub.closeAll()];
     closing = (async () => {
       const results = await Promise.allSettled(stopped);
       await Promise.all([...requests]);
@@ -229,6 +265,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     const app = await createHttpApp(dependencies);
     scheduler.start();
     monitorScheduler.start();
+    dreamScheduler.start();
     return { ...dependencies, app, close };
   } catch (error) {
     await close();

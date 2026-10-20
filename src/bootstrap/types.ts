@@ -14,6 +14,8 @@ import type { createAuth } from "../adapters/auth/token-service.js";
 import type { ToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
 import type { WorkspaceEvents } from "../features/workspace/workspace-events.js";
 import type { ActivityService } from "../features/activities/service.js";
+import type { DreamService } from "../features/dream/service.js";
+import type { DreamScheduler } from "../features/dream/scheduler.js";
 
 type Auth = Awaited<ReturnType<typeof createAuth>>;
 
@@ -35,9 +37,11 @@ export type ServiceContainer = {
   presentation: ToolPresentation;
   workspaceEvents: WorkspaceEvents;
   activities: ActivityService;
+  dream: DreamService;
+  dreamScheduler: DreamScheduler;
 };
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "activities"
+  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "activities" | "dream"
 >;

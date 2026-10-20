@@ -79,6 +79,7 @@ const expectedTools = [
   "instructions",
   "ls",
   "memory",
+  "memory_search",
   "monitor",
   "read",
   "schedule",
@@ -1065,18 +1066,20 @@ test("P3 memory: REST CRUD, chat tool write, prompt injection and identity setti
   agent = await h.request("/api/agent").then((x) => x.json());
   assert.equal(agent.memories.length, 1);
   assert.match(agent.memories[0].text, /每周三健身/);
-  // 注入：下一轮对话的 system prompt 包含该记忆；聊天流不泄漏注入文本。
-  await h.events(input([...(await h.getHistory()), user("hello")], "mem-inject"));
+  // 记忆是沉淀库：system prompt 只提示保存条数与 memory_search，不把正文塞进每轮上下文。
+  await h.events(input([...(await h.getHistory()), user("检索记忆 健身")], "mem-inject"));
   const system = String(h.model.requests.at(-1)!.messages[0]?.content);
-  assert.match(system, /每周三健身/);
+  assert.match(system, /1 saved item\(s\) are stored but not loaded into this prompt/);
+  assert.doesNotMatch(system, /每周三健身/);
   assert.ok(!JSON.stringify(await h.getHistory()).includes("Long-term memory"));
-  // 忘掉后下一轮不再注入。
-  await h.events(input([...(await h.getHistory()), user("忘掉健身")], "mem-forget"));
+  // 按 id 精确忘掉后下一轮不再提示有记忆。
+  await h.events(input([...(await h.getHistory()), user(`忘掉 ${agent.memories[0].id}`)], "mem-forget"));
   agent = await h.request("/api/agent").then((x) => x.json());
   assert.equal(agent.memories.length, 0);
   await h.events(input([...(await h.getHistory()), user("again")], "mem-after"));
-  assert.ok(
-    !String(h.model.requests.at(-1)!.messages[0]?.content).includes("每周三健身"),
+  assert.doesNotMatch(
+    String(h.model.requests.at(-1)!.messages[0]?.content),
+    /saved item\(s\) are stored/,
   );
   // 身份设置：保存后 GET 反映 + system prompt 注入 name/tone。
   const identity = await h

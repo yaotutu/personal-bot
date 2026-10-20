@@ -1,11 +1,11 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { ensureThreadLayout, ensureThreadWorkspace, threadSessionsDir, threadWorkspaceDir, type DataLayout } from "../storage/data-layout.js";
 import type { ConversationHistoryPort } from "../../features/conversation/ports.js";
 import { AGENT_STATUS_ENTRY_TYPE, RESULT_ENTRY_TYPE, TURN_ENTRY_TYPE, type ConversationTurn } from "../../features/conversation/types.js";
 import type { AgentStatus } from "../../features/workspace/agent-status.js";
 import { createNotificationMessage, notificationIdOf } from "./notification-message.js";
-import { collectConversationRecords, projectConversationHistory } from "./history-projection.js";
+import { collectConversationRecords, projectConversationHistory, projectDreamTranscript } from "./history-projection.js";
 import type { ToolPresentation } from "../ag-ui/tool-presentation.js";
 import { createActivityHistory } from "./activity-history.js";
 import { createActivitySession } from "../../features/activities/activity-session.js";
@@ -83,4 +83,30 @@ export const createSessionHistory = async (
   const activities = createActivitySession(threadId, activityHistory);
   // manager 只提供给同一 pi adapter 的执行装配，不暴露到 feature 或协议层。
   return { manager, history, activities };
+};
+
+/**
+ * 只读读取指定会话的 pi 权威历史供 Dream 整理使用：
+ * 若会话目录不存在或尚无 JSONL 文件，直接返回空结果，绝不创建目录或复活已删会话。
+ */
+export const readDreamTranscript = async (
+  layout: DataLayout,
+  threadId: string,
+) => {
+  const sessionsDir = threadSessionsDir(layout, threadId);
+  let files: string[];
+  try {
+    files = (await readdir(sessionsDir)).filter((name) => name.endsWith(".jsonl"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { messages: [] };
+    }
+    throw error;
+  }
+  if (!files.length) return { messages: [] };
+  const manager = SessionManager.continueRecent(
+    threadWorkspaceDir(layout, threadId),
+    sessionsDir,
+  );
+  return projectDreamTranscript(manager.getBranch());
 };

@@ -738,6 +738,77 @@ test("docs: snapshot points approvals at the SSE stream and keeps the existing r
   const schema = responseSchema(snapshot as never);
   assert.deepEqual(Object.keys(schema.properties ?? {}).sort(), ["goals", "identity", "memories", "monitors", "tasks"]);
 });
+
+test("docs: memory and Dream endpoints pin layering, capacity, prompt inheritance and pending confirmation rules", () => {
+  const doc = buildOpenApiDocument();
+  type Operation = {
+    description?: string;
+    security?: unknown[];
+    parameters?: { name: string; in: string; required: boolean; schema: JsonSchema }[];
+    requestBody?: { required: boolean; content: Record<string, { schema: JsonSchema }> };
+    responses: Record<string, { description?: string; content?: Record<string, { schema?: JsonSchema }> }>;
+  };
+  const paths = doc.paths as unknown as Record<string, Record<string, Operation>>;
+
+  // 独立记忆列表读取：只读、鉴权、说明按需检索与 500 条硬上限。
+  const memoriesList = paths["/api/agent/memories"]?.get;
+  assert.ok(memoriesList);
+  assert.deepEqual(memoriesList.security, [{ bearerAuth: [] }]);
+  assert.match(memoriesList.description ?? "", /按需检索[\s\S]*不再全量拼入/);
+  const memoriesCreate = paths["/api/agent/memories"]?.post;
+  assert.ok(memoriesCreate?.responses["4xx"], "POST /api/agent/memories must document client error schema");
+  assert.match(memoriesCreate?.description ?? "", /500[\s\S]*409[\s\S]*绝不静默丢弃/);
+
+  // 全局与会话 Dream 端点完整声明。
+  const globalGet = paths["/api/agent/dream"]?.get;
+  const globalPut = paths["/api/agent/dream"]?.put;
+  assert.ok(globalGet && globalPut);
+  assert.deepEqual(Object.keys(responseSchema(globalGet as never).properties ?? {}).sort(), [
+    "defaultPrompt",
+    "globalPrompt",
+    "intervalHours",
+    "running",
+    "threads",
+  ]);
+  assert.match(globalGet.description ?? "", /DREAM\.md/);
+  assert.match(globalPut.description ?? "", /空串清空/);
+
+  const threadDreamGet = paths["/api/threads/{threadId}/dream"]?.get;
+  const threadDreamPut = paths["/api/threads/{threadId}/dream"]?.put;
+  const threadDreamRun = paths["/api/threads/{threadId}/dream/run"]?.post;
+  const threadDreamPending = paths["/api/threads/{threadId}/dream/pending/{pendingId}"]?.post;
+  assert.ok(threadDreamGet && threadDreamPut && threadDreamRun && threadDreamPending);
+  assert.deepEqual(Object.keys(responseSchema(threadDreamGet as never).properties ?? {}).sort(), [
+    "cursor",
+    "enabled",
+    "inheritGlobalPrompt",
+    "lastRun",
+    "pending",
+    "prompt",
+    "purpose",
+    "threadId",
+  ]);
+  assert.match(threadDreamGet.description ?? "", /不创建任何目录或文件/);
+  assert.match(threadDreamRun.description ?? "", /cursor/);
+  assert.match(threadDreamRun.description ?? "", /409/);
+  assert.deepEqual(
+    threadDreamPending.requestBody?.content["application/json"]?.schema.properties?.action?.enum,
+    ["apply", "dismiss"],
+  );
+  assert.deepEqual(
+    threadDreamPending.requestBody?.content["application/json"]?.schema.properties?.target?.enum,
+    ["user", "soul", "instructions", "memory"],
+  );
+
+  // 会话指令端点支持可选 purpose 维护 `## 会话用途`。
+  const instructionsPut = paths["/api/threads/{threadId}/instructions"]?.put;
+  assert.ok(instructionsPut);
+  assert.deepEqual(
+    Object.keys(instructionsPut.requestBody?.content["application/json"]?.schema.properties ?? {}).sort(),
+    ["instructions", "purpose"],
+  );
+  assert.match(instructionsPut.description ?? "", /## 会话用途/);
+});
 test("docs: /openapi.json and /docs are served without auth", async (t) => {
   const model = await createFakeModel();
   const dataDir = await mkdtemp(join(tmpdir(), "personal-bot-docs-"));

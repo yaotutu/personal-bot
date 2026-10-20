@@ -98,8 +98,28 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     method: "put", path: "/api/threads/:threadId/instructions", tag: "会话", summary: "保存会话专属规则",
-    hint: "下一轮对话开始时注入生效；传空串等于清空。显式保存可建立新会话；删除进行中返回 409 THREAD_DELETING，刷新列表后由用户重新选择，不自动重试旧 ID。",
+    hint: "下一轮对话开始时注入生效；传空串等于清空。可选传入 purpose 声明会话用途（自动在开头生成 `## 会话用途` 段落，供 Dream 后台整理判定本会话专属规则归属；Dream 整理轮禁止修改该段落）。显式保存可建立新会话；删除进行中返回 409 THREAD_DELETING，刷新列表后由用户重新选择，不自动重试旧 ID。",
     auth: true, request: req.saveInstructionsSchema, response: resp.instructionsResponse,
+  },
+  {
+    method: "get", path: "/api/threads/:threadId/dream", tag: "会话", summary: "读取会话 Dream 整理状态与配置",
+    hint: "纯只读查询：返回该会话的 Dream 开关、是否继承全局提示词、已整理游标、最近一次运行结果、待决建议列表、会话补充提示词（DREAM.md）及 `## 会话用途`。文件不存在时返回默认值（local-main 默认开启，其余会话默认关闭），不创建任何目录或文件。",
+    auth: true, response: resp.dreamThreadResponse,
+  },
+  {
+    method: "put", path: "/api/threads/:threadId/dream", tag: "会话", summary: "保存会话 Dream 开关与补充提示词",
+    hint: "按字段更新该会话的 Dream 开关（enabled）、是否继承全局提示词（inheritGlobalPrompt）或会话补充提示词（prompt，写入 sessions/<threadId>/DREAM.md；空串清空）。显式保存可建立新会话；删除进行中返回 409 THREAD_DELETING。",
+    auth: true, request: req.updateThreadDreamSchema, response: resp.dreamThreadResponse,
+  },
+  {
+    method: "post", path: "/api/threads/:threadId/dream/run", tag: "会话", summary: "立即执行当前会话的 Dream 记忆整理",
+    hint: "不受 2 小时周期限制，立即对该会话自上次 cursor 以来的新消息（带约 4k token 重叠上下文）运行受限整理轮：全局稳定用户信息写入 USER.md、全局助手约定写入 SOUL.md、符合本会话 `## 会话用途` 的规则写入 INSTRUCTIONS.md、按需检索事实写入 memory.json；拿不准或非主会话提出的全局建议进入 pending。整轮成功后才推进 cursor；并发修改的目标跳过覆盖并记为 partial/failed。会话不存在返回 404，会话正在对话或已有 Dream 运行中返回 409。",
+    auth: true, response: resp.dreamThreadResponse,
+  },
+  {
+    method: "post", path: "/api/threads/:threadId/dream/pending/:pendingId", tag: "会话", summary: "处理会话 Dream 待决建议（应用或忽略）",
+    hint: "action=apply 将该条待决建议写入 target（省略时采用 suggestedTarget）对应的存储（USER.md / SOUL.md / 本会话 INSTRUCTIONS.md / memory.json）并从 pending 移除；action=dismiss 直接移除不写入。会话或 pendingId 不存在返回 404；记忆达到 500 条上限或会话正在删除返回 409。",
+    auth: true, request: req.resolveDreamPendingSchema, response: resp.dreamThreadResponse,
   },
   // ---- 增量聊天（AG-UI SSE 输出）----
   {
@@ -178,7 +198,13 @@ export const endpoints: EndpointSpec[] = [
   },
   // ---- 记忆与身份 ----
   {
+    method: "get", path: "/api/agent/memories", tag: "记忆", summary: "查询或检索长期记忆列表",
+    hint: "独立读取 memory.json 中的长期记忆，不依赖工作区大汇总且不广播 SSE。记忆现作为沉淀库按需检索，不再全量拼入每轮 system prompt；可选传入 q（按关键词忽略大小写子串匹配，按 updatedAt 倒序）与 limit（1–10，默认 10），省略 q 时返回全部条目。未声明或重复查询参数返回 400。",
+    auth: true, query: req.memoriesQuerySchema, response: resp.memoriesResponse,
+  },
+  {
     method: "post", path: "/api/agent/memories", tag: "记忆", summary: "新增记忆",
+    hint: "显式新增一条长期记忆；上限 500 条，满额时返回 409 拒绝写入，绝不静默丢弃旧条目。",
     auth: true, request: req.createMemorySchema, response: resp.memoryItem,
   },
   {
@@ -187,8 +213,18 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     method: "post", path: "/api/agent/memories/:id/forget", tag: "记忆", summary: "删除记忆",
-    hint: "对话里说「忘掉 X」走同一存储；删除后下一轮注入即消失。",
+    hint: "按条目 ID 精确删除；对话工具 memory(action=forget) 先通过 memory_search 取得 ID 后走同一存储。",
     auth: true, response: resp.okResponse,
+  },
+  {
+    method: "get", path: "/api/agent/dream", tag: "记忆", summary: "读取 Dream 后台记忆整理全局概览",
+    hint: "返回全局 DREAM.md 提示词、内置默认提示词、固定 2 小时周期、当前是否有整理轮在运行，以及所有已知会话的 Dream 状态与待决建议汇总。",
+    auth: true, response: resp.dreamOverviewResponse,
+  },
+  {
+    method: "put", path: "/api/agent/dream", tag: "记忆", summary: "保存全局 Dream 整理提示词",
+    hint: "保存 DATA_DIR/DREAM.md；传空串清空自定义覆盖并回退为内置默认提示词。服务端安全硬规则固定拼入，不受此文件覆盖。",
+    auth: true, request: req.saveGlobalDreamSchema, response: resp.dreamOverviewResponse,
   },
   {
     method: "post", path: "/api/agent/identity", tag: "记忆", summary: "保存身份设置（名字/语气）",

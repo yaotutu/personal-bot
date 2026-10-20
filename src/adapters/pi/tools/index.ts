@@ -7,7 +7,7 @@ import type { WebService } from "../../../features/web/types.js";
 import type { WeatherService } from "../../../features/weather/types.js";
 import type { DataLayout } from "../../storage/data-layout.js";
 import { currentTimeTool } from "./current-time.js";
-import { memoryTool } from "./memory.js";
+import { memoryTool, memorySearchTool } from "./memory.js";
 import { scheduleTool } from "./schedule.js";
 import { goalTool } from "./goal.js";
 import { monitorTool } from "./monitor.js";
@@ -57,7 +57,7 @@ export const skillToToolsMap: Record<string, string[]> = {
   monitor: ["monitor"],
   task: ["subagent"],
   goal: ["goal"],
-  memory: ["memory"],
+  memory: ["memory", "memory_search"],
   web: ["search_web", "web_fetch"],
   write: ["write", "edit"],
 };
@@ -66,7 +66,7 @@ const registrations = [
   { names: ["currentTime"], create: (_deps: ToolDependencies) => [currentTimeTool] },
   { names: [ACTIVITY_TOOL_NAME], create: (deps: ToolDependencies) => deps.activity && !isSubagent(deps) ? [createActivityTool(deps.activity)] : [] },
   { names: ["instructions"], create: (deps: ToolDependencies) => isSubagent(deps) || !deps.layout ? [] : [instructionsTool(deps.layout, deps.threadId)] },
-  { names: ["memory"], create: (deps: ToolDependencies) => [memoryTool(deps.memory)] },
+  { names: ["memory", "memory_search"], create: (deps: ToolDependencies) => [memoryTool(deps.memory), memorySearchTool(deps.memory)] },
   { names: ["schedule"], create: (deps: ToolDependencies) => isSubagent(deps) ? [] : [scheduleTool(deps.jobs, deps.threadId)] },
   { names: ["goal"], create: (deps: ToolDependencies) => deps.goals ? [goalTool(deps.goals)] : [] },
   { names: ["monitor"], create: (deps: ToolDependencies) => !isSubagent(deps) && deps.monitors ? [monitorTool(deps.monitors, deps.threadId)] : [] },

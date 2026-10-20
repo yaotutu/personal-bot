@@ -152,11 +152,15 @@ test("history failure uses pi isError, drops internal metadata and remains faile
 test("summaries are bounded and failures/unknown results never masquerade as writes", () => {
   const presentation = policy("summary");
   assert.equal(presentation.presentResult("memory", "Remembered: private text"), "已保存记忆");
-  assert.equal(presentation.presentResult("memory", 'Forgot 2 memory item(s) matching "private".'), "已删除 2 条记忆");
+  assert.equal(presentation.presentResult("memory", "Forgot memory private-id"), "已删除记忆");
+  assert.equal(presentation.presentResult("memory", "Edited memory private-id"), "已修改记忆");
+  assert.equal(presentation.presentResult("memory", "No memory with id private-id."), "未找到该记忆");
+  assert.equal(presentation.presentResult("memory_search", "- [private-id] private text"), "已检索记忆");
+  assert.equal(presentation.presentResult("memory_search", 'No memory matches "private".'), "未找到匹配的记忆");
   assert.equal(presentation.presentResult("schedule", 'Scheduled (id abc): "private job" next at 2030-01-01.'), "已创建提醒");
   assert.equal(presentation.presentResult("schedule", "Tool execution failed"), "工具执行失败");
   assert.equal(presentation.presentResult("read", "Access denied: path is outside the documents directory."), "Access denied: path is outside the documents directory.");
-  for (const name of ["read", "web_fetch", "memory", "schedule", "old_tool"]) {
+  for (const name of ["read", "web_fetch", "memory", "memory_search", "schedule", "old_tool"]) {
     const summary = presentation.presentResult(name, "unrecognized " + "secret".repeat(10000));
     assert.equal(summary, "工具执行已结束（详情已隐藏）");
     assert.equal(presentation.presentResult(name, summary), summary);

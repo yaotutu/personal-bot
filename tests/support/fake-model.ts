@@ -371,6 +371,46 @@ export async function createFakeModel() {
       res.end("data: [DONE]\n\n");
       return;
     }
+    // Dream 受限整理轮：仅声明 propose_notes 工具时触发，只从 New messages 段提取结构化建议。
+    if (declaresTool("propose_notes") && !pendingToolResult) {
+      const rawFresh = last.split("## New messages (extract from these)")[1] ?? last;
+      const freshSection = rawFresh.replace(/; users=\d+/g, "");
+      if (freshSection.includes("DREAM-FAIL")) {
+        event({ role: "assistant" });
+        event(toolCall("propose_notes", { changes: [{ target: "invalid-target", source: "bad" }] }));
+        event({}, "tool_calls");
+        res.end("data: [DONE]\n\n");
+        return;
+      }
+      const source = /\[([^\]]+)\]/.exec(freshSection)?.[1] ?? "msg-1";
+      const changes: Record<string, unknown>[] = [];
+      for (const m of freshSection.matchAll(/用户偏好:([^\n]+)/g)) {
+        changes.push({ target: "user", text: m[1]!.trim(), source });
+      }
+      for (const m of freshSection.matchAll(/助手人设:([^\n]+)/g)) {
+        changes.push({ target: "soul", text: m[1]!.trim(), source });
+      }
+      for (const m of freshSection.matchAll(/会话规则:([^\n]+)/g)) {
+        changes.push({ target: "instructions", text: m[1]!.trim(), source });
+      }
+      for (const m of freshSection.matchAll(/长期事实:([^\n]+)/g)) {
+        changes.push({ target: "memory", op: "add", text: m[1]!.trim(), source });
+      }
+      for (const m of freshSection.matchAll(/修改记忆:([^:\n]+):([^\n]+)/g)) {
+        changes.push({ target: "memory", op: "edit", id: m[1]!.trim(), text: m[2]!.trim(), source });
+      }
+      for (const m of freshSection.matchAll(/删除记忆:([^\s\n]+)/g)) {
+        changes.push({ target: "memory", op: "delete", id: m[1]!.trim(), source });
+      }
+      for (const m of freshSection.matchAll(/待确认:(user|soul|instructions|memory):([^\n]+)/g)) {
+        changes.push({ target: "pending", suggestedTarget: m[1]!, text: m[2]!.trim(), source });
+      }
+      event({ role: "assistant" });
+      event(toolCall("propose_notes", { changes }));
+      event({}, "tool_calls");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
     // 定时触发轮（⏰ 前缀的会话轮）：直接回文本，模拟任务执行结果。
     if (/^⏰/.test(last)) {
       event({ role: "assistant" });
@@ -392,6 +432,18 @@ export async function createFakeModel() {
       res.end("data: [DONE]\n\n");
       return;
     }
+    // 记忆检索路径：触发词"检索记忆" + 声明了 memory_search 工具。
+    if (declaresTool("memory_search") && /检索记忆/.test(last) && !pendingToolResult) {
+      event({ role: "assistant" });
+      event(
+        toolCall("memory_search", {
+          query: last.replace(/^.*检索记忆/, "").trim(),
+        }),
+      );
+      event({}, "tool_calls");
+      res.end("data: [DONE]\n\n");
+      return;
+    }
     // 记忆工具路径：触发词"记住/忘掉" + 声明了 memory 工具。
     if (declaresTool("memory") && /记住|忘掉/.test(last) && !pendingToolResult) {
       const forget = /忘掉/.test(last);
@@ -400,7 +452,7 @@ export async function createFakeModel() {
         toolCall(
           "memory",
           forget
-            ? { action: "forget", keyword: last.replace(/^.*忘掉/, "").trim() }
+            ? { action: "forget", id: last.replace(/^.*忘掉/, "").trim() }
             : { action: "remember", text: last.replace(/^.*记住/, "").trim() },
         ),
       );
@@ -451,8 +503,10 @@ export async function createFakeModel() {
           ? "file reply: "
           : toolName === "write" || toolName === "edit"
             ? "write reply: "
-          : toolName === "memory"
+          : toolName === "memory" || toolName === "memory_search"
             ? "memory reply: "
+          : toolName === "propose_notes"
+            ? "dream reply: "
           : toolName === "instructions"
             ? "instructions reply: "
             : toolName === "schedule"
