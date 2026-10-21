@@ -59,7 +59,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - 子模型继承父 session 的 model/key；角色和工具只能收窄父会话已启用技能与工具上限，不开放 bash/subagent/schedule/monitor/instructions，不读取个人 `~/.pi`，不接受 `cwd` / `agentScope` 等越界参数。
 - 每个调用独占 `workspace/threads/subagent-<uuid>/`，不复制父 workspace、历史或 `INSTRUCTIONS.md`；仅 `shared/...` 显式互通。写/编辑仍逐次人工审批，归属父 thread/run；父 Stop、超时或聊天断流取消子会话并等待清理。
 - 子会话不持久化，结果作为父工具结果回写；`subagent-*` 内部工作区不作为用户会话展示。role 来自内置 `assets/subagents/<role>.md`，`DATA_DIR/subagents/*.md` 可覆盖；角色不允许另配 model，来源与本地差异见 [适配说明](../src/adapters/pi/subagent/README.md)。
-- **旧 worker 的现行处理边界**：旧 `tasks.json`、`task-*` 目录不读、不迁移、不删除、不执行，不保留旧 reader；遗留 `task-*` 从用户列表和父文件根解析中过滤。`delegate_task`、`POST /api/agent/tasks`、`target: task` 分发已下线；原 `task` 技能名只装载 subagent，保留是为了不破坏会话技能覆盖。`/api/agent` 的 tasks 只含 `kind: job`，控制仅 `target: job`，删除会话的 removed 只统计 jobs/monitors。更早实现仅查 archive，不恢复旧队列。
+- **旧 worker 的现行处理边界**：旧 `tasks.json`、`task-*` 目录不读、不迁移、不删除、不执行，不保留旧 reader；遗留 `task-*` 从用户列表和父文件根解析中过滤。`delegate_task`、`POST /api/agent/tasks`、`target: task` 分发已下线；原 `task` 技能名只装载 subagent，保留是为了不破坏会话技能覆盖。工作区快照 `/api/agent` 已解耦为仅保留 `identity`，定时任务收拢至独立 `/api/jobs`，删除空间的 removed 只统计 jobs/monitors。更早实现仅查 archive，不恢复旧队列。
 
 ## 工作活动（Activity）
 
