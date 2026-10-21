@@ -36,7 +36,7 @@
 ### REQ-010 · 网页监控独立查询与管理接口 —— 已完成
 
 - **完成日期：** 2026-10-21。
-- **实施结果：** 独立顶层资源 `/api/monitors`（GET 列表支持 spaceId/threadId 过滤与 createdAt/lastCheckedAt/status 排序，全量返回不分页；GET /:id 详情；POST 新建；POST /:id/control 控制 pause/resume/stop；PATCH /:id 修改 title/url/condition/value/intervalMinutes/originSpaceId，若修改 URL 或检测条件/关键词自动重置内容指纹与命中基线；DELETE /:id 彻底删除）。彻底移除旧 `/api/agent/monitors*` 端点及 `GET /api/agent` 快照中的 `monitors` 字段，不作旧字段兼容。
+- **实施结果：** 独立顶层资源 `/api/monitors`（GET 列表支持 spaceId 过滤与 createdAt/lastCheckedAt/status 排序，全量返回不分页；GET /:id 详情；POST 新建；POST /:id/control 控制 pause/resume/stop；PATCH /:id 修改 title/url/condition/value/intervalMinutes/originSpaceId，若修改 URL 或检测条件/关键词自动重置内容指纹与命中基线；DELETE /:id 彻底删除）。彻底移除旧 `/api/agent/monitors*` 端点及 `GET /api/agent` 快照中的 `monitors` 字段，不作旧字段兼容。
 
 ### REQ-007 · 定时任务独立查询与管理接口 —— 已完成
 
