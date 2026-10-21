@@ -24,9 +24,9 @@ export const createGoalsRoutes = (
 
   app.get("/api/goals", async (c) => {
     const raw = parseQueryObject(new URL(c.req.url));
-    if (!raw) return c.json({ error: "Invalid goals query" }, 400);
+    if (!raw) return c.json({ error: "Invalid goals query", code: "INVALID_REQUEST" }, 400);
     const parsed = goalsQuerySchema.safeParse(raw);
-    if (!parsed.success) return c.json({ error: "Invalid goals query" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid goals query", code: "INVALID_REQUEST" }, 400);
 
     let items = await goals.list();
     if (parsed.data.status) {
@@ -52,30 +52,30 @@ export const createGoalsRoutes = (
 
   app.get("/api/goals/:id", async (c) => {
     const goal = await goals.get(c.req.param("id"));
-    return goal ? c.json(goal) : c.json({ error: "Goal not found" }, 404);
+    return goal ? c.json(goal) : c.json({ error: "Goal not found", code: "GOAL_NOT_FOUND" }, 404);
   });
 
   app.post("/api/goals", async (c) => {
     const parsed = createGoalSchema.safeParse(await c.req.json().catch(() => undefined));
-    if (!parsed.success) return c.json({ error: "Invalid goal request" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid goal request", code: "INVALID_REQUEST" }, 400);
     return c.json(await goals.create(parsed.data));
   });
 
   app.patch("/api/goals/:id", async (c) => {
     const parsed = updateGoalSchema.safeParse(await c.req.json().catch(() => undefined));
-    if (!parsed.success) return c.json({ error: "Invalid goal request" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid goal request", code: "INVALID_REQUEST" }, 400);
     const goal = await goals.edit(c.req.param("id"), parsed.data);
-    return goal ? c.json(goal) : c.json({ error: "Goal not found" }, 404);
+    return goal ? c.json(goal) : c.json({ error: "Goal not found", code: "GOAL_NOT_FOUND" }, 404);
   });
 
   app.post("/api/goals/:id/milestones/:mid/toggle", async (c) => {
     const result = await goals.toggleMilestone(c.req.param("id"), c.req.param("mid"));
-    return result.goal ? c.json(result.goal) : c.json({ error: "Goal or milestone not found" }, 404);
+    return result.goal ? c.json(result.goal) : c.json({ error: "Goal or milestone not found", code: "NOT_FOUND" }, 404);
   });
 
   app.delete("/api/goals/:id", async (c) => {
     const ok = await goals.remove(c.req.param("id"));
-    return ok ? c.json({ ok: true as const, id: c.req.param("id") }) : c.json({ error: "Goal not found" }, 404);
+    return ok ? c.json({ ok: true as const, id: c.req.param("id") }) : c.json({ error: "Goal not found", code: "GOAL_NOT_FOUND" }, 404);
   });
 
   return app;

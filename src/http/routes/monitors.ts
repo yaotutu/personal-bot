@@ -17,7 +17,7 @@ export const createMonitorsRoutes = (
 
   app.get("/api/monitors", async (c) => {
     const query = monitorsQuerySchema.safeParse(c.req.query());
-    if (!query.success) return c.json({ error: "Invalid query parameters" }, 400);
+    if (!query.success) return c.json({ error: "Invalid query parameters", code: "INVALID_REQUEST" }, 400);
 
     const targetSpace = query.data.spaceId ?? query.data.threadId;
     let all = await monitors.list();
@@ -51,14 +51,14 @@ export const createMonitorsRoutes = (
 
   app.get("/api/monitors/:id", async (c) => {
     const monitor = await monitors.get(c.req.param("id"));
-    return monitor ? c.json(presentMonitor(monitor)) : c.json({ error: "Monitor not found" }, 404);
+    return monitor ? c.json(presentMonitor(monitor)) : c.json({ error: "Monitor not found", code: "MONITOR_NOT_FOUND" }, 404);
   });
 
   app.post("/api/monitors", async (c) => {
     const parsed = createMonitorSchema.safeParse(await c.req.json().catch(() => undefined));
-    if (!parsed.success) return c.json({ error: "Invalid monitor request" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid monitor request", code: "INVALID_REQUEST" }, 400);
     if (parsed.data.condition === "contains" && !parsed.data.value?.trim())
-      return c.json({ error: "contains condition needs a keyword" }, 400);
+      return c.json({ error: "contains condition needs a keyword", code: "KEYWORD_REQUIRED" }, 400);
     const targetSpace = parsed.data.originSpaceId ?? parsed.data.originThreadId;
     const create = async () => {
       const monitor = await monitors.create({
@@ -75,7 +75,7 @@ export const createMonitorsRoutes = (
 
   app.post("/api/monitors/:id/control", async (c) => {
     const parsed = monitorControlSchema.safeParse(await c.req.json().catch(() => undefined));
-    if (!parsed.success) return c.json({ error: "Invalid monitor control request" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid monitor control request", code: "INVALID_REQUEST" }, 400);
     const result = await monitors.control(c.req.param("id"), parsed.data.action);
     if (!result.ok)
       return c.json({ error: result.message }, result.code === "not_found" ? 404 : 409);
@@ -84,15 +84,15 @@ export const createMonitorsRoutes = (
 
   app.patch("/api/monitors/:id", async (c) => {
     const parsed = updateMonitorSchema.safeParse(await c.req.json().catch(() => undefined));
-    if (!parsed.success) return c.json({ error: "Invalid monitor update request" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid monitor update request", code: "INVALID_REQUEST" }, 400);
 
     const existing = await monitors.get(c.req.param("id"));
-    if (!existing) return c.json({ error: "Monitor not found" }, 404);
+    if (!existing) return c.json({ error: "Monitor not found", code: "MONITOR_NOT_FOUND" }, 404);
 
     const nextCondition = parsed.data.condition ?? existing.condition;
     const nextValue = parsed.data.value !== undefined ? parsed.data.value.trim() : existing.value;
     if (nextCondition === "contains" && !nextValue) {
-      return c.json({ error: "contains condition needs a keyword" }, 400);
+      return c.json({ error: "contains condition needs a keyword", code: "KEYWORD_REQUIRED" }, 400);
     }
 
     const targetSpace = parsed.data.originSpaceId ?? parsed.data.originThreadId;
@@ -106,7 +106,7 @@ export const createMonitorsRoutes = (
         originSpaceId: targetSpace,
         originThreadId: targetSpace,
       });
-      if (!updated) return c.json({ error: "Monitor not found" }, 404);
+      if (!updated) return c.json({ error: "Monitor not found", code: "MONITOR_NOT_FOUND" }, 404);
       return c.json(presentMonitor(updated));
     };
 
@@ -118,7 +118,7 @@ export const createMonitorsRoutes = (
   app.delete("/api/monitors/:id", async (c) => {
     const id = c.req.param("id");
     const ok = await monitors.remove(id);
-    if (!ok) return c.json({ error: "Monitor not found" }, 404);
+    if (!ok) return c.json({ error: "Monitor not found", code: "MONITOR_NOT_FOUND" }, 404);
     return c.json({ ok: true as const, id });
   });
 

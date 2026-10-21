@@ -40,7 +40,10 @@ const queryParams = (query: z.ZodType) => {
  */
 const genericErrorSchema = {
   type: "object",
-  properties: { error: { type: "string" } },
+  properties: {
+    error: { type: "string" },
+    code: { type: "string" },
+  },
   required: ["error"],
 };
 
@@ -76,6 +79,7 @@ export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) =
   for (const endpoint of endpoints) {
     const openapiPath = endpoint.path.replace(/:([a-zA-Z]+)/g, "{$1}");
     const operation: Record<string, unknown> = {
+      ...(endpoint.operationId ? { operationId: endpoint.operationId } : {}),
       summary: endpoint.summary,
       tags: [endpoint.tag],
       ...(endpoint.auth ? { security: [{ bearerAuth: [] }] } : {}),

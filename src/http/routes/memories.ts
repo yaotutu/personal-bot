@@ -26,9 +26,9 @@ export const createMemoriesRoutes = (
 
   app.get("/api/memories", async (c) => {
     const raw = parseQueryObject(new URL(c.req.url));
-    if (!raw) return c.json({ error: "Invalid memory query" }, 400);
+    if (!raw) return c.json({ error: "Invalid memory query", code: "INVALID_REQUEST" }, 400);
     const parsed = memoriesQuerySchema.safeParse(raw);
-    if (!parsed.success) return c.json({ error: "Invalid memory query" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid memory query", code: "INVALID_REQUEST" }, 400);
 
     let items: MemoryItem[];
     if (parsed.data.q) {
@@ -53,31 +53,31 @@ export const createMemoriesRoutes = (
 
   app.get("/api/memories/:id", async (c) => {
     const item = await memory.get(c.req.param("id"));
-    return item ? c.json(item) : c.json({ error: "Memory not found" }, 404);
+    return item ? c.json(item) : c.json({ error: "Memory not found", code: "MEMORY_NOT_FOUND" }, 404);
   });
 
   app.post("/api/memories", async (c) => {
     const parsed = createMemorySchema.safeParse(await c.req.json().catch(() => undefined));
-    if (!parsed.success) return c.json({ error: "Invalid memory request" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid memory request", code: "INVALID_REQUEST" }, 400);
     try {
       return c.json(await memory.add(parsed.data.text, parsed.data.source || "Web UI"));
     } catch (error) {
-      if (error instanceof MemoryLimitError) return c.json({ error: error.message }, 409);
+      if (error instanceof MemoryLimitError) return c.json({ error: error.message, code: "MEMORY_CAPACITY_REACHED" }, 409);
       throw error;
     }
   });
 
   app.patch("/api/memories/:id", async (c) => {
     const parsed = updateMemorySchema.safeParse(await c.req.json().catch(() => undefined));
-    if (!parsed.success) return c.json({ error: "Invalid memory request" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid memory request", code: "INVALID_REQUEST" }, 400);
     const item = await memory.edit(c.req.param("id"), parsed.data.text);
-    return item ? c.json(item) : c.json({ error: "Memory not found" }, 404);
+    return item ? c.json(item) : c.json({ error: "Memory not found", code: "MEMORY_NOT_FOUND" }, 404);
   });
 
   app.delete("/api/memories/:id", async (c) => {
     const id = c.req.param("id");
     const ok = await memory.forget(id);
-    return ok ? c.json({ ok: true as const, id }) : c.json({ error: "Memory not found" }, 404);
+    return ok ? c.json({ ok: true as const, id }) : c.json({ error: "Memory not found", code: "MEMORY_NOT_FOUND" }, 404);
   });
 
   return app;

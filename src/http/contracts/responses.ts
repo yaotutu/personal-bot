@@ -34,6 +34,7 @@ export const sessionResponse = z.object({
 export const okResponse = z.object({ ok: z.literal(true) });
 export const errorResponse = z.object({
   error: z.string().describe("人类可读错误；敏感细节（密钥/供应商响应）一律不透出"),
+  code: z.string().optional().describe("机器可读业务错误码（如 MEMORY_CAPACITY_REACHED, REVISION_CONFLICT 等）"),
 });
 
 // 空间 -----------------------------------------------------------------

@@ -39,12 +39,12 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
   app.post("/:spaceId/reset", async (c) => {
     const spaceId = c.req.param("spaceId");
     if (!isSpaceId(spaceId)) {
-      return c.json({ error: "Invalid spaceId" }, 400);
+      return c.json({ error: "Invalid spaceId", code: "INVALID_SPACE_ID" }, 400);
     }
     const body = await c.req.json().catch(() => ({}));
     const parsed = resetSpaceSchema.safeParse(body);
     if (!parsed.success) {
-      return c.json({ error: "Invalid request body" }, 400);
+      return c.json({ error: "Invalid request body", code: "INVALID_REQUEST" }, 400);
     }
     const clearSchedules = parsed.data.clearSchedules ?? false;
 
@@ -115,7 +115,7 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
   app.get("/:spaceId/skills", async (c) => {
     const spaceId = c.req.param("spaceId");
     if (!isSpaceId(spaceId)) {
-      return c.json({ error: "Invalid spaceId" }, 400);
+      return c.json({ error: "Invalid spaceId", code: "INVALID_SPACE_ID" }, 400);
     }
     return c.json(await skills.describeSpace(spaceId));
   });
@@ -124,13 +124,13 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
   app.put("/:spaceId/skills", async (c) => {
     const spaceId = c.req.param("spaceId");
     if (!isSpaceId(spaceId)) {
-      return c.json({ error: "Invalid spaceId" }, 400);
+      return c.json({ error: "Invalid spaceId", code: "INVALID_SPACE_ID" }, 400);
     }
 
     const body = await c.req.json().catch(() => undefined);
     const parsed = updateSkillsSchema.safeParse(body);
     if (!parsed.success) {
-      return c.json({ error: "Invalid request body" }, 400);
+      return c.json({ error: "Invalid request body", code: "INVALID_REQUEST" }, 400);
     }
 
     try {
@@ -139,7 +139,7 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
         return c.json(await skills.describeSpace(spaceId));
       });
     } catch (error) {
-      if (error instanceof UnknownSkillError) return c.json({ error: error.message }, 400);
+      if (error instanceof UnknownSkillError) return c.json({ error: error.message, code: "UNKNOWN_SKILL" }, 400);
       throw error;
     }
   });
@@ -148,7 +148,7 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
   app.get("/:spaceId/instructions", async (c) => {
     const spaceId = c.req.param("spaceId");
     if (!isSpaceId(spaceId)) {
-      return c.json({ error: "Invalid spaceId" }, 400);
+      return c.json({ error: "Invalid spaceId", code: "INVALID_SPACE_ID" }, 400);
     }
     const file = threadInstructionsFile(layout, spaceId);
     const instructions = await readThreadInstructions(file);
@@ -159,13 +159,13 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
   app.put("/:spaceId/instructions", async (c) => {
     const spaceId = c.req.param("spaceId");
     if (!isSpaceId(spaceId)) {
-      return c.json({ error: "Invalid spaceId" }, 400);
+      return c.json({ error: "Invalid spaceId", code: "INVALID_SPACE_ID" }, 400);
     }
 
     const body = await c.req.json().catch(() => undefined);
     const parsed = saveInstructionsSchema.safeParse(body);
     if (!parsed.success) {
-      return c.json({ error: "Invalid instructions request" }, 400);
+      return c.json({ error: "Invalid instructions request", code: "INVALID_REQUEST" }, 400);
     }
 
     return conversationHub.withSpace(spaceId, async () => {
@@ -184,7 +184,7 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
   app.get("/:spaceId/dream", async (c) => {
     const spaceId = c.req.param("spaceId");
     if (!isSpaceId(spaceId)) {
-      return c.json({ error: "Invalid spaceId" }, 400);
+      return c.json({ error: "Invalid spaceId", code: "INVALID_SPACE_ID" }, 400);
     }
     return c.json(await dream.describeSpace(spaceId));
   });
@@ -193,13 +193,13 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
   app.put("/:spaceId/dream", async (c) => {
     const spaceId = c.req.param("spaceId");
     if (!isSpaceId(spaceId)) {
-      return c.json({ error: "Invalid spaceId" }, 400);
+      return c.json({ error: "Invalid spaceId", code: "INVALID_SPACE_ID" }, 400);
     }
     const parsed = updateSpaceDreamSchema.safeParse(
       await c.req.json().catch(() => undefined),
     );
     if (!parsed.success) {
-      return c.json({ error: "Invalid dream request" }, 400);
+      return c.json({ error: "Invalid dream request", code: "INVALID_REQUEST" }, 400);
     }
     return conversationHub.withSpace(spaceId, async () => {
       return c.json(await dream.updateSpaceSettings(spaceId, parsed.data));
@@ -210,7 +210,7 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
   app.post("/:spaceId/dream/run", async (c) => {
     const spaceId = c.req.param("spaceId");
     if (!isSpaceId(spaceId)) {
-      return c.json({ error: "Invalid spaceId" }, 400);
+      return c.json({ error: "Invalid spaceId", code: "INVALID_SPACE_ID" }, 400);
     }
     const result = await dream.runNow(spaceId);
     if (!result.ok) {
@@ -223,13 +223,13 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
   app.post("/:spaceId/dream/pending/:pendingId", async (c) => {
     const spaceId = c.req.param("spaceId");
     if (!isSpaceId(spaceId)) {
-      return c.json({ error: "Invalid spaceId" }, 400);
+      return c.json({ error: "Invalid spaceId", code: "INVALID_SPACE_ID" }, 400);
     }
     const parsed = resolveDreamPendingSchema.safeParse(
       await c.req.json().catch(() => undefined),
     );
     if (!parsed.success) {
-      return c.json({ error: "Invalid dream pending decision" }, 400);
+      return c.json({ error: "Invalid dream pending decision", code: "INVALID_REQUEST" }, 400);
     }
     const result = await dream.resolvePending(
       spaceId,
@@ -248,10 +248,10 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
 
     // 1. 主空间保护
     if (spaceId === "local-main") {
-      return c.json({ error: "Cannot delete the main space" }, 409);
+      return c.json({ error: "Cannot delete the main space", code: "CANNOT_DELETE_MAIN_SPACE" }, 409);
     }
     if (!isSpaceId(spaceId)) {
-      return c.json({ error: "Invalid spaceId" }, 400);
+      return c.json({ error: "Invalid spaceId", code: "INVALID_SPACE_ID" }, 400);
     }
 
     return conversationHub.deleteSpace(spaceId, async () => {
@@ -260,7 +260,7 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
       const hasJobs = (await jobs.list()).some((j) => j.originSpaceId === spaceId);
       const hasMonitors = (await monitors.list()).some((m) => m.originSpaceId === spaceId);
       if (!dirExists && !hasJobs && !hasMonitors)
-        return c.json({ error: "Space not found" }, 404);
+        return c.json({ error: "Space not found", code: "SPACE_NOT_FOUND" }, 404);
 
       // 生命周期锁已关闭旧协调器；等待所有来源绑定提交后再级联清理。
       const removedJobs = await jobs.removeByOriginSpaceId(spaceId);

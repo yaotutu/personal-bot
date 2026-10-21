@@ -10,7 +10,7 @@ export const createIdentityRoutes = (
   const app = new Hono();
   app.post("/api/agent/identity", async (c) => {
     const parsed = identitySchema.safeParse(await c.req.json().catch(() => undefined));
-    if (!parsed.success) return c.json({ error: "Invalid identity request" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid identity request", code: "INVALID_REQUEST" }, 400);
     return c.json(await identity.save(parsed.data));
   });
   return app;

@@ -35,9 +35,9 @@ export const createApprovalsRoutes = (
   // 历史只含终态；pending 从 /pending 读取。游标绑定三个过滤条件，改变过滤必须重新从第一页开始。
   app.get("/api/approvals", async (c) => {
     const raw = parseQueryObject(new URL(c.req.url));
-    if (!raw) return c.json({ error: "Invalid approval query" }, 400);
+    if (!raw) return c.json({ error: "Invalid approval query", code: "INVALID_REQUEST" }, 400);
     const parsed = approvalListQuery.safeParse(raw);
-    if (!parsed.success) return c.json({ error: "Invalid approval query" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid approval query", code: "INVALID_REQUEST" }, 400);
     const { limit, cursor: encodedCursor, spaceId, activityId, status } = parsed.data;
     const effectiveSpaceId = spaceId ?? (parsed.data as { threadId?: string }).threadId;
     const filter: ApprovalFilter = {
@@ -49,7 +49,7 @@ export const createApprovalsRoutes = (
     if (encodedCursor !== undefined) {
       const decoded = decodeApprovalCursor(encodedCursor);
       if (!decoded || !approvalCursorMatchesFilter(decoded, filter))
-        return c.json({ error: "Invalid approval cursor" }, 400);
+        return c.json({ error: "Invalid approval cursor", code: "INVALID_CURSOR" }, 400);
       cursor = { resolvedAt: decoded.resolvedAt, id: decoded.id };
     }
     const page = await actions.page({
@@ -77,7 +77,7 @@ export const createApprovalsRoutes = (
     const approval = await actions.get(c.req.param("id"));
     return approval
       ? c.json(presentApproval(approval))
-      : c.json({ error: "Approval not found" }, 404);
+      : c.json({ error: "Approval not found", code: "APPROVAL_NOT_FOUND" }, 404);
   });
 
   // 决定只提交一次：相同决定幂等返回当前记录；相反决定或已过期/取消返回 409。
@@ -85,11 +85,11 @@ export const createApprovalsRoutes = (
     const parsed = approvalDecisionRequest.safeParse(
       await c.req.json().catch(() => undefined),
     );
-    if (!parsed.success) return c.json({ error: "Invalid approval decision" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid approval decision", code: "INVALID_REQUEST" }, 400);
     const result = await actions.resolveDecision(c.req.param("id"), parsed.data.decision);
     if (result.ok) return c.json(presentApproval(result.action!));
     return result.code === "not_found"
-      ? c.json({ error: "Approval not found" }, 404)
+      ? c.json({ error: "Approval not found", code: "APPROVAL_NOT_FOUND" }, 404)
       : c.json({ error: "Approval is already resolved or expired", approval: presentApproval(result.action!) }, 409);
   });
 

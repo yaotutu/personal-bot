@@ -7,11 +7,11 @@ export const createAgentStatusRoutes = (dependencies: Pick<HttpDependencies, "co
   const app = new Hono();
   app.get("/api/agent/status", async (c) => {
     const parsed = agentStatusQuery.safeParse(c.req.query());
-    if (!parsed.success) return c.json({ error: "Invalid execution status query" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid execution status query", code: "INVALID_REQUEST" }, 400);
     const spaceId = (parsed.data.spaceId ?? parsed.data.threadId)!;
     const conversation = await dependencies.conversationHub.findSpace(spaceId);
     const status = conversation?.executionStatus(parsed.data.runId);
-    return status ? c.json({ instanceId: dependencies.workspaceEvents.instanceId, status }) : c.json({ error: "Execution status not found" }, 404);
+    return status ? c.json({ instanceId: dependencies.workspaceEvents.instanceId, status }) : c.json({ error: "Execution status not found", code: "NOT_FOUND" }, 404);
   });
   return app;
 };

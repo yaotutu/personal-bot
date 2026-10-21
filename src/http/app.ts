@@ -7,7 +7,6 @@ import { createWorkspaceRoutes } from "./workspace-routes.js";
 import { sessionRequestSchema } from "./contracts/rest.js";
 import { buildOpenApiDocument } from "./openapi.js";
 import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
-import { saveProfileSchema } from "./contracts/rest.js";
 import { createSpaceRoutes } from "./routes/spaces.js";
 import { createWorkspaceEventRoutes } from "./routes/events.js";
 import { serviceVersion } from "../bootstrap/service-version.js";
@@ -72,15 +71,6 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     if (!auth.authorized(c.req.header("Authorization")))
       return c.json({ error: "Unauthorized: open a new session" }, 401);
     await next();
-  });
-  // SOUL/USER 自由文本：读取与保存（下一轮 prompt 注入即生效）。
-  app.get("/api/profile", async (c) => c.json(await dependencies.identity.getProfile()));
-  app.put("/api/profile", async (c) => {
-    const parsed = saveProfileSchema.safeParse(
-      await c.req.json().catch(() => undefined),
-    );
-    if (!parsed.success) return c.json({ error: "Invalid profile request" }, 400);
-    return c.json(await dependencies.identity.saveProfile(parsed.data));
   });
   // 先鉴权，再挂载业务/运行协议，最后处理未知 API；顺序是现有安全边界。
   app.route("/", createWorkspaceEventRoutes(dependencies.workspaceEvents));

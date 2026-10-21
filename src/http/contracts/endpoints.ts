@@ -23,6 +23,7 @@ export type SseSpec = {
 };
 
 export type EndpointSpec = {
+  operationId?: string;
   method: "get" | "post" | "put" | "patch" | "delete";
   /** 路径模板，路径参数用 :name（生成时转 {name}） */
   path: string;
@@ -57,77 +58,92 @@ const conversationQuery = z.object({
 export const endpoints: EndpointSpec[] = [
   // ---- 基础 ----
   {
+    operationId: "getHealth",
     method: "get", path: "/api/health", tag: "基础", summary: "健康检查",
     hint: "无需鉴权；探测服务是否存活与模型配置状态。serviceVersion 为启动/构建时固定快照：version、commit、dirty、sourceHash、mode、builtAt；与 /openapi.json 的 x-service-version 及 /docs 一致。dirty=true 时不能只比较 commit，须核对 sourceHash；commit/dirty 无法核验时为 null。",
     auth: false, request: undefined, response: resp.healthResponse,
   },
   {
+    operationId: "createSession",
     method: "post", path: "/api/session", tag: "基础", summary: "登录换取 Bearer token",
     hint: "一切 /api/* 调用的第一步；回环部署无密钥时空 body 即可。",
     auth: false, request: req.sessionRequestSchema, response: resp.sessionResponse,
   },
   {
+    operationId: "listSpaces",
     method: "get", path: "/api/spaces", tag: "空间", summary: "列出空间（按活跃倒序）",
     hint: "多空间入口：先取列表再选 spaceId 聊天；新空间无需显式创建（run、规则/技能保存或显式来源绑定时建立）。历史 GET 和迟到 Stop 不会建立空间。",
     auth: true, response: resp.spacesResponse,
   },
   {
+    operationId: "resetSpace",
     method: "post", path: "/api/spaces/:spaceId/reset", tag: "空间", summary: "重置空间会话（更换 session ID，清空会话历史并作废待审批，保留工作区与规则）",
     hint: "清空当前空间的会话聊天历史并生成全新 session ID，当前空间的私有工作区文件、INSTRUCTIONS.md、技能开关与 Dream 配置均完整保留。若存在正在进行的运行或待审批操作，均安全取消；可选传入 clearSchedules: true 同时清理该空间绑定的定时任务与网页监控，默认 false 保留并转绑到新会话。",
     auth: true, request: req.resetSpaceSchema, response: resp.resetSpaceResponse,
   },
   {
+    operationId: "getConversation",
     method: "get", path: "/api/conversation", tag: "空间", summary: "读取会话权威历史",
     hint: "刷新/恢复时同步历史用；历史只读，客户端不要回写。合法但不存在、已删除或正在删除的 ID 返回 200 {messages:[], revision:'empty'}，不创建会话或工作区，不使其出现在列表；非法 ID 返回 400。空历史不代表空间存在，存在性以 GET /api/spaces 为准。消息含工具投影（toolCalls 与 role=tool 消息按 toolCallId 关联）。文件/模型原始错误在进入模型上下文与历史前脱敏，文件缺失使用受控提示，不返回服务端绝对路径。",
     auth: true, query: conversationQuery, response: resp.conversationResponse,
   },
   {
+    operationId: "getSpaceSkills",
     method: "get", path: "/api/spaces/:spaceId/skills", tag: "空间", summary: "读取空间技能开关",
     hint: "返回全部技能的默认状态与当前空间的生效状态。",
     auth: true, response: resp.skillsResponse,
   },
   {
+    operationId: "updateSpaceSkills",
     method: "put", path: "/api/spaces/:spaceId/skills", tag: "空间", summary: "保存空间技能开关",
     hint: "整份替换覆盖表；未知技能名返回 400。显式保存可建立新空间；删除进行中返回 409 SPACE_DELETING，刷新列表后由用户重新选择，不自动重试旧 ID。",
     auth: true, request: req.updateSkillsSchema, response: resp.skillsResponse,
   },
   {
+    operationId: "deleteSpace",
     method: "delete", path: "/api/spaces/:spaceId", tag: "空间", summary: "删除空间（不可删除主空间）",
     hint: "不可删除 local-main（409）；关闭旧空间并取消其当前轮，级联删除该空间名下的定时任务与监控，取消其排队/运行中后台任务。删除等待已接纳的来源绑定与规则/技能写入完成后清理，期间同 ID 的写操作/来源绑定返回 409 SPACE_DELETING，不自动重试。迟到历史 GET/Stop 不重建空间；已完成任务的迟到通知不改投主空间或新同名空间，结果仍可读任务详情。成功后客户端取消本地请求、屏蔽迟到结果并刷新 spaces/agent 与工作区通知流。删除非事务，失败不承诺回滚；404 表示不存在且无活跃绑定。删除成功后显式 run/规则/技能保存或来源绑定可建立全新同名空间，不恢复旧历史。",
     auth: true, response: resp.deleteSpaceResponse,
   },
   {
+    operationId: "getSpaceInstructions",
     method: "get", path: "/api/spaces/:spaceId/instructions", tag: "空间", summary: "读取空间专属规则",
     hint: "读取当前空间的 INSTRUCTIONS.md 内容；未设置时返回空串。",
     auth: true, response: resp.instructionsResponse,
   },
   {
+    operationId: "updateSpaceInstructions",
     method: "put", path: "/api/spaces/:spaceId/instructions", tag: "空间", summary: "保存空间专属规则",
     hint: "下一轮对话开始时注入生效；传空串等于清空。可选传入 purpose 声明空间用途（自动在开头生成 `## 空间用途` 段落，供 Dream 后台整理判定本空间专属规则归属；Dream 整理轮禁止修改该段落）。显式保存可建立新空间；删除进行中返回 409 SPACE_DELETING，刷新列表后由用户重新选择，不自动重试旧 ID。",
     auth: true, request: req.saveInstructionsSchema, response: resp.instructionsResponse,
   },
   {
+    operationId: "getSpaceDream",
     method: "get", path: "/api/spaces/:spaceId/dream", tag: "空间", summary: "读取空间 Dream 整理状态与配置",
     hint: "纯只读查询：返回该空间的 Dream 开关、是否继承全局提示词、已整理游标、最近一次运行结果、待决建议列表、空间补充提示词（DREAM.md）及 `## 空间用途`。文件不存在时返回默认值（local-main 默认开启，其余空间默认关闭），不创建任何目录或文件。",
     auth: true, response: resp.dreamSpaceResponse,
   },
   {
+    operationId: "updateSpaceDream",
     method: "put", path: "/api/spaces/:spaceId/dream", tag: "空间", summary: "保存空间 Dream 开关与补充提示词",
     hint: "按字段更新该空间的 Dream 开关（enabled）、是否继承全局提示词（inheritGlobalPrompt）或空间补充提示词（prompt，写入 sessions/<spaceId>/DREAM.md；空串清空）。显式保存可建立新空间；删除进行中返回 409 SPACE_DELETING。",
     auth: true, request: req.updateSpaceDreamSchema, response: resp.dreamSpaceResponse,
   },
   {
+    operationId: "runSpaceDream",
     method: "post", path: "/api/spaces/:spaceId/dream/run", tag: "空间", summary: "立即执行当前空间的 Dream 记忆整理",
     hint: "不受 2 小时周期限制，立即对该空间自上次 cursor 以来的新消息（带约 4k token 重叠上下文）运行受限整理轮：全局稳定用户信息写入 USER.md、全局助手约定写入 SOUL.md、符合本空间 `## 空间用途` 的规则写入 INSTRUCTIONS.md、按需检索事实写入 memory.json；拿不准或非主空间提出的全局建议进入 pending。整轮成功后才推进 cursor；并发修改的目标跳过覆盖并记为 partial/failed。空间不存在返回 404，空间正在对话或已有 Dream 运行中返回 409。",
     auth: true, response: resp.dreamSpaceResponse,
   },
   {
+    operationId: "resolveSpaceDreamPending",
     method: "post", path: "/api/spaces/:spaceId/dream/pending/:pendingId", tag: "空间", summary: "处理空间 Dream 待决建议（应用或忽略）",
     hint: "action=apply 将该条待决建议写入 target（省略时采用 suggestedTarget）对应的存储（USER.md / SOUL.md / 本空间 INSTRUCTIONS.md / memory.json）并从 pending 移除；action=dismiss 直接移除不写入。空间或 pendingId 不存在返回 404；记忆达到 500 条上限或空间正在删除返回 409。",
     auth: true, request: req.resolveDreamPendingSchema, response: resp.dreamSpaceResponse,
   },
   // ---- 增量聊天（AG-UI SSE 输出）----
   {
+    operationId: "runConversation",
     method: "post", path: "/api/conversation/run", tag: "空间", summary: "提交一条用户消息（SSE 流）",
     hint: `提交 message 和 expectedRevision；版本冲突 409 后重新读取历史。首次合法 ID 建立新空间；删除进行中返回 409 SPACE_DELETING，客户端不自动重试旧 ID。事件顺序：${SSE_EVENT_ORDER}。` +
       "主模型可在本轮调用 subagent 工具（官方 pi 1.3.0 示例适配），子会话返回结果后主模型继续；这不是独立后台任务队列，不提供创建子任务的 HTTP 接口。" +
@@ -141,22 +157,26 @@ export const endpoints: EndpointSpec[] = [
     },
   },
   {
+    operationId: "stopConversation",
     method: "post", path: "/api/conversation/stop", tag: "空间", summary: "停止指定运行",
     hint: "spaceId/runId 必须同时匹配当前轮；迟到 Stop 返回 false，不影响下一轮。不存在或正在删除的空间返回 {stopped:false}，不建立空间或工作区。",
     auth: true, request: req.stopRequestSchema, response: z.object({ stopped: z.boolean() }),
   },
   // ---- 人设 ----
   {
+    operationId: "getProfile",
     method: "get", path: "/api/profile", tag: "人设", summary: "读取 SOUL/USER 人设文本",
     auth: true, response: resp.profileResponse,
   },
   {
+    operationId: "updateProfile",
     method: "put", path: "/api/profile", tag: "人设", summary: "保存 SOUL/USER 人设",
     hint: "下一轮对话注入生效；传空串等于清空该段人设。",
     auth: true, request: req.saveProfileSchema, response: resp.profileResponse,
   },
   // ---- 工作区快照 ----
   {
+    operationId: "getAgentSnapshot",
     method: "get", path: "/api/agent", tag: "快照", summary: "全量工作区快照",
     hint:
       "工作台首屏读取身份设置；定时任务已迁移至独立 /api/jobs 接口，网页监控已迁移至独立 /api/monitors 接口，长期记忆已迁移至独立 /api/memories 接口，长期目标已迁移至独立 /api/goals 接口，快照中不再包含 tasks、monitors、memories 与 goals 字段。不提供 POST /api/agent/tasks 创建入口；旧调用按未知 API 返回501。" +
@@ -166,6 +186,7 @@ export const endpoints: EndpointSpec[] = [
   },
   // ---- 执行活动（只读；登记与推进由对话工具完成）----
   {
+    operationId: "listActivities",
     method: "get", path: "/api/activities", tag: "活动", summary: "列出执行活动（按创建时间倒序分页）",
     hint:
       "执行活动是主模型在决定开始推进用户交办的工作时通过对话工具显式登记的记录，不是每轮消息自动生成，" +
@@ -182,6 +203,7 @@ export const endpoints: EndpointSpec[] = [
     auth: true, query: activity.activitiesQuerySchema, response: activity.activitiesResponse,
   },
   {
+    operationId: "getActivity",
     method: "get", path: "/api/activities/:id", tag: "活动", summary: "读取活动详情（概览＋逐步明细）",
     hint:
       "返回 activity 概览与 steps 逐步明细；steps 按真实执行顺序，失败、拒绝、取消、过期与中断如实保留，" +
@@ -191,30 +213,35 @@ export const endpoints: EndpointSpec[] = [
   },
   // ---- 定时任务（Jobs）----
   {
+    operationId: "listJobs",
     method: "get", path: "/api/jobs", tag: "任务", summary: "查询定时任务列表",
     hint:
       "按条件查询定时任务列表。支持按 spaceId（或 threadId）过滤，支持按 nextRunAt、updatedAt、createdAt 排序（默认按 nextRunAt 升序），全量返回，不分页。",
     auth: true, query: req.jobsQuerySchema, response: resp.jobsResponse,
   },
   {
+    operationId: "getJob",
     method: "get", path: "/api/jobs/:id", tag: "任务", summary: "定时任务详情（含时间线）",
     hint:
       "读取指定定时任务的详细信息及操作/运行时间线；任务不存在返回 404。",
     auth: true, response: resp.jobDetail,
   },
   {
+    operationId: "controlJob",
     method: "post", path: "/api/jobs/:id/control", tag: "任务", summary: "控制定时任务（pause/resume/cancel/retry）",
     hint:
       "对定时任务执行生命周期操作：pause=暂停调度，resume=恢复调度，cancel=取消任务，retry=失败任务立即重试。pause 只影响后续调度，不中止正在执行的一轮。",
     auth: true, request: req.jobControlSchema, response: resp.jobItem,
   },
   {
+    operationId: "updateJob",
     method: "patch", path: "/api/jobs/:id", tag: "任务", summary: "修改定时任务",
     hint:
       "修改定时任务的提示词（prompt）、执行周期与时刻（daily、at）或归属空间（originSpaceId）。修改设定时刻且任务处于调度中时，将自动重算下次触发时间 nextRunAt。任务不存在返回 404。",
     auth: true, request: req.updateJobSchema, response: resp.jobItem,
   },
   {
+    operationId: "deleteJob",
     method: "delete", path: "/api/jobs/:id", tag: "任务", summary: "删除定时任务",
     hint:
       "彻底删除指定的定时任务；任务不存在返回 404。",
@@ -222,102 +249,122 @@ export const endpoints: EndpointSpec[] = [
   },
   // ---- 长期记忆（Memories）----
   {
+    operationId: "listMemories",
     method: "get", path: "/api/memories", tag: "记忆", summary: "查询或检索长期记忆列表",
     hint: "独立读取 memory.json 中的长期记忆，不依赖工作区大汇总且不广播 SSE。记忆现作为沉淀库按需检索，不再全量拼入每轮 system prompt；可选传入 q（按关键词忽略大小写子串匹配）、limit 及 sort/order（默认按 updatedAt 倒序），省略 q 时返回全部条目。未声明或重复查询参数返回 400。",
     auth: true, query: req.memoriesQuerySchema, response: resp.memoriesResponse,
   },
   {
+    operationId: "getMemory",
     method: "get", path: "/api/memories/:id", tag: "记忆", summary: "读取单条记忆详情",
     hint: "读取指定 ID 的长期记忆条目；条目不存在返回 404。",
     auth: true, response: resp.memoryItem,
   },
   {
+    operationId: "createMemory",
     method: "post", path: "/api/memories", tag: "记忆", summary: "新增记忆",
     hint: "显式新增一条长期记忆；上限 500 条，满额时返回 409 拒绝写入，绝不静默丢弃旧条目。",
     auth: true, request: req.createMemorySchema, response: resp.memoryItem,
   },
   {
+    operationId: "updateMemory",
     method: "patch", path: "/api/memories/:id", tag: "记忆", summary: "修改记忆内容",
     hint: "修改指定 ID 记忆的文本内容，自动更新 updatedAt 时间戳；条目不存在返回 404。",
     auth: true, request: req.updateMemorySchema, response: resp.memoryItem,
   },
   {
+    operationId: "deleteMemory",
     method: "delete", path: "/api/memories/:id", tag: "记忆", summary: "删除记忆",
     hint: "按条目 ID 精确删除；条目不存在返回 404。",
     auth: true, response: resp.deleteMemoryResponse,
   },
   {
+    operationId: "getGlobalDream",
     method: "get", path: "/api/agent/dream", tag: "记忆", summary: "读取 Dream 后台记忆整理全局概览",
     hint: "返回全局 DREAM.md 提示词、内置默认提示词、固定 2 小时周期、当前是否有整理轮在运行，以及所有已知会话的 Dream 状态与待决建议汇总。",
     auth: true, response: resp.dreamOverviewResponse,
   },
   {
+    operationId: "updateGlobalDream",
     method: "put", path: "/api/agent/dream", tag: "记忆", summary: "保存全局 Dream 整理提示词",
     hint: "保存 profile/DREAM.md；传空串清空自定义覆盖并回退为内置默认提示词。服务端安全硬规则固定拼入，不受此文件覆盖。",
     auth: true, request: req.saveGlobalDreamSchema, response: resp.dreamOverviewResponse,
   },
   {
+    operationId: "saveIdentity",
     method: "post", path: "/api/agent/identity", tag: "记忆", summary: "保存身份设置（名字/语气）",
     auth: true, request: req.identitySchema, response: resp.identityView,
   },
   // ---- 目标 ----
   {
+    operationId: "listGoals",
     method: "get", path: "/api/goals", tag: "目标", summary: "查询目标列表",
     hint: "独立读取 goals.json，支持 status、category 过滤以及 sort/order 排序（默认按 updatedAt 倒序）。全量返回目标列表，不分页。未声明或重复查询参数返回 400。",
     auth: true, query: req.goalsQuerySchema, response: resp.goalsResponse,
   },
   {
+    operationId: "getGoal",
     method: "get", path: "/api/goals/:id", tag: "目标", summary: "读取单项目标详情",
     hint: "按 ID 查询目标详情及里程碑列表；目标不存在返回 404。",
     auth: true, response: resp.goalView,
   },
   {
+    operationId: "createGoal",
     method: "post", path: "/api/goals", tag: "目标", summary: "创建目标（可含里程碑）",
     hint: "新建目标，初始状态为 active；active 目标每轮注入对话（标题+进度+下一里程碑），助手规划类回答会引用。",
     auth: true, request: req.createGoalSchema, response: resp.goalView,
   },
   {
+    operationId: "updateGoal",
     method: "patch", path: "/api/goals/:id", tag: "目标", summary: "修改目标属性或状态",
     hint: "修改目标标题、描述、分类或状态；若更新为 completed，自动勾掉名下全部未完成里程碑；目标不存在返回 404。",
     auth: true, request: req.updateGoalSchema, response: resp.goalView,
   },
   {
+    operationId: "toggleGoalMilestone",
     method: "post", path: "/api/goals/:id/milestones/:mid/toggle", tag: "目标", summary: "勾选/取消里程碑",
     hint: "切换指定里程碑的完成状态（done/doneAt）；全部勾完不自动完成目标（完成是用户的显式决定）；目标或里程碑不存在返回 404。",
     auth: true, response: resp.goalView,
   },
   {
+    operationId: "deleteGoal",
     method: "delete", path: "/api/goals/:id", tag: "目标", summary: "删除目标",
     hint: "按目标 ID 彻底删除；目标不存在返回 404。",
     auth: true, response: resp.deleteGoalResponse,
   },
   // ---- 网页监控（Monitors）----
   {
+    operationId: "listMonitors",
     method: "get", path: "/api/monitors", tag: "监控", summary: "查询网页监控列表",
     hint: "按条件查询网页监控列表。支持按 spaceId（或 threadId）过滤，支持按 createdAt、lastCheckedAt、status 排序（默认按 createdAt 降序），全量返回，不分页。",
     auth: true, query: req.monitorsQuerySchema, response: resp.monitorsResponse,
   },
   {
+    operationId: "getMonitor",
     method: "get", path: "/api/monitors/:id", tag: "监控", summary: "网页监控详情",
     hint: "读取指定网页监控的配置与检查状态；监控项不存在返回 404。",
     auth: true, response: resp.monitorItem,
   },
   {
+    operationId: "createMonitor",
     method: "post", path: "/api/monitors", tag: "监控", summary: "创建网页监控",
     hint: "创建网页周期监控。change=页面变化通知（首检建基线不通知）；contains=关键词命中通知。📡 结果投递 originSpaceId 指定来源，仅省略时投递 local-main。显式新 ID 在接纳前建立；删除中返回 409 SPACE_DELETING，客户端刷新列表后由用户重新选择，不自动重试。删除来源空间会删除绑定监控，旧扫描不重建空间或改投主空间。",
     auth: true, request: req.createMonitorSchema, response: resp.monitorItem,
   },
   {
+    operationId: "controlMonitor",
     method: "post", path: "/api/monitors/:id/control", tag: "监控", summary: "控制监控（pause/resume/stop）",
     hint: "对网页监控执行状态控制：pause=暂停检查，resume=恢复检查，stop=停止监控（终态）。",
     auth: true, request: req.monitorControlSchema, response: resp.monitorItem,
   },
   {
+    operationId: "updateMonitor",
     method: "patch", path: "/api/monitors/:id", tag: "监控", summary: "修改网页监控",
     hint: "修改网页监控的标题（title）、URL、触发条件（condition）、关键词（value）、检查间隔（intervalMinutes）或归属空间（originSpaceId）。若修改了 URL、触发条件或关键词，将自动重置内容指纹与命中基线。监控项不存在返回 404。",
     auth: true, request: req.updateMonitorSchema, response: resp.monitorItem,
   },
   {
+    operationId: "deleteMonitor",
     method: "delete", path: "/api/monitors/:id", tag: "监控", summary: "删除网页监控",
     hint: "彻底删除指定的网页监控项；监控项不存在返回 404。",
     auth: true, response: resp.deleteMonitorResponse,
@@ -325,6 +372,7 @@ export const endpoints: EndpointSpec[] = [
   // ---- 审批 ----
   // 当前 pending 由 GET /api/events 的 ready/approval_pending 直接推送；HTTP 只负责历史读取与人的决定。
   {
+    operationId: "listApprovals",
     method: "get", path: "/api/approvals", tag: "审批", summary: "读取已处理/失效审批摘要（分页，不含正文）",
     hint:
       "只返回已处理/失效审批的摘要，不含 preview 正文；当前 pending 不在此列表，由 GET /api/events 的 ready.pendingApprovals 与 approval_pending 事件同步。" +
@@ -339,11 +387,13 @@ export const endpoints: EndpointSpec[] = [
     },
   },
   {
+    operationId: "listPendingApprovals",
     method: "get", path: "/api/approvals/pending", tag: "审批", summary: "补充读取当前待审批完整预览",
     hint: "只读返回未过期 pending；主要同步来源仍是 SSE ready.pendingApprovals 与 approval_pending，不要求客户端轮询。读取不写入决定、不执行文件操作。execution 为 null，不从授权推断成功。",
     auth: true, response: approval.pendingApprovalsResponse,
   },
   {
+    operationId: "getApproval",
     method: "get", path: "/api/approvals/:id", tag: "审批", summary: "读取单个审批完整视图（含不可变预览）",
     hint:
       "返回完整审批视图，包含 title、kind 与 preview 全文；预览在登记时固定，不读取当前文件替换，也不截断。" +
@@ -356,6 +406,7 @@ export const endpoints: EndpointSpec[] = [
     },
   },
   {
+    operationId: "decideApproval",
     method: "post", path: "/api/approvals/:id/decision", tag: "审批", summary: "审批写操作（approve/deny）",
     hint:
       "模型调用 write/edit 时工具挂起等此决定：approve 才落盘，deny 返回受控拒绝。" +
@@ -380,6 +431,7 @@ export const endpoints: EndpointSpec[] = [
   },
   // ---- 运行状态（只读单 run 查询）----
   {
+    operationId: "getAgentStatus",
     method: "get", path: "/api/agent/status", tag: "活动", summary: "查询单个运行的最新状态",
     hint:
       "只读查询指定 (spaceId, runId) 的最新运行状态，包含运行结束后的最终终态；不调用模型、不建立空间、不创建目录、不写 Activity 历史。" +
@@ -397,6 +449,7 @@ export const endpoints: EndpointSpec[] = [
   },
   // ---- 工作区实时状态推送（独立命名 SSE，不与聊天流共用事件）----
   {
+    operationId: "subscribeEvents",
     method: "get", path: "/api/events", tag: "通知", summary: "工作区实时状态推送流（SSE）",
     hint: WORKSPACE_SSE_DESCRIPTION,
     auth: true, response: z.object({}).describe("SSE 流"),

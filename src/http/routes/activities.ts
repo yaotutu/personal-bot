@@ -36,9 +36,9 @@ export const createActivitiesRoutes = (
   const app = new Hono();
   app.get("/api/activities", async (c) => {
     const raw = parseQueryObject(new URL(c.req.url));
-    if (!raw) return c.json({ error: "Invalid activity query" }, 400);
+    if (!raw) return c.json({ error: "Invalid activity query", code: "INVALID_REQUEST" }, 400);
     const parsed = activitiesQuerySchema.safeParse(raw);
-    if (!parsed.success) return c.json({ error: "Invalid activity query" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid activity query", code: "INVALID_REQUEST" }, 400);
     const { limit, cursor: encodedCursor, spaceId, status } = parsed.data;
     const effectiveSpaceId = spaceId ?? (parsed.data as { threadId?: string }).threadId;
     const filter: ActivityFilter = {
@@ -51,7 +51,7 @@ export const createActivitiesRoutes = (
       // 游标绑定过滤条件：解码失败、结构/时间非法或与本次 spaceId/status 不一致都 400，
       // 不尝试“纠正”成第一页，避免客户端在错误过滤条件下静默拿到不完整结果。
       if (!cursor || !activityCursorMatchesFilter(cursor, filter))
-        return c.json({ error: "Invalid activity cursor" }, 400);
+        return c.json({ error: "Invalid activity cursor", code: "INVALID_CURSOR" }, 400);
     }
     const page = queryActivities(await activities.list(), {
       filter,
@@ -67,7 +67,7 @@ export const createActivitiesRoutes = (
   // 详情同样只读；不存在或来源会话已删除时 404，不返回空壳记录。
   app.get("/api/activities/:id", async (c) => {
     const detail = await activities.get(c.req.param("id"));
-    return detail ? c.json(detail) : c.json({ error: "Activity not found" }, 404);
+    return detail ? c.json(detail) : c.json({ error: "Activity not found", code: "ACTIVITY_NOT_FOUND" }, 404);
   });
   return app;
 };
