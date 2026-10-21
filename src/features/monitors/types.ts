@@ -22,7 +22,6 @@ export type Monitor = {
   lastMatched?: boolean;
   lastNotifiedAt?: string;
   originSpaceId?: string;
-  originThreadId?: string;
   /** 已观察到的变化与通知投递分开，投递失败时下次扫描仅补通知。 */
   pendingNotification?: { id: string; summary: string };
   checks: number;

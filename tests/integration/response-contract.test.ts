@@ -18,7 +18,7 @@ const job: Job = {
   id: "scheduled", prompt: "Reminder", daily: false, enabled: true,
   at: "2030-01-01T00:00:00.000Z", nextRunAt: "2030-01-01T00:00:00.000Z",
   createdAt: "2026-01-01T00:00:00.000Z",
-  originThreadId: "local-main",
+  originSpaceId: "local-main",
 };
 
 // 先经过 JSON 编解码，覆盖 undefined 字段在真实 HTTP 响应中被省略的行为。
@@ -82,12 +82,12 @@ test("creation contracts for remaining domains preserve optional source threads 
     [createMonitorSchema, { url: "https://example.com", condition: "change" }],
   ] as const) {
     assert.equal(schema.safeParse(input).success, true);
-    for (const originThreadId of ["local-main", "trip_2026", "A".repeat(64)]) {
-      const parsed = schema.parse({ ...input, originThreadId });
-      assert.equal(parsed.originThreadId, originThreadId);
+    for (const originSpaceId of ["local-main", "trip_2026", "A".repeat(64)]) {
+      const parsed = schema.parse({ ...input, originSpaceId });
+      assert.equal(parsed.originSpaceId, originSpaceId);
     }
-    for (const originThreadId of ["", "../escape", "/absolute", "-leading", "a b", "会话", "A".repeat(65), null, 42]) {
-      assert.equal(schema.safeParse({ ...input, originThreadId }).success, false);
+    for (const originSpaceId of ["", "../escape", "/absolute", "-leading", "a b", "会话", "A".repeat(65), null, 42]) {
+      assert.equal(schema.safeParse({ ...input, originSpaceId }).success, false);
     }
   }
 });
@@ -137,7 +137,6 @@ test("approval contract preserves complete text, cancellation and optional execu
   const preview = {
     scope: "space" as const,
     ownerSpaceId: "local-main",
-    ownerThreadId: "local-main",
     path: "notes.md",
     before: "旧内容",
     after: "完整待审批文本\n".repeat(200),
@@ -147,12 +146,10 @@ test("approval contract preserves complete text, cancellation and optional execu
     id: "approval",
     revision: 1,
     spaceId: "local-main",
-    threadId: "local-main",
     runId: "run-1",
     toolCallId: "tc-1",
     subagentId: null,
     workspaceSpaceId: "local-main",
-    workspaceThreadId: "local-main",
     activityId: null,
     kind: "file_write" as const,
     title: "Write notes",
@@ -179,12 +176,11 @@ test("approval contract preserves complete text, cancellation and optional execu
     else assert.deepEqual(approvalSummary.strict().parse(summary), summary);
   }
   assert.equal(approvalView.safeParse({ ...legacy, status: "unknown" }).success, false);
-  // scope=shared 时 ownerSpaceId 与 ownerThreadId 必须为 null；nullable 关联字段不能用空串伪装。
+  // scope=shared 时 ownerSpaceId 必须为 null；nullable 关联字段不能用空串伪装。
   const shared = {
     ...legacy,
-    preview: { ...preview, scope: "shared" as const, ownerSpaceId: null, ownerThreadId: null },
+    preview: { ...preview, scope: "shared" as const, ownerSpaceId: null },
     workspaceSpaceId: null,
-    workspaceThreadId: null,
   };
   assert.deepEqual(approvalView.strict().parse(shared), shared);
   assert.equal(approvalView.safeParse({ ...legacy, revision: 0 }).success, false);
@@ -206,9 +202,9 @@ test("HTTP snapshot matches contract with job-only tasks and no worker projectio
   // 审批已不在 /api/agent 快照中；仍保留一条完整审批记录，证明快照不混入审批字段。
   const approval = {
     id: "approval", revision: 2, kind: "file_write" as const, title: "Write notes",
-    threadId: "local-main", runId: "run-1", toolCallId: null, subagentId: null,
-    workspaceThreadId: "local-main", activityId: null,
-    preview: { scope: "thread" as const, ownerThreadId: "local-main", path: "notes.md",
+    spaceId: "local-main", runId: "run-1", toolCallId: null, subagentId: null,
+    workspaceSpaceId: "local-main", activityId: null,
+    preview: { scope: "space" as const, ownerSpaceId: "local-main", path: "notes.md",
       before: "", after: "完整待审批文本\n".repeat(2000), beforeExists: false },
     status: "cancelled" as const, createdAt: "2026-01-01T00:00:00.000Z",
     expiresAt: "2026-01-01T00:05:00.000Z",
@@ -218,7 +214,7 @@ test("HTTP snapshot matches contract with job-only tasks and no worker projectio
   const monitor = {
     id: "monitor", title: "Page", url: "https://example.com", condition: "change" as const,
     intervalMinutes: 30, status: "active" as const, createdAt: "2026-01-01T00:00:00.000Z", checks: 1,
-    originThreadId: "trip-2026", pendingNotification: { id: "internal", summary: "awaiting delivery" },
+    originSpaceId: "trip-2026", pendingNotification: { id: "internal", summary: "awaiting delivery" },
   };
   t.mock.method(service.monitors, "list", async () => [monitor]);
   const goal = await service.goals.create({ title: "Learn", milestones: ["Read"] });

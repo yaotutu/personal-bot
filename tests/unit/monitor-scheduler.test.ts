@@ -22,8 +22,8 @@ const fixture = async () => {
     },
   };
   const monitors = createMonitorService(repository);
-  const first = await monitors.create({ url: "https://example.com/first", condition: "contains", value: "yes", originThreadId: "first" });
-  const second = await monitors.create({ url: "https://example.com/second", condition: "contains", value: "yes", originThreadId: "second" });
+  const first = await monitors.create({ url: "https://example.com/first", condition: "contains", value: "yes", originSpaceId: "first" });
+  const second = await monitors.create({ url: "https://example.com/second", condition: "contains", value: "yes", originSpaceId: "second" });
   return { monitors, first, second };
 };
 
@@ -122,7 +122,7 @@ test("deleted monitor snapshots never notify a recreated source or fall back to 
   scheduler.start();
   t.mock.timers.tick(10);
   await until(() => resolving);
-  await monitors.removeByOriginThreadId("first");
+  await monitors.removeByOriginSpaceId("first");
   resume();
   await scheduler.close();
   assert.deepEqual(notifications, []);

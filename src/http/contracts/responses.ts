@@ -115,7 +115,6 @@ export const jobItem = z.object({
   lastResult: z.string().optional().describe("最近一次执行结果文本摘要"),
   error: z.string().nullable().describe("错误信息（上次执行失败时非 null）"),
   originSpaceId: z.string().optional().describe("所属空间 ID"),
-  originThreadId: z.string().optional().describe("兼容字段：等同于 originSpaceId"),
 });
 
 export const jobsResponse = z.object({
@@ -184,7 +183,6 @@ export const monitorItem = z.object({
   status: z.enum(["active", "paused", "stopped"]),
   createdAt: z.string(),
   originSpaceId: z.string().optional().describe("接收监控通知的来源空间；未指定时投递主空间"),
-  originThreadId: z.string().optional().describe("兼容字段：等同于 originSpaceId"),
   lastCheckedAt: z.string().optional(),
   lastFingerprint: z.string().optional().describe("change 条件的内容指纹（内部）"),
   lastMatched: z.boolean().optional().describe("contains 条件上次是否命中"),
@@ -243,7 +241,6 @@ export const dreamRunView = z.object({
 });
 export const dreamSpaceResponse = z.object({
   spaceId: z.string().describe("空间 ID"),
-  threadId: z.string().optional().describe("兼容字段：等同于 spaceId"),
   enabled: z.boolean().describe("该空间是否开启周期 Dream 整理"),
   inheritGlobalPrompt: z.boolean().describe("是否继承全局 DREAM.md 提示词"),
   cursor: z.string().optional().describe("已整理到的消息 ID；整轮成功后才推进"),

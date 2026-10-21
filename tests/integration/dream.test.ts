@@ -51,13 +51,13 @@ const createFixture = async (t: TestContext) => {
     return { status: res.status, body: await res.json() };
   };
   const chat = async (threadId: string, content: string, runId: string) => {
-    const hist = await json(`/api/conversation?threadId=${encodeURIComponent(threadId)}`);
+    const hist = await json(`/api/conversation?spaceId=${encodeURIComponent(threadId)}`);
     const revision = (hist.body as { revision: string }).revision;
     const res = await service!.app.request("/api/conversation/run", {
       method: "POST",
       headers,
       body: JSON.stringify({
-        threadId,
+        spaceId: threadId,
         runId,
         expectedRevision: revision,
         message: { id: `u-${runId}`, content },
@@ -161,7 +161,7 @@ test("Dream integration: non-main thread routes session rules via purpose, holds
   // 4. 全局概览能看到待决项；用户确认写入 USER.md 后生效并清空 pending。
   const overview = dreamOverviewResponse.parse((await json("/api/agent/dream")).body);
   assert.equal(
-    overview.threads.find((item) => item.threadId === "mail-thread")?.pending.length,
+    overview.threads.find((item) => item.spaceId === "mail-thread")?.pending.length,
     1,
   );
   const resolved = await json(

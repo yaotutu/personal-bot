@@ -9,7 +9,6 @@ export const encodeActivityCursor = (cursor: ActivityCursor): string =>
       createdAt: cursor.createdAt,
       id: cursor.id,
       ...(cursor.spaceId !== undefined ? { spaceId: cursor.spaceId } : {}),
-      ...(cursor.threadId !== undefined ? { threadId: cursor.threadId } : {}),
       ...(cursor.status !== undefined ? { status: cursor.status } : {}),
     }),
     "utf8",

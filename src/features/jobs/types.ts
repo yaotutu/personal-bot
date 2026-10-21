@@ -27,5 +27,4 @@ export type Job = {
   lastControl?: { action: JobControlAction; at: string };
   /** 创建该任务的空间 ID；触发时将消息写入此空间当前绑定的会话。 */
   originSpaceId?: string;
-  originThreadId?: string;
 };

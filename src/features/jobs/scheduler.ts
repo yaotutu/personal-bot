@@ -75,7 +75,7 @@ export const createScheduler = (
         )
           continue;
 
-        const targetSpaceId = current.originSpaceId ?? current.originThreadId;
+        const targetSpaceId = current.originSpaceId ?? "local-main";
         const targetConversation = targetSpaceId && forSpace
           ? await forSpace(targetSpaceId)
           : conversation;
@@ -83,7 +83,7 @@ export const createScheduler = (
         if (!targetConversation || closed) continue;
         if (forSpace) {
           const latest = (await jobs.list()).find((item) => item.id === current.id);
-          const latestSpace = latest?.originSpaceId ?? latest?.originThreadId;
+          const latestSpace = latest?.originSpaceId ?? "local-main";
           if (closed || !latest?.enabled || latestSpace !== targetSpaceId ||
             latest.nextRunAt !== current.nextRunAt) continue;
         }
@@ -92,7 +92,7 @@ export const createScheduler = (
         const outcome = await targetConversation.trigger(
           `⏰ [定时任务] ${current.prompt}`,
           `job-${current.id}-${Date.now()}`,
-          { jobId: current.id, spaceId: targetSpaceId, threadId: targetSpaceId },
+          { jobId: current.id, spaceId: targetSpaceId },
         );
         // busy 表示尚未开始执行，不是模型失败；不消耗一次性任务，留到
         // 下次普通扫描。真正已执行的失败仍按原规则 markRun，不自动重跑。

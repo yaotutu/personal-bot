@@ -9,7 +9,7 @@ import {
 
 const overview = (overrides: Partial<ActivityOverview> = {}): ActivityOverview => ({
   id: "activity-1",
-  threadId: "thread-1",
+  spaceId: "thread-1",
   title: "Research",
   goal: "Compare options",
   deliverable: "A short report",

@@ -66,9 +66,9 @@ const approving = (
 test("approval records explicit deadline and run ownership; late approve cannot revive it", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: 1_000 });
   const actions = createActionService(memoryRepository());
-  const action = await actions.submit("file_write", "write", {}, { timeoutMs: 500, threadId: "thread-a", runId: "run-a" });
+  const action = await actions.submit("file_write", "write", {}, { timeoutMs: 500, spaceId: "thread-a", runId: "run-a" });
   assert.equal(action.expiresAt, new Date(1_500).toISOString());
-  assert.equal(action.threadId, "thread-a");
+  assert.equal(action.spaceId, "thread-a");
   assert.equal(action.runId, "run-a");
   t.mock.timers.tick(500);
   assert.equal(await actions.decide(action.id, "approve"), undefined);
@@ -126,7 +126,7 @@ test("write approval exposes full content, version and execution context", async
   const original = "before".repeat(1_000);
   const content = "正文".repeat(1_000);
   await writeFile(join(root, "note.md"), original);
-  const tools = createWritableFileTools(root, approving(actions), 5_000, { threadId: "thread", runId: "run" });
+  const tools = createWritableFileTools(root, approving(actions), 5_000, { spaceId: "thread", runId: "run" });
   const result = await execute(tools, "write", { path: "note.md", content });
   assert.equal(result.isError, undefined);
   const [action] = await actions.list();
@@ -135,7 +135,7 @@ test("write approval exposes full content, version and execution context", async
     baseVersion: action.payload.baseVersion, beforeExists: "true",
   });
   assert.notEqual(action.payload.baseVersion, "missing");
-  assert.equal(action.threadId, "thread");
+  assert.equal(action.spaceId, "thread");
   assert.equal(action.runId, "run");
   assert.equal(action.execution?.status, "succeeded");
   assert.equal(action.revision, 4);

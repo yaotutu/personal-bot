@@ -184,14 +184,14 @@ test("model conversation run pushes agent_status_updated events and disconnectin
   const events = await connect(t, service, headers);
 
   const runPromise = post(service, headers, "/api/conversation/run", {
-    threadId: "local-main", runId: randomUUID(), expectedRevision: "empty",
+    spaceId: "local-main", runId: randomUUID(), expectedRevision: "empty",
     message: { id: randomUUID(), content: "记住我喜欢喝茶" },
   }).then(drain);
 
   // 接收运行状态推送
   const statusFrame = await events.nextFrame();
   assert.equal(statusFrame.event, "agent_status_updated");
-  assert.equal(statusFrame.data.threadId, "local-main");
+  assert.equal(statusFrame.data.spaceId, "local-main");
   assert.ok(statusFrame.data.revision >= 1);
 
   assert.match(await runPromise, /RUN_FINISHED/);
@@ -201,7 +201,7 @@ test("model conversation run pushes agent_status_updated events and disconnectin
   const conversation = await service.conversationHub.forThread("local-main");
   const revision = conversation.snapshot().revision;
   const frozenPromise = post(service, headers, "/api/conversation/run", {
-    threadId: "local-main", runId: randomUUID(), expectedRevision: revision,
+    spaceId: "local-main", runId: randomUUID(), expectedRevision: revision,
     message: { id: randomUUID(), content: "freeze" },
   }).then(drain);
 
@@ -218,7 +218,7 @@ test("activity status changes push activity_updated with terminal result; ready 
   assert.deepEqual(events.ready.activities, []);
 
   const run = post(service, headers, "/api/conversation/run", {
-    threadId: "local-main", runId: randomUUID(), expectedRevision: "empty",
+    spaceId: "local-main", runId: randomUUID(), expectedRevision: "empty",
     message: { id: randomUUID(), content: "活动交办调研 Pi 生态圈并生成报告" },
   }).then(drain);
 
@@ -233,7 +233,7 @@ test("activity status changes push activity_updated with terminal result; ready 
   const statuses = frames.map((frame) => frame.data.status);
   assert.deepEqual(statuses, ["running", "completed"]);
   assert.equal(frames[0]!.data.title, "调研 Pi 生态圈");
-  assert.equal(frames[0]!.data.threadId, "local-main");
+  assert.equal(frames[0]!.data.spaceId, "local-main");
   assert.ok(frames[0]!.data.instanceId);
   assert.equal(completed!.data.id, frames[0]!.data.id);
   assert.equal(completed!.data.result, "交付成果：已完成调研总结报告");

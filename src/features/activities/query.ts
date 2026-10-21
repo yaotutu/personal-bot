@@ -8,7 +8,6 @@ import type { ActivityDetail, ActivityOverview, ActivityStatus } from "./types.j
 
 export type ActivityFilter = {
   spaceId?: string;
-  threadId?: string;
   status?: ActivityStatus;
 };
 
@@ -38,9 +37,7 @@ export const activityCursorMatchesFilter = (
   cursor: ActivityCursor,
   filter: ActivityFilter,
 ): boolean => {
-  const cSpace = cursor.spaceId ?? cursor.threadId;
-  const fSpace = filter.spaceId ?? filter.threadId;
-  return (cSpace ?? undefined) === (fSpace ?? undefined) &&
+  return (cursor.spaceId ?? undefined) === (filter.spaceId ?? undefined) &&
     (cursor.status ?? undefined) === (filter.status ?? undefined);
 };
 
@@ -80,12 +77,12 @@ export const queryActivities = (
     timestamp(detail.activity.createdAt);
   }
   if (cursor) timestamp(cursor.createdAt);
-  const targetSpace = filter.spaceId ?? filter.threadId;
+  const targetSpace = filter.spaceId;
   const matches = details
     .map((detail) => detail.activity)
     .filter(
       (activity) =>
-        (targetSpace === undefined || activity.spaceId === targetSpace || activity.threadId === targetSpace) &&
+        (targetSpace === undefined || activity.spaceId === targetSpace) &&
         (filter.status === undefined || activity.status === filter.status),
     )
     .sort(compareDescending)
@@ -103,7 +100,6 @@ export const queryActivities = (
             createdAt: last.createdAt,
             id: last.id,
             ...(filter.spaceId !== undefined ? { spaceId: filter.spaceId } : {}),
-            ...(filter.threadId !== undefined ? { threadId: filter.threadId } : {}),
             ...(filter.status !== undefined ? { status: filter.status } : {}),
           }
         : null,

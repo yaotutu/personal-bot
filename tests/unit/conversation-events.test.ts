@@ -8,7 +8,7 @@ import { projectExecutionEvent } from "../../src/adapters/pi/execution.js";
 const projector = () => {
   const events: BaseEvent[] = [];
   const emit = createEventProjector((event) => events.push(event));
-  emit({ type: "run_started", threadId: "local-main", runId: "run", assistantId: "assistant-run" });
+  emit({ type: "run_started", runId: "run", assistantId: "assistant-run" });
   return { emit, events };
 };
 
@@ -20,7 +20,7 @@ test("event projector starts text once, ignores empty chunks and waits for expli
   emit({ type: "assistant_end", reason: "stop", text: "ab" });
   assert.deepEqual(events.map((x) => x.type), ["RUN_STARTED", "TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_CONTENT"]);
   emit({ type: "text_end", assistantId: "assistant-run" });
-  emit({ type: "run_finished", threadId: "local-main", runId: "run" });
+  emit({ type: "run_finished", runId: "run" });
   assert.deepEqual(events.slice(-2).map((x) => x.type), ["TEXT_MESSAGE_END", "RUN_FINISHED"]);
 });
 

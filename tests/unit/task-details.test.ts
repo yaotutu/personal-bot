@@ -21,7 +21,7 @@ const fixture = async (t: TestContext, jobs: Job[] = []) => {
 const job = (extra: Partial<Job> = {}): Job => ({
   id: "job", prompt: "test reminder", daily: false, at: "2030-01-01T00:00:00.000Z",
   enabled: true, createdAt: "2026-01-01T00:00:00.000Z", nextRunAt: "2030-01-01T00:00:00.000Z",
-  originThreadId: "local-main", ...extra,
+  originSpaceId: "local-main", ...extra,
 });
 const failed = (): Job => job({ enabled: false, at: "2026-01-02T00:00:00.000Z", nextRunAt: "2026-01-02T00:00:00.000Z", lastStatus: "failed", lastRunAt: "2026-01-02T00:00:01.000Z", lastResult: "Last attempt failed" });
 

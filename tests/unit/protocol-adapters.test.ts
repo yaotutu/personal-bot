@@ -8,7 +8,7 @@ const job: Job = {
   id: "job-id", prompt: "x".repeat(100), daily: false,
   at: "2030-01-01T00:00:00.000Z", enabled: true,
   createdAt: "2026-10-11T00:00:00.000Z", nextRunAt: "2030-01-01T00:00:00.000Z",
-  originThreadId: "local-main",
+  originSpaceId: "local-main",
 };
 
 test("task presenter exposes only recorded business facts without mutating the job", () => {
@@ -19,7 +19,7 @@ test("task presenter exposes only recorded business facts without mutating the j
     status: "scheduled",
     createdAt: job.createdAt, updatedAt: job.createdAt, nextRunAt: job.nextRunAt,
     lastRunAt: undefined, lastResult: undefined, error: null,
-    originSpaceId: "local-main", originThreadId: "local-main",
+    originSpaceId: "local-main",
   });
   assert.deepEqual(job, before);
   assert.ok(!Object.hasOwn(JSON.parse(JSON.stringify(presentJob(job))), "lastResult"));

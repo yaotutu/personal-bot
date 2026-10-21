@@ -75,7 +75,7 @@ export const approvalKinds = ["file_write", "file_edit"] as const;
 export const approvalPreview = z
   .strictObject({
     scope: z
-      .enum(["space", "thread", "shared"])
+      .enum(["space", "shared"])
       .describe(
         "文件作用域：space=当前空间私有工作区；shared=显式 shared/... 共享区。" +
           "scope=space 时 ownerSpaceId 指向文件归属的工作区空间；子代理发起的审批" +
@@ -90,12 +90,6 @@ export const approvalPreview = z
         "文件归属的工作区空间 ID。scope=space 时必填，并覆盖 child/subagent 的真实归属；" +
           "scope=shared 时为 null。",
       ),
-    ownerThreadId: z
-      .string()
-      .min(1)
-      .max(64)
-      .nullable()
-      .describe("兼容字段：等同于 ownerSpaceId"),
     path: z
       .string()
       .min(1)
@@ -127,12 +121,10 @@ export const approvalView = z
           "客户端按 (id, revision) 判断是否已应用最新状态，重复决定不推进版本。",
       ),
     spaceId: nullableSpaceId,
-    threadId: nullableSpaceId.describe("兼容字段：等同于 spaceId"),
     runId: nullableRunId,
     toolCallId: nullableRef("发起审批的工具调用 ID"),
     subagentId: nullableRef("发起审批的子代理 ID"),
     workspaceSpaceId: nullableRef("文件归属的工作区空间 ID"),
-    workspaceThreadId: nullableRef("兼容字段：等同于 workspaceSpaceId"),
     activityId: nullableRef("关联的 Activity ID"),
     kind: z
       .enum(approvalKinds)
@@ -219,12 +211,11 @@ export const approvalListQuery = z.strictObject({
     "上一页 nextCursor，原样回传。不透明 base64url，绑定 resolvedAt/id 与 status/spaceId/activityId 过滤；结构非法、非规范编码或过滤不匹配返回 400，改变过滤后必须从第一页重新开始"),
   status: z.enum(terminalApprovalStatuses).optional().describe("只返回该终态，pending 非法；省略表示全部终态"),
   spaceId: historySpaceId.optional().describe("只返回该来源空间的记录"),
-  threadId: historySpaceId.optional().describe("兼容字段：等同于 spaceId"),
   activityId: historyActivityId.optional().describe("只返回该关联活动的记录"),
 }).describe("历史分页只包含终态；未声明、重复、非法参数或游标一律 400，按 resolvedAt 降序、同一时间按 id 降序");
 export const approvalCursorPayloadSchema = z.strictObject({
   resolvedAt: z.iso.datetime(), id: z.string().min(1).max(200),
-  status: z.enum(terminalApprovalStatuses).optional(), spaceId: historySpaceId.optional(), threadId: historySpaceId.optional(), activityId: historyActivityId.optional(),
+  status: z.enum(terminalApprovalStatuses).optional(), spaceId: historySpaceId.optional(), activityId: historyActivityId.optional(),
 });
 export type ApprovalFilter = { status?: SettledActionStatus; spaceId?: string; activityId?: string };
 export type ApprovalCursorPayloadDto = z.infer<typeof approvalCursorPayloadSchema>;

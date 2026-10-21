@@ -31,8 +31,7 @@ export const presentJob = (job: Job): JobDto => ({
   lastRunAt: job.lastRunAt,
   lastResult: job.lastResult,
   error: job.lastStatus === "failed" ? "Last run failed" : null,
-  originSpaceId: job.originSpaceId ?? job.originThreadId,
-  originThreadId: job.originSpaceId ?? job.originThreadId,
+  originSpaceId: job.originSpaceId ?? "local-main",
 });
 
 /**

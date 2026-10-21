@@ -25,18 +25,11 @@ export const validateConversationInput = (
   records: ConversationRecords,
   revision: string,
 ) => {
-  const explicitSpace = input.spaceId;
-  const explicitThread = input.threadId;
-  const target = explicitSpace ?? explicitThread;
+  const target = input.spaceId ?? "local-main";
   if (!isSpaceId(target)) {
-    if (explicitSpace && !explicitThread) {
-      rejectConversation("UNSUPPORTED_SPACE", "Invalid spaceId");
-    } else {
-      rejectConversation("UNSUPPORTED_THREAD", "Invalid threadId");
-    }
+    rejectConversation("UNSUPPORTED_SPACE", "Invalid spaceId");
   }
   input.spaceId = target;
-  input.threadId = target;
   if (!input.runId || input.runId.length > 200 ||
       typeof input.expectedRevision !== "string" || !input.expectedRevision ||
       !input.message || typeof input.message.id !== "string" || !input.message.id.trim() || input.message.id.length > 200 ||

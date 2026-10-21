@@ -11,8 +11,7 @@ const base = { timestamp: z.number().optional() };
 
 export const sseEvents = {
   RUN_STARTED: z
-    .object({ ...base, spaceId: z.string().optional(), threadId: z.string().optional(), runId: z.string() })
-    .refine((d) => Boolean(d.spaceId || d.threadId), "spaceId or threadId required")
+    .object({ ...base, spaceId: z.string(), runId: z.string() })
     .describe("一轮开始；每轮恰好一个"),
   TEXT_MESSAGE_START: z
     .object({ ...base, messageId: z.string(), role: z.string() })
@@ -42,8 +41,8 @@ export const sseEvents = {
       role: z.literal("tool"),
     })
     .describe("工具执行结果"),
-  RUN_FINISHED: z.object({ ...base, spaceId: z.string().optional(), threadId: z.string().optional(), runId: z.string() })
-    .refine((d) => Boolean(d.spaceId || d.threadId), "spaceId or threadId required")
+  RUN_FINISHED: z
+    .object({ ...base, spaceId: z.string(), runId: z.string() })
     .describe("正常终态"),
   RUN_ERROR: z
     .object({ ...base, code: z.string(), message: z.string() })

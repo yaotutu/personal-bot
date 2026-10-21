@@ -8,9 +8,9 @@
  * merge 语义（已对齐 main 为冲突基准，叠加 execution 与 /pending 补充读取）：
  * - 主同步来源仍是 SSE 的 ready.pendingApprovals + approval_pending；
  *   /api/approvals/pending 仅作为补充只读，不能写入或延长授权。
- * - HTTP 审批响应使用 main 的 preview{scope, ownerThreadId, path, before, after,
+ * - HTTP 审批响应使用 main 的 preview{scope, ownerSpaceId, path, before, after,
  *   beforeExists} 形状，不暴露内部 payload 字段。
- * - /api/approvals 接受 cursor/limit/threadId/activityId/status 过滤参数；
+ * - /api/approvals 接受 cursor/limit/spaceId/activityId/status 过滤参数；
  *   游标 base64url 编码，且过滤绑定（换过滤必须从首屏开始）。
  * - /api/approvals/pending 已决定/已执行审批不再出现在 pending 集合。
  * - execution 字段始终存在；未观察到执行时为 null，与 status 平行。
@@ -91,7 +91,7 @@ const openServiceWithActions = async (
 
 const decodeCursor = (token: string) =>
   JSON.parse(Buffer.from(token, "base64url").toString("utf8")) as {
-    resolvedAt: string; id: string; threadId?: string; activityId?: string; status?: string;
+    resolvedAt: string; id: string; spaceId?: string; activityId?: string; status?: string;
   };
 
 /**
@@ -101,7 +101,7 @@ const decodeCursor = (token: string) =>
 const settled = (overrides: {
   id?: string; status?: PendingAction["status"]; title?: string; kind?: PendingAction["kind"];
   decidedAt: string; createdAt?: string; expiresAt?: string;
-  threadId?: string; activityId?: string; execution?: PendingAction["execution"];
+  spaceId?: string; activityId?: string; execution?: PendingAction["execution"];
 }): PendingAction => {
   const id = overrides.id ?? randomUUID();
   return {
@@ -116,11 +116,11 @@ const settled = (overrides: {
     resolvedAt: overrides.decidedAt,
     // 只有 approved/denied 才允许 decidedAt；其他终态保持 null。
     decidedAt: overrides.status === "denied" || overrides.status === "approved" ? overrides.decidedAt : null,
-    threadId: overrides.threadId ?? null,
+    spaceId: overrides.spaceId ?? null,
     runId: null,
     toolCallId: null,
     subagentId: null,
-    workspaceThreadId: null,
+    workspaceSpaceId: null,
     activityId: overrides.activityId ?? null,
     ...(overrides.execution ? { execution: overrides.execution } : {}),
   };
@@ -156,7 +156,7 @@ test("approvals: /pending returns full preview shape, not raw payload, and disap
       beforeExists: "true",
       baseVersion: "v1",
     },
-    { threadId: "local-main", workspaceThreadId: "local-main" },
+    { spaceId: "local-main", workspaceSpaceId: "local-main" },
   );
 
   const raw = await (await service.app.request("/api/approvals/pending", { headers })).json();
@@ -168,7 +168,7 @@ test("approvals: /pending returns full preview shape, not raw payload, and disap
   assert.equal(record.status, "pending");
   assert.equal(record.resolvedAt, null);
   assert.equal(record.decidedAt, null);
-  // HTTP 用 main 的 preview 形状：before/after/path/beforeExists/scope/ownerThreadId
+  // HTTP 用 main 的 preview 形状：before/after/path/beforeExists/scope/ownerSpaceId
   // 内部 payload 不可见。
   assert.equal(typeof record.preview, "object");
   assert.equal(record.preview.path, "notes.md");
@@ -177,7 +177,7 @@ test("approvals: /pending returns full preview shape, not raw payload, and disap
   assert.equal(record.preview.after.length, fullContent.length);
   assert.equal(record.preview.beforeExists, true);
   assert.equal(record.preview.scope, "space");
-  assert.equal(record.preview.ownerThreadId, "local-main");
+  assert.equal(record.preview.ownerSpaceId, "local-main");
   assert.equal(Object.hasOwn(record, "payload"), false, "/pending must not expose raw payload");
   // execution 始终存在；pending 时为 null。
   assert.equal(record.execution, null);
@@ -201,7 +201,7 @@ test("approvals: decision same returns 200, preserves decidedAt, no duplicate ac
   const action = await service.actions.submit(
     "file_write", "Idempotent title",
     { path: "idem.md", content: "IDEM-CONTENT", originalContent: "" },
-    { threadId: "local-main", workspaceThreadId: "local-main" },
+    { spaceId: "local-main", workspaceSpaceId: "local-main" },
   );
   assert.equal(events.length, 1, "submit must broadcast exactly one actions_updated");
 
@@ -296,7 +296,7 @@ test("approvals: detail returns full preview with execution appearing only after
   const action = await service.actions.submit(
     "file_write", "Detail preview",
     { path: "detail.md", content: "DETAIL-CONTENT " + "x".repeat(5000), originalContent: "" },
-    { threadId: "local-main", runId: "run-detail", activityId: "act-detail" },
+    { spaceId: "local-main", runId: "run-detail", activityId: "act-detail" },
   );
   await service.actions.decide(action.id, "approve");
 
@@ -383,13 +383,13 @@ test("approvals: /api/approvals orders resolvedAt desc + id desc; full sweep cov
     items.push(settled({
       id: `id-${String(i).padStart(2, "0")}`,
       decidedAt: new Date(base + i * 1000).toISOString(),
-      threadId: i % 2 === 0 ? "t-A" : "t-B",
+      spaceId: i % 2 === 0 ? "t-A" : "t-B",
       activityId: i % 3 === 0 ? "act-X" : "act-Y",
       status: i % 4 === 0 ? "denied" : "approved",
     }));
   }
-  items.push(settled({ id: "id-tie-A", decidedAt: "2026-10-19T00:00:30.000Z", status: "approved", threadId: "t-C" }));
-  items.push(settled({ id: "id-tie-B", decidedAt: "2026-10-19T00:00:30.000Z", status: "approved", threadId: "t-C" }));
+  items.push(settled({ id: "id-tie-A", decidedAt: "2026-10-19T00:00:30.000Z", status: "approved", spaceId: "t-C" }));
+  items.push(settled({ id: "id-tie-B", decidedAt: "2026-10-19T00:00:30.000Z", status: "approved", spaceId: "t-C" }));
   const { service, headers } = await openServiceWithActions(t, items);
 
   // 按 resolvedAt desc + id desc 排序：自然时间大的更靠前；相同时 id 大的靠前。
@@ -427,7 +427,7 @@ test("approvals: /api/approvals orders resolvedAt desc + id desc; full sweep cov
   assert.equal(decoded.resolvedAt, last.resolvedAt);
   assert.equal(decoded.id, "id-06");
 
-  // 过滤在分页前应用；status 过滤、threadId 过滤、activityId 过滤必须保持顺序与时间不变。
+  // 过滤在分页前应用；status 过滤、spaceId 过滤、activityId 过滤必须保持顺序与时间不变。
   const denied = approvalPage.parse(
     await (await service.app.request("/api/approvals?status=denied", { headers })).json(),
   );
@@ -435,7 +435,7 @@ test("approvals: /api/approvals orders resolvedAt desc + id desc; full sweep cov
   for (const it of denied.approvals) assert.equal(it.status, "denied");
 
   const byThread = approvalPage.parse(
-    await (await service.app.request("/api/approvals?threadId=t-C", { headers })).json(),
+    await (await service.app.request("/api/approvals?spaceId=t-C", { headers })).json(),
   );
   assert.deepEqual(byThread.approvals.map((it) => it.id), ["id-tie-B", "id-tie-A"]);
 
@@ -446,8 +446,8 @@ test("approvals: /api/approvals orders resolvedAt desc + id desc; full sweep cov
 
   // pending 不是合法 status 过滤值：必须 400。
   assert.equal((await service.app.request("/api/approvals?status=pending", { headers })).status, 400);
-  // 不合法 threadId 格式必须 400。
-  assert.equal((await service.app.request("/api/approvals?threadId=-bad-start", { headers })).status, 400);
+  // 不合法 spaceId 格式必须 400。
+  assert.equal((await service.app.request("/api/approvals?spaceId=-bad-start", { headers })).status, 400);
 });
 
 test("approvals: /api/approvals strict query rejects duplicates, unknowns, illegal limits, padding/base64url mismatches", async (t) => {
@@ -476,11 +476,11 @@ test("approvals: /api/approvals strict query rejects duplicates, unknowns, illeg
 
   // 游标携带 filter binding：本次查询缺过滤或过滤条件不一致 → 400。
   const bind = Buffer.from(JSON.stringify({
-    resolvedAt: "2026-10-19T00:00:00.000Z", id: "x", threadId: "t-A", status: "approved",
+    resolvedAt: "2026-10-19T00:00:00.000Z", id: "x", spaceId: "t-A", status: "approved",
   }), "utf8").toString("base64url");
   assert.equal((await service.app.request(`/api/approvals?cursor=${bind}`, { headers })).status, 400);
   assert.equal(
-    (await service.app.request(`/api/approvals?threadId=t-A&status=denied&cursor=${bind}`, { headers })).status,
+    (await service.app.request(`/api/approvals?spaceId=t-A&status=denied&cursor=${bind}`, { headers })).status,
     400,
   );
 
@@ -496,12 +496,12 @@ test("approvals: /api/approvals strict query rejects duplicates, unknowns, illeg
 
   // 合法过滤 + 合法游标：完整匹配；服务能继续翻页。
   const matched = [
-    settled({ id: "older", decidedAt: "2026-10-18T23:59:58.000Z", status: "approved", threadId: "t-A" }),
-    settled({ id: "newer", decidedAt: "2026-10-18T23:59:59.000Z", status: "approved", threadId: "t-A" }),
+    settled({ id: "older", decidedAt: "2026-10-18T23:59:58.000Z", status: "approved", spaceId: "t-A" }),
+    settled({ id: "newer", decidedAt: "2026-10-18T23:59:59.000Z", status: "approved", spaceId: "t-A" }),
   ];
   const opened = await openServiceWithActions(t, matched);
   const ok = await opened.service.app.request(
-    `/api/approvals?threadId=t-A&status=approved&cursor=${bind}`,
+    `/api/approvals?spaceId=t-A&status=approved&cursor=${bind}`,
     { headers: opened.headers },
   );
   assert.equal(ok.status, 200);
@@ -590,7 +590,7 @@ test("approvals: buildOpenApiDocument registers the four routes with parameters,
   const list = paths["/api/approvals"]!.get!;
   assert.deepEqual(
     (list.parameters ?? []).map((p) => p.name).sort(),
-    ["activityId", "cursor", "limit", "spaceId", "status", "threadId"],
+    ["activityId", "cursor", "limit", "spaceId", "status"],
   );
   const limitSchema = list.parameters!.find((p) => p.name === "limit")!.schema;
   assert.equal(limitSchema.type, "integer");
@@ -685,7 +685,7 @@ test("approvals: contracts - approvalListQuery and approvalDecisionRequest rejec
   assert.equal(approvalListQuery.safeParse({ limit: "101" }).success, false);
   assert.equal(approvalListQuery.safeParse({ limit: 0 }).success, false);
   assert.equal(approvalListQuery.safeParse({ since: "2026-10-19T00:00:00.000Z" }).success, false);
-  assert.equal(approvalListQuery.safeParse({ threadId: "-bad" }).success, false);
+  assert.equal(approvalListQuery.safeParse({ spaceId: "-bad" }).success, false);
   assert.equal(approvalListQuery.safeParse({ status: "pending" }).success, false);
   assert.equal(approvalListQuery.safeParse({ status: "approved" }).success, true);
   assert.equal(approvalListQuery.safeParse({ activityId: "" }).success, false);
@@ -708,12 +708,10 @@ test("approvals: zod schemas confirm wire shapes", () => {
     id: "id",
     revision: 1,
     spaceId: null,
-    threadId: null,
     runId: null,
     toolCallId: null,
     subagentId: null,
     workspaceSpaceId: null,
-    workspaceThreadId: null,
     activityId: null,
     kind: "file_write" as const,
     title: "t",
@@ -721,7 +719,6 @@ test("approvals: zod schemas confirm wire shapes", () => {
     preview: {
       scope: "space" as const,
       ownerSpaceId: "owner",
-      ownerThreadId: "owner",
       path: "p",
       before: "",
       after: "a",

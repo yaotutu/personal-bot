@@ -20,14 +20,14 @@ const historyFixture = (): ConversationHistory => [
 ];
 
 const lifecycle: ConversationEvent[] = [
-  { type: "run_started", runId: "r", threadId: "local-main", assistantId: "a" },
+  { type: "run_started", runId: "r", assistantId: "a" },
   { type: "tool_start", id: "tool", name: "memory" },
   { type: "tool_delta", id: "tool", name: "memory", delta: '{"text":"private fact"}' },
   { type: "tool_end", id: "tool", name: "memory", arguments: { action: "remember", text: "private fact" } },
   { type: "tool_result", id: "tool", content: "Remembered: private fact" },
   { type: "text_delta", delta: "处理好了" },
   { type: "text_end", assistantId: "a" },
-  { type: "run_finished", runId: "r", threadId: "local-main" },
+  { type: "run_finished", runId: "r" },
 ];
 
 test("presentation config defaults hidden, supports overrides for disabled capabilities, rejects invalid modes/names", () => {

@@ -90,7 +90,7 @@ test("Stop cancels a pending write approval without changing the existing file",
   await writeFile(target, original);
   const runId = randomUUID();
   const input: ConversationInput = {
-    threadId: "local-main", runId,
+    spaceId: "local-main", runId,
     expectedRevision: "empty", message: { id: randomUUID(), content: "帮我写入草稿" },
   };
   // 立即消费 SSE，并提前接住失败，避免等待审批期间产生未处理的 rejection。
@@ -108,7 +108,7 @@ test("Stop cancels a pending write approval without changing the existing file",
   assert.equal(pending[0].kind, "file_write");
   assert.equal(await readFile(target, "utf8"), original);
 
-  const stopped = await post(service, "/api/conversation/stop", { threadId: "local-main", runId });
+  const stopped = await post(service, "/api/conversation/stop", { spaceId: "local-main", runId });
   assert.equal(stopped.status, 200);
   assert.equal((await stopped.json()).stopped, true);
   const outcome = await run;

@@ -44,7 +44,6 @@ const STEP_KINDS = ["execution", "model", "tool", "subagent", "approval", "file_
 const OVERVIEW_FIELDS = [
   "id",
   "spaceId",
-  "threadId",
   "title",
   "goal",
   "deliverable",
@@ -203,7 +202,7 @@ test("docs: activity list pins limit range, filter enums, cursor binding and no 
   const parameters = list.parameters ?? [];
 
   // 参数集合必须精确：多一个未声明过滤（如 since/days）就会让客户端误以为有留存窗口。
-  assert.deepEqual(parameters.map((parameter) => parameter.name).sort(), ["cursor", "limit", "spaceId", "status", "threadId"]);
+  assert.deepEqual(parameters.map((parameter) => parameter.name).sort(), ["cursor", "limit", "spaceId", "status"]);
   for (const parameter of parameters) {
     assert.equal(parameter.in, "query", `${parameter.name} must be a query parameter`);
     assert.equal(parameter.required, false, `${parameter.name} must be optional`);
@@ -231,12 +230,6 @@ test("docs: activity list pins limit range, filter enums, cursor binding and no 
   assert.equal(spaceIdParam.maxLength, 64);
   assert.equal(spaceIdParam.pattern, "^[a-zA-Z0-9][a-zA-Z0-9_-]*$");
   assert.match(spaceIdParam.description ?? "", /只返回该来源空间的活动/);
-
-  const threadId = queryParameter(list, "threadId").schema;
-  assert.equal(threadId.minLength, 1);
-  assert.equal(threadId.maxLength, 64);
-  assert.equal(threadId.pattern, "^[a-zA-Z0-9][a-zA-Z0-9_-]*$");
-  assert.match(threadId.description ?? "", /(只返回该来源会话的活动|兼容字段)/);
 
   const status = queryParameter(list, "status").schema;
   assert.deepEqual(status.enum, ACTIVITY_STATUSES);
@@ -284,7 +277,7 @@ test("docs: activity overview pins eight statuses, explicit registration, delaye
 
   // 字段集合与必填项必须精确，nullable 字段也必须显式出现在 required 中。
   assert.deepEqual(Object.keys(overview.properties ?? {}).sort(), [...OVERVIEW_FIELDS].sort());
-  const expectedOverviewRequired = OVERVIEW_FIELDS.filter((f) => f !== "threadId");
+  const expectedOverviewRequired = OVERVIEW_FIELDS;
   assert.deepEqual([...(overview.required ?? [])].sort(), [...expectedOverviewRequired].sort());
   assert.equal(overview.additionalProperties, false, "overview must reject unknown fields");
 
@@ -436,11 +429,11 @@ test("docs: activity endpoints enforce auth and list query/cursor behavior match
   assert.ok(listEndpoint.response.safeParse(await ok.json()).success, "empty activity list must match response schema");
 
   // limit 只接受十进制整数 1–100；重复、未知、空值和越界参数都按契约 400。
-  for (const query of ["limit=1", "limit=100", "threadId=local-main", "status=completed"]) {
+  for (const query of ["limit=1", "limit=100", "spaceId=local-main", "status=completed"]) {
     const response = await service.app.request(`/api/activities?${query}`, { headers });
     assert.equal(response.status, 200, `${query} should be accepted`);
   }
-  for (const query of ["limit=0", "limit=101", "limit=1.5", "limit=abc", "limit=", "limit=1&limit=2", "unknown=1", "threadId=-bad", "status=bogus"]) {
+  for (const query of ["limit=0", "limit=101", "limit=1.5", "limit=abc", "limit=", "limit=1&limit=2", "unknown=1", "spaceId=-bad", "status=bogus"]) {
     const response = await service.app.request(`/api/activities?${query}`, { headers });
     assert.equal(response.status, 400, `${query} should be rejected`);
     assert.equal(typeof ((await response.json()) as { error?: unknown }).error, "string");
@@ -448,11 +441,11 @@ test("docs: activity endpoints enforce auth and list query/cursor behavior match
 
   // 游标绑定生成时的过滤条件：结构非法、时间非法或与本次 threadId/status 不一致都 400。
   const encode = (payload: unknown) => Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  const bound = encode({ createdAt: "2026-10-18T10:00:00.000Z", id: "act-x", threadId: "local-main", status: "completed" });
-  const matched = await service.app.request(`/api/activities?threadId=local-main&status=completed&cursor=${bound}`, { headers });
+  const bound = encode({ createdAt: "2026-10-18T10:00:00.000Z", id: "act-x", spaceId: "local-main", status: "completed" });
+  const matched = await service.app.request(`/api/activities?spaceId=local-main&status=completed&cursor=${bound}`, { headers });
   assert.equal(matched.status, 200, "cursor with matching filters must be accepted");
   for (const query of [
-    `threadId=local-main&cursor=${bound}`,
+    `spaceId=local-main&cursor=${bound}`,
     `cursor=${bound}`,
     `threadId=local-main&status=completed&cursor=not-a-cursor`,
     `threadId=local-main&status=completed&cursor=${encode({ createdAt: "not-a-date", id: "act-x" })}`,
@@ -620,7 +613,7 @@ test("docs: approvals replace legacy actions endpoints and pin strict list/detai
 
   const list = paths["/api/approvals"]!.get!;
   assert.deepEqual(list.security, [{ bearerAuth: [] }]);
-  assert.deepEqual(list.parameters?.map((parameter) => parameter.name).sort(), ["activityId", "cursor", "limit", "spaceId", "status", "threadId"]);
+  assert.deepEqual(list.parameters?.map((parameter) => parameter.name).sort(), ["activityId", "cursor", "limit", "spaceId", "status"]);
   for (const parameter of list.parameters ?? []) {
     assert.equal(parameter.in, "query");
     assert.equal(parameter.required, false);
@@ -652,7 +645,7 @@ test("docs: approvals replace legacy actions endpoints and pin strict list/detai
   const view = responseSchema(detail as never);
   const viewFields = [
     "activityId", "createdAt", "decidedAt", "execution", "expiresAt", "id", "kind", "preview", "resolvedAt",
-    "revision", "runId", "spaceId", "status", "subagentId", "threadId", "title", "toolCallId", "workspaceSpaceId", "workspaceThreadId",
+    "revision", "runId", "spaceId", "status", "subagentId", "title", "toolCallId", "workspaceSpaceId",
   ];
   assert.deepEqual(Object.keys(view.properties ?? {}).sort(), viewFields);
   assert.deepEqual([...(view.required ?? [])].sort(), viewFields);
@@ -663,7 +656,7 @@ test("docs: approvals replace legacy actions endpoints and pin strict list/detai
   assert.deepEqual(nullableTypes(view.properties?.decidedAt), ["null", "string"]);
   assert.deepEqual(nullableTypes(view.properties?.resolvedAt), ["null", "string"]);
   const preview = view.properties?.preview;
-  assert.deepEqual(Object.keys(preview?.properties ?? {}).sort(), ["after", "before", "beforeExists", "ownerSpaceId", "ownerThreadId", "path", "scope"]);
+  assert.deepEqual(Object.keys(preview?.properties ?? {}).sort(), ["after", "before", "beforeExists", "ownerSpaceId", "path", "scope"]);
   assert.equal(preview?.additionalProperties, false);
   assert.match(preview?.properties?.before?.description ?? "", /不截断/);
   assert.match(view.description ?? "", /1\.5MB/);
@@ -701,8 +694,7 @@ test("docs: agent status query is read-only, requires both ids and shares the ru
   assert.deepEqual(
     operation.parameters?.map(({ name, in: location, required }) => ({ name, in: location, required })),
     [
-      { name: "spaceId", in: "query", required: false },
-      { name: "threadId", in: "query", required: false },
+      { name: "spaceId", in: "query", required: true },
       { name: "runId", in: "query", required: true },
     ],
     "both ids are required query parameters; no undeclared parameters",
@@ -845,7 +837,6 @@ test("docs: memory and Dream endpoints pin layering, capacity, prompt inheritanc
     "prompt",
     "purpose",
     "spaceId",
-    "threadId",
   ]);
   assert.match(spaceDreamGet.description ?? "", /不创建任何目录或文件/);
   assert.match(spaceDreamRun.description ?? "", /cursor/);
@@ -949,18 +940,18 @@ test("docs: live GET responses parse against registry schemas (no drift)", async
     assert.ok(parsed.success, `${path} response drifted from schema: ${parsed.success ? "" : JSON.stringify(parsed.error.issues).slice(0, 200)}`);
   }
   // 运行状态查询：缺参 400、未声明参数 400、不存在的 run 404；均不得建立会话或目录。
-  for (const query of ["", "?threadId=local-main", "?runId=run-1", "?threadId=local-main&runId=run-1&extra=1"]) {
+  for (const query of ["", "?spaceId=local-main", "?runId=run-1", "?threadId=local-main&runId=run-1&extra=1"]) {
     const response = await service.app.request(`/api/agent/status${query}`, { headers });
     assert.equal(response.status, 400, `/api/agent/status${query} should be 400`);
   }
-  const missingStatus = await service.app.request("/api/agent/status?threadId=local-main&runId=missing-run", { headers });
+  const missingStatus = await service.app.request("/api/agent/status?spaceId=local-main&runId=missing-run", { headers });
   assert.equal(missingStatus.status, 404);
   assert.equal(typeof ((await missingStatus.json()) as { error?: unknown }).error, "string");
   const approvalPage = await service.app.request("/api/approvals", { headers });
   assert.equal(approvalPage.status, 200);
   const approvalEndpoint = endpoints.find((e) => e.path === "/api/approvals" && e.method === "get")!;
   assert.ok(approvalEndpoint.response.safeParse(await approvalPage.json()).success, "empty approval page must match schema");
-  const conv = await service.app.request("/api/conversation?threadId=local-main", { headers });
+  const conv = await service.app.request("/api/conversation?spaceId=local-main", { headers });
   assert.equal(conv.status, 200);
   const convEndpoint = endpoints.find((e) => e.path === "/api/conversation")!;
   assert.ok(convEndpoint.response.safeParse(await conv.json()).success, "conversation response drifted");

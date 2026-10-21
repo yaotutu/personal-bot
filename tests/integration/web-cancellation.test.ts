@@ -69,12 +69,12 @@ for (const delegated of [false, true]) {
     const headers = { Authorization: `Bearer ${service.auth.login()}`, "content-type": "application/json" };
     const runId = randomUUID();
     const running = Promise.resolve(service.app.request("/api/conversation/run", {
-      method: "POST", headers, body: JSON.stringify({ threadId: "local-main", runId, expectedRevision: "empty", message: { id: randomUUID(), content: "Fetch slow page" } }),
+      method: "POST", headers, body: JSON.stringify({ spaceId: "local-main", runId, expectedRevision: "empty", message: { id: randomUUID(), content: "Fetch slow page" } }),
     })).then((response) => response.text());
     const deadline = Date.now() + 8000;
     while (!entered) { assert.ok(Date.now() < deadline, "tool did not reach the target"); await sleep(10); }
     const before = Date.now();
-    const stop = await service.app.request("/api/conversation/stop", { method: "POST", headers, body: JSON.stringify({ threadId: "local-main", runId }) });
+    const stop = await service.app.request("/api/conversation/stop", { method: "POST", headers, body: JSON.stringify({ spaceId: "local-main", runId }) });
     assert.equal((await stop.json()).stopped, true);
     const text = await running;
     while (!socketClosed) { assert.ok(Date.now() - before < 2500, "socket did not close on Stop"); await sleep(10); }

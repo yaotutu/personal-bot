@@ -11,7 +11,7 @@ export const createDreamRoutes = (
   app.get("/api/agent/dream", async (c) => c.json(await dream.describeAll()));
   app.put("/api/agent/dream", async (c) => {
     const parsed = saveGlobalDreamSchema.safeParse(await c.req.json().catch(() => undefined));
-    if (!parsed.success) return c.json({ error: "Invalid dream request" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid dream request", code: "INVALID_REQUEST" }, 400);
     return c.json(await dream.saveGlobalPrompt(parsed.data.globalPrompt));
   });
   return app;

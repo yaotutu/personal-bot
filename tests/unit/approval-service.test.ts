@@ -7,7 +7,7 @@
  * - 服务内部状态机、版本号、终态时间、幂等重放、容量限制与串行化写；
  * - execution 仅在 approved 上建立，每次变更 revision+1 并 onChange（防 SSE 去重丢回执）；
  * - cancelPending 把遗留在 running 的执行标为 unknown / finishedAt=null / result 不变；
- * - page({limit, cursor, threadId, activityId, status}) 按 resolvedAt 降序、
+ * - page({limit, cursor, spaceId, activityId, status}) 按 resolvedAt 降序、
  *   同时间按 id 降序，过滤在分页前应用；
  * - 监听器深度克隆、抛错隔离、订阅/取消订阅。
  *
@@ -87,11 +87,11 @@ const record = (overrides: Partial<PendingAction> & Pick<PendingAction, "id">): 
   expiresAt: iso(10_000),
   resolvedAt: iso(1_500),
   decidedAt: iso(1_500),
-  threadId: null,
+  spaceId: null,
   runId: null,
   toolCallId: null,
   subagentId: null,
-  workspaceThreadId: null,
+  workspaceSpaceId: null,
   activityId: null,
   ...overrides,
 });
@@ -108,18 +108,18 @@ test("submit writes revision 1 with full nullable context fields and notifies on
     "file_write",
     "write note",
     { path: "note.txt", content: "hello" },
-    { threadId: "local-main", runId: "run-1", toolCallId: "tc-1", subagentId: null, workspaceThreadId: "ws-1", activityId: "act-1" },
+    { spaceId: "local-main", runId: "run-1", toolCallId: "tc-1", subagentId: null, workspaceSpaceId: "ws-1", activityId: "act-1" },
   );
 
   assert.equal(action.status, "pending");
   assert.equal(action.revision, 1);
   assert.equal(action.resolvedAt, null);
   assert.equal(action.decidedAt, null);
-  assert.equal(action.threadId, "local-main");
+  assert.equal(action.spaceId, "local-main");
   assert.equal(action.runId, "run-1");
   assert.equal(action.toolCallId, "tc-1");
   assert.equal(action.subagentId, null);
-  assert.equal(action.workspaceThreadId, "ws-1");
+  assert.equal(action.workspaceSpaceId, "ws-1");
   assert.equal(action.activityId, "act-1");
   assert.equal(action.execution, undefined);
   assert.equal(events.length, 1);
@@ -329,9 +329,9 @@ test("execution claims an approved unexpired approval once; receipts advance rev
 
 test("page returns resolvedAt desc + id desc, applies filters before cursor; binding rules live in HTTP layer", async () => {
   const items: PendingAction[] = [
-    record({ id: "a1", status: "approved", resolvedAt: iso(3_000), decidedAt: iso(3_000), threadId: "thread-a", activityId: "act-1" }),
-    record({ id: "a2", status: "denied", resolvedAt: iso(2_000), decidedAt: iso(2_000), threadId: "thread-a", activityId: "act-1" }),
-    record({ id: "b1", status: "approved", resolvedAt: iso(1_000), decidedAt: iso(1_000), threadId: "thread-b", activityId: "act-2" }),
+    record({ id: "a1", status: "approved", resolvedAt: iso(3_000), decidedAt: iso(3_000), spaceId: "thread-a", activityId: "act-1" }),
+    record({ id: "a2", status: "denied", resolvedAt: iso(2_000), decidedAt: iso(2_000), spaceId: "thread-a", activityId: "act-1" }),
+    record({ id: "b1", status: "approved", resolvedAt: iso(1_000), decidedAt: iso(1_000), spaceId: "thread-b", activityId: "act-2" }),
   ];
   const actions = createActionService(memoryRepository(items).repository);
 
@@ -341,14 +341,14 @@ test("page returns resolvedAt desc + id desc, applies filters before cursor; bin
   assert.equal(fullPage.hasMore, false);
   assert.equal(fullPage.nextCursor, null);
 
-  // 过滤在分页前：threadId 只命中 thread-a，limit 1 → 按时间降序拿第一条。
-  const first = await actions.page({ limit: 1, threadId: "thread-a" });
+  // 过滤在分页前：spaceId 只命中 thread-a，limit 1 → 按时间降序拿第一条。
+  const first = await actions.page({ limit: 1, spaceId: "thread-a" });
   assert.deepEqual(first.approvals.map((action) => action.id), ["a1"]);
   assert.equal(first.hasMore, true);
   assert.deepEqual(first.nextCursor, { resolvedAt: iso(3_000), id: "a1" });
 
   // 游标回传：上一条之后剩下的 thread-a 项。
-  const second = await actions.page({ limit: 1, threadId: "thread-a", cursor: first.nextCursor! });
+  const second = await actions.page({ limit: 1, spaceId: "thread-a", cursor: first.nextCursor! });
   assert.deepEqual(second.approvals.map((action) => action.id), ["a2"]);
   assert.equal(second.hasMore, false);
   assert.equal(second.nextCursor, null);
@@ -363,7 +363,7 @@ test("page returns resolvedAt desc + id desc, applies filters before cursor; bin
 
   // 业务 cursor 不绑定过滤：service 信任调用方传入的 (resolvedAt, id)；
   // 跨过滤条件翻页的禁止策略由 HTTP 路由层在 service 之上强制（见集成测试）。
-  const crossFilter = await actions.page({ limit: 10, threadId: "thread-b", cursor: first.nextCursor! });
+  const crossFilter = await actions.page({ limit: 10, spaceId: "thread-b", cursor: first.nextCursor! });
   // thread-b 没有时间晚于 3000 的记录，cursor 自然排空：反映业务"无绑定"。
   assert.deepEqual(crossFilter.approvals.map((action) => action.id), ["b1"]);
 

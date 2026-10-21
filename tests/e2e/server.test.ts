@@ -94,7 +94,7 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
     const running = await client.startRun("请子代理写入", "e2e-approval");
     // 主同步来源仍为 SSE ready 的完整集合，HTTP pending 只是补充只读入口。
     const action = await waitForTest(async () => (await client.pending()).find((item) => item.runId === running.runId), "child approval");
-    assert.equal(action.threadId, running.threadId);
+    assert.equal(action.spaceId, running.spaceId);
     assert.equal(action.revision, 1);
     assert.match(action.preview.after, /DRAFT-CONTENT/);
     assert.equal(action.preview.path, "draft.md");
@@ -105,7 +105,7 @@ for (const decision of ["approve", "deny", "cancel"] as const) {
     const target = join(service.dataDir, "workspace/threads", childDir, "draft.md");
     await assert.rejects(stat(target), { code: "ENOENT" });
     if (decision === "cancel") {
-      assert.equal((await client.json("/api/conversation/stop", { threadId: running.threadId, runId: running.runId })).stopped, true);
+      assert.equal((await client.json("/api/conversation/stop", { spaceId: running.threadId, runId: running.runId })).stopped, true);
       const events = await running.done;
       assert.equal(events.at(-1)?.type, "RUN_ERROR");
     } else {
@@ -139,7 +139,7 @@ test("e2e: Stop interrupts the child model and real slow HTTP socket, then the s
   const child = await client.startRun("请子代理挂起", "e2e-stop");
   await waitForTest(() => model.requests.length >= started + 2, "child provider request");
   const closedBefore = model.slowClosed();
-  assert.equal((await client.json("/api/conversation/stop", { threadId: child.threadId, runId: child.runId })).stopped, true);
+  assert.equal((await client.json("/api/conversation/stop", { spaceId: child.threadId, runId: child.runId })).stopped, true);
   assert.equal((await child.done).at(-1)?.type, "RUN_ERROR");
   await waitForTest(() => model.slowClosed() > closedBefore, "child provider disconnect");
   terminalSuccess(await client.run("现在几点", child.threadId));
@@ -156,7 +156,7 @@ test("e2e: Stop interrupts the child model and real slow HTTP socket, then the s
   const web = await client.startRun(`E2E child-web http://127.0.0.1:${address.port}/slow`, child.threadId);
   await waitForTest(() => entered, "child real HTTP socket");
   const stopStart = Date.now();
-  assert.equal((await client.json("/api/conversation/stop", { threadId: web.threadId, runId: web.runId })).stopped, true);
+  assert.equal((await client.json("/api/conversation/stop", { spaceId: web.threadId, runId: web.runId })).stopped, true);
   assert.equal((await web.done).at(-1)?.type, "RUN_ERROR");
   await waitForTest(() => closed, "slow socket closed", 3000);
   assert.ok(Date.now() - stopStart < 3000, "must not wait for web transport timeout");
@@ -177,7 +177,7 @@ test("e2e: private workspaces stay isolated and deleted threads do not revive on
   const remove = await client.json("/api/spaces/e2e-owner", undefined, "DELETE");
   assert.deepEqual(remove.removed, { jobs: 0, monitors: 0 });
   assert.deepEqual(await client.history("e2e-owner"), { messages: [], revision: "empty" });
-  assert.deepEqual(await client.json("/api/conversation/stop", { threadId: "e2e-owner", runId: "late" }), { stopped: false });
+  assert.deepEqual(await client.json("/api/conversation/stop", { spaceId: "e2e-owner", runId: "late" }), { stopped: false });
   assert.ok(!(await client.json("/api/spaces")).spaces.some((space: { id: string }) => space.id === "e2e-owner"));
   await assert.rejects(stat(join(service.dataDir, "sessions/e2e-owner")), { code: "ENOENT" });
 });
@@ -257,8 +257,8 @@ test("e2e: ready carries a real approval, HTTP detail matches id/revision, recon
   assert.equal(pending.revision, 1);
   assert.equal(pending.status, "pending");
   assert.equal(pending.preview.path, "draft.md");
-  assert.ok(pending.preview.scope === "space" || pending.preview.scope === "thread");
-  assert.equal(pending.preview.ownerSpaceId ?? pending.preview.ownerThreadId, running.threadId);
+  assert.equal(pending.preview.scope, "space");
+  assert.equal(pending.preview.ownerSpaceId, running.spaceId);
   assert.match(pending.preview.after, /DRAFT-CONTENT/);
   assert.ok(waiting.pendingApprovalIds.includes(pending.id));
   // HTTP 完整视图与 SSE 推送是同一 id、同一 revision、同一不可变预览。
@@ -303,7 +303,7 @@ test("e2e: ready carries a real approval, HTTP detail matches id/revision, recon
   assert.equal(await readFile(join(service.dataDir, "workspace/threads/e2e-sse-approval/draft.md"), "utf8"),
     pending.preview.after);
   await second.close();
-  const final = await client.json(`/api/agent/status?threadId=${encodeURIComponent(running.threadId)}&runId=${encodeURIComponent(running.runId)}`);
+  const final = await client.json(`/api/agent/status?spaceId=${encodeURIComponent(running.threadId)}&runId=${encodeURIComponent(running.runId)}`);
   assert.equal(final.status.status, "succeeded");
   assert.equal(final.status.endedAt, terminal.endedAt);
   assert.deepEqual(final.status.pendingApprovalIds, []);

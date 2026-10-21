@@ -78,7 +78,6 @@ export type DreamDependencies = {
 
 export type DreamSpaceView = DreamState & {
   spaceId: string;
-  threadId?: string;
   prompt: string;
   purpose: string;
 };
@@ -138,7 +137,6 @@ export const createDreamService = (deps: DreamDependencies) => {
     return {
       ...state,
       spaceId,
-      threadId: spaceId,
       prompt,
       purpose: readPurpose(instructions),
     };

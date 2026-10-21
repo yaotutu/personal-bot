@@ -5,19 +5,16 @@ export const presentApproval = (action: PendingAction) => {
   const path = action.payload.path;
   const shared = path === "shared" || path.startsWith("shared/");
   const { payload: _payload, ...summary } = action;
-  const spaceId = action.spaceId ?? action.threadId ?? null;
-  const workspaceSpaceId = action.workspaceSpaceId ?? action.workspaceThreadId ?? null;
+  const spaceId = action.spaceId ?? null;
+  const workspaceSpaceId = action.workspaceSpaceId ?? null;
   return {
     ...summary,
     spaceId,
-    threadId: spaceId,
     workspaceSpaceId,
-    workspaceThreadId: workspaceSpaceId,
     execution: action.execution ?? null,
     preview: {
       scope: shared ? ("shared" as const) : ("space" as const),
       ownerSpaceId: shared ? null : workspaceSpaceId,
-      ownerThreadId: shared ? null : workspaceSpaceId,
       path,
       before: action.payload.originalContent,
       after: action.payload.content,
@@ -27,18 +24,16 @@ export const presentApproval = (action: PendingAction) => {
 };
 
 export const presentApprovalResolution = (action: PendingAction) => {
-  const spaceId = action.spaceId ?? action.threadId ?? null;
-  const workspaceSpaceId = action.workspaceSpaceId ?? action.workspaceThreadId ?? null;
+  const spaceId = action.spaceId ?? null;
+  const workspaceSpaceId = action.workspaceSpaceId ?? null;
   return {
     id: action.id,
     revision: action.revision,
     spaceId,
-    threadId: spaceId,
     runId: action.runId,
     toolCallId: action.toolCallId,
     subagentId: action.subagentId,
     workspaceSpaceId,
-    workspaceThreadId: workspaceSpaceId,
     activityId: action.activityId,
     status: action.status,
     createdAt: action.createdAt,

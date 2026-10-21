@@ -65,9 +65,6 @@ export function createConversation(
   };
   // 预检用于 HTTP 在开启 SSE 前返回 400/409；run 再检查一次，防止异步创建流期间争锁。
   const validate = (input: ConversationInput) => {
-    if (!input.spaceId && input.threadId) {
-      input.spaceId = input.threadId;
-    }
     if (closed) rejectConversation("SHUTDOWN", "Conversation is closed");
     if (active) rejectConversation("agent_thread_locked", "Wait for the current response to stop");
     const validated = validateConversationInput(input, history(), records(), historyPort.checkpoint() ?? "empty");
@@ -125,7 +122,7 @@ export function createConversation(
     emit: (event: ConversationEvent) => void,
     signal?: AbortSignal,
   ) => {
-    const currentSpaceId = input.spaceId || input.threadId || dependencies.spaceId || "local-main";
+    const currentSpaceId = input.spaceId || dependencies.spaceId || "local-main";
     input.spaceId = currentSpaceId;
     const { user, previous, replay } = validate(input);
     if (signal?.aborted)
@@ -168,7 +165,6 @@ export function createConversation(
         type: "run_started",
         assistantId: turn.assistantId,
         spaceId: currentSpaceId,
-        threadId: input.spaceId,
         runId: input.runId,
       });
       if (replay) {
@@ -225,7 +221,6 @@ export function createConversation(
       emit({
         type: "run_finished",
         spaceId: currentSpaceId,
-        threadId: input.spaceId,
         runId: input.runId,
       });
     } catch (error) {
@@ -281,7 +276,7 @@ export function createConversation(
   const trigger = async (
     text: string,
     runId: string,
-    options: { signal?: AbortSignal; timeoutMs?: number; jobId?: string; spaceId?: string; threadId?: string } = {},
+    options: { signal?: AbortSignal; timeoutMs?: number; jobId?: string; spaceId?: string } = {},
   ) => {
     if (closed || options.signal?.aborted) return { status: "failed" as const, text: "cancelled" };
     if (active) return { status: "failed" as const, text: "busy" };

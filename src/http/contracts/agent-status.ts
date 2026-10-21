@@ -128,7 +128,6 @@ export const agentStatus = z
       .nullable()
       .describe("关联的 Activity ID；普通 chat 未登记活动时为 null，不要求每轮都有活动"),
     spaceId: spaceIdSchema.describe("所属空间"),
-    threadId: spaceIdSchema.optional().describe("兼容字段：等同于 spaceId"),
     runId: runIdSchema,
     revision: z
       .number()
@@ -193,11 +192,9 @@ export const agentStatus = z
 // ---------------------------------------------------------------------------
 export const agentStatusQuery = z
   .strictObject({
-    spaceId: spaceIdSchema.optional().describe("要查询的运行所属空间"),
-    threadId: spaceIdSchema.optional().describe("兼容字段：等同于 spaceId"),
+    spaceId: spaceIdSchema.describe("要查询的运行所属空间"),
     runId: runIdSchema.describe("要查询的运行 ID；必填"),
   })
-  .refine((data) => Boolean(data.spaceId || data.threadId), "spaceId or threadId required")
   .describe("GET /api/agent/status 查询参数；两个字段都必填，不接受未声明参数。");
 
 /**

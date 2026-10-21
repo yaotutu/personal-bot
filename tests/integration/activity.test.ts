@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import type { ActivitiesPageDto, ActivityDetailDto } from "../../src/http/contracts/activities.js";
 
 const input = (text: string, threadId = "local-main", runId = `run-${Date.now()}`): ConversationInput => ({
-  threadId,
+  spaceId: threadId,
   runId,
   expectedRevision: "empty",
   message: { id: `user-${randomUUID()}`, content: text },
@@ -202,7 +202,7 @@ test("activity-integration: stop marks activity stopped and resume continues und
   const stopRes = await service.app.request("/api/conversation/stop", {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ threadId: "local-main", runId }),
+    body: JSON.stringify({ spaceId: "local-main", runId }),
   });
   assert.equal(stopRes.status, 200);
 
@@ -218,7 +218,7 @@ test("activity-integration: stop marks activity stopped and resume continues und
   assert.ok(act.finishedAt);
 
   // 2. 第二轮继续原活动
-  const convRes = await service.app.request("/api/conversation?threadId=local-main", { headers });
+  const convRes = await service.app.request("/api/conversation?spaceId=local-main", { headers });
   const conv = (await convRes.json()) as { revision: string };
   const secondInput = {
     ...input(`活动继续 ${act.id}`, "local-main", "run-resume-test"),
@@ -279,7 +279,7 @@ test("activity-integration: thread deletion cascade deletes its activities", asy
   assert.equal(runRes.status, 200);
   await runRes.text();
 
-  const listRes = await service.app.request(`/api/activities?threadId=${customThread}`, { headers });
+  const listRes = await service.app.request(`/api/activities?spaceId=${customThread}`, { headers });
   const list = (await listRes.json()) as ActivitiesPageDto;
   assert.equal(list.activities.length, 1);
   const actId = list.activities[0]!.id;
@@ -292,7 +292,7 @@ test("activity-integration: thread deletion cascade deletes its activities", asy
   assert.equal(delRes.status, 200);
 
   // 删除后，该会话的活动必须立刻消失
-  const afterListRes = await service.app.request(`/api/activities?threadId=${customThread}`, { headers });
+  const afterListRes = await service.app.request(`/api/activities?spaceId=${customThread}`, { headers });
   const afterList = (await afterListRes.json()) as ActivitiesPageDto;
   assert.equal(afterList.activities.length, 0);
 

@@ -66,8 +66,7 @@ export const activityOverview = z
   .object({
     id: z.string().describe("活动唯一 ID；继续同一项工作时保持不变，不新建活动"),
     spaceId: spaceIdSchema.describe("来源空间；活动随该空间删除而删除"),
-    threadId: spaceIdSchema.optional().describe("兼容字段：等同于 spaceId"),
-    title: z.string().describe("工作标题，登记时由主模型给出"),
+      title: z.string().describe("工作标题，登记时由主模型给出"),
     goal: z.string().describe("要达成的目标"),
     deliverable: z.string().describe("完成后交付什么"),
     status: activityStatusSchema,
@@ -167,8 +166,7 @@ export const activitiesQuerySchema = z
           "createdAt/id 与生成时的 spaceId/status 过滤绑定。结构非法、时间非法或过滤条件与本次不一致返回 400。",
       ),
     spaceId: spaceIdSchema.optional().describe("只返回该来源空间的活动；省略表示不按空间过滤"),
-    threadId: spaceIdSchema.optional().describe("兼容字段：等同于 spaceId"),
-    status: activityStatusSchema.optional().describe("只返回该状态的活动；省略表示不按状态过滤"),
+      status: activityStatusSchema.optional().describe("只返回该状态的活动；省略表示不按状态过滤"),
   })
   .describe(
     "活动列表查询参数。不接受未声明参数；非法参数、重复参数或非法游标一律 400。",
@@ -183,8 +181,7 @@ export const activityCursorPayloadSchema = z
     createdAt: z.iso.datetime(),
     id: z.string().min(1).max(200),
     spaceId: spaceIdSchema.optional(),
-    threadId: spaceIdSchema.optional(),
-    status: activityStatusSchema.optional(),
+      status: activityStatusSchema.optional(),
   })
   .describe("活动分页游标结构（不透明字符串解码后的内容，不对客户端暴露为独立接口）");
 

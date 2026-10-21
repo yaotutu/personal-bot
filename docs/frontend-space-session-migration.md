@@ -120,47 +120,49 @@
 ### 3.3 聊天与执行端点
 
 - **发送消息 (`POST /api/conversation/run`)**：
-  - 请求体字段由原 `threadId` 变更为 `spaceId`（后端已实现平滑兼容，传入 `threadId` 仍可正常识别）。
+  - 请求体字段由原 `threadId` 变更为 `spaceId`（不向下兼容，必须使用 `spaceId`）。
   - 示例：
     ```json
     {
       "spaceId": "local-main",
-      "expectedRevision": "...",
+      "expectedRevision": "empty",
       "message": { "id": "msg-1", "content": "你好" },
       "runId": "run-uuid"
     }
     ```
 - **读取聊天历史 (`GET /api/conversation?spaceId=...`)**：
-  - 推荐传入 `?spaceId=local-main`（兼容保留 `?threadId=`）。
+  - 必须传入 `?spaceId=local-main`（已移除 `?threadId=` 兼容）。
 - **中止运行 (`POST /api/conversation/stop`)**：
-  - 请求体推荐字段：`{ "spaceId": "local-main", "runId": "..." }`（兼容保留 `threadId`）。
+  - 请求体字段：`{ "spaceId": "local-main", "runId": "..." }`。
 
 ---
 
 ### 3.4 运行状态与活动端点
 
 - **查询运行状态 (`GET /api/agent/status`)**：
-  - Query 参数由 `threadId` 变更为 `spaceId`（兼容 `threadId`）。
+  - Query 参数由 `threadId` 变更为 `spaceId`（必选，已移除 `threadId`）。
   - 示例：`GET /api/agent/status?spaceId=local-main&runId=...`
   - 响应中的运行对象属性：
-    - `spaceId`: 空间 ID。
-    - `threadId`: 兼容字段，值与 `spaceId` 严格相同。
+    - `spaceId`: 空间 ID（无 `threadId` 兼容字段）。
 - **活动列表查询 (`GET /api/activities`)**：
-  - Query 过滤参数支持 `?spaceId=...`（兼容 `?threadId=...`）。
-  - 活动对象中同时返回 `spaceId` 和兼容字段 `threadId`。
+  - Query 过滤参数使用 `?spaceId=...`。
+  - 活动对象中仅返回 `spaceId`（无 `threadId` 兼容字段）。
 
 ---
 
 ### 3.5 审批与工作区事件（SSE）
 
 - **审批对象 (`ApprovalViewDto`)**：
-  - 顶层字段：`spaceId` 与 `workspaceSpaceId` 为主要字段，同时附带兼容字段 `threadId` 与 `workspaceThreadId`。
+  - 顶层字段：`spaceId` 与 `workspaceSpaceId` 为主要字段（彻底移除 `threadId` 与 `workspaceThreadId`）。
   - 文件预览 (`preview`)：
-    - `preview.scope`: 枚举支持 `"space"` | `"thread"` | `"shared"`。前端建议将 `"space"` 与 `"thread"` 均展示为「空间私有工作区」。
-    - `preview.ownerSpaceId`: 归属空间 ID（同时附带兼容字段 `ownerThreadId`）。
+    - `preview.scope`: 枚举支持 `"space"` | `"shared"`。
+    - `preview.ownerSpaceId`: 归属空间 ID（当 scope="shared" 时为 null；彻底移除 `ownerThreadId`）。
 - **SSE 事件 (`/api/events`)**：
   - `ready` 帧中的 `agentStatuses` 与增量帧 `agent_status_updated` 中均包含 `spaceId`。
+  - 增量帧 `activity_updated` 中包含 `spaceId`。
   - `ready.pendingApprovals` 与 `approval_pending` 中完整携带上述空间预览字段。
+- **聊天 AG-UI SSE 事件 (`POST /api/conversation/run`)**：
+  - `RUN_STARTED` 与 `RUN_FINISHED` 事件包含 `{ type, spaceId, runId }`（移除 `threadId`）。
 
 ---
 

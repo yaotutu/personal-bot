@@ -2,7 +2,7 @@
  * 审批存储 schema 与 repository 测试：只覆盖 storage 域自身（reader 与文件边界）。
  *
  * 不触碰 HTTP/服务/pi；不 mock 算法。验证事项：
- * - 必填关联字段（threadId/runId/toolCallId/subagentId/workspaceThreadId/activityId）
+ * - 必填关联字段（threadId/runId/toolCallId/subagentId/workspaceSpaceId/activityId）
  *   必须是 string|null，缺省视为损坏；pending 必须 resolvedAt/decidedAt 全为 null；
  *   终态必须 resolvedAt 是合法日期；只有 approved/denied 才允许 decidedAt；
  * - execution 字段只在 status==='approved' 上合法；status 枚举合法；
@@ -34,11 +34,11 @@ const record = (changes: Partial<PendingAction> = {}): PendingAction => ({
   expiresAt: "2026-10-19T00:05:00.000Z",
   resolvedAt: null,
   decidedAt: null,
-  threadId: null,
+  spaceId: null,
   runId: null,
   toolCallId: null,
   subagentId: null,
-  workspaceThreadId: null,
+  workspaceSpaceId: null,
   activityId: null,
   ...changes,
 });
@@ -102,11 +102,11 @@ test("action document rejects records missing mandatory nullable context fields 
     // payload 不是字符串键值
     [record({ payload: { content: 42 } as unknown as Record<string, string> })],
     // 必填关联字段类型非法
-    [record({ threadId: 42 as unknown as string | null })],
+    [record({ spaceId: 42 as unknown as string | null })],
     [record({ runId: 42 as unknown as string | null })],
     [record({ toolCallId: 42 as unknown as string | null })],
     [record({ subagentId: 42 as unknown as string | null })],
-    [record({ workspaceThreadId: 42 as unknown as string | null })],
+    [record({ workspaceSpaceId: 42 as unknown as string | null })],
     [record({ activityId: 42 as unknown as string | null })],
   ];
 

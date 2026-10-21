@@ -113,16 +113,14 @@ const MessageBubble = ({ message }: { message: MessageView }) => {
 
 export const ChatView = ({
   spaceId,
-  threadId,
   sessionId: initialSessionId,
   onReset,
 }: {
   spaceId?: string;
-  threadId?: string;
   sessionId?: string;
   onReset?: () => void;
 }) => {
-  const currentSpaceId = spaceId || threadId || "local-main";
+  const currentSpaceId = spaceId || "local-main";
   const [views, setViews] = useState<MessageView[]>([]);
   const [draft, setDraft] = useState("");
   const [running, setRunning] = useState<ForegroundRun | null>(null);

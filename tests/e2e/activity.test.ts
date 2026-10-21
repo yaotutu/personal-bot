@@ -32,19 +32,19 @@ const fixture = async (t: TestContext, options: Partial<Omit<ServiceProcessOptio
   const client = createTestClient(() => service!.baseUrl, token);
   const list = async (query = "") => activitiesResponse.parse(await client.json("/api/activities" + query));
   const detail = async (id: string) => activityDetailResponse.parse(await client.json(`/api/activities/${id}`));
-  const one = async (threadId: string) => {
-    const page = await list(`?threadId=${threadId}`);
+  const one = async (spaceId: string) => {
+    const page = await list(`?spaceId=${spaceId}`);
     assert.equal(page.activities.length, 1);
     return detail(page.activities[0].id);
   };
   return { service, model, client, list, detail, one };
 };
 
-const sessionFiles = async (dataDir: string, threadId: string) => {
-  const directory = join(dataDir, "sessions", threadId);
+const sessionFiles = async (dataDir: string, spaceId: string) => {
+  const directory = join(dataDir, "sessions", spaceId);
   return (await readdir(directory)).filter((name) => name.endsWith(".jsonl")).map((name) => join(directory, name));
 };
-const sessionBytes = async (dataDir: string, threadId: string) => Promise.all((await sessionFiles(dataDir, threadId)).map(async (file) => {
+const sessionBytes = async (dataDir: string, spaceId: string) => Promise.all((await sessionFiles(dataDir, spaceId)).map(async (file) => {
   const bytes = await readFile(file);
   return { file, hash: createHash("sha256").update(bytes).digest("hex"), mtime: (await stat(file)).mtimeMs };
 }));
@@ -72,7 +72,7 @@ test("activity e2e: authentication and ordinary chat do not create records; quer
   const spaces = await client.json("/api/spaces");
   const count = model.requests.length;
   assert.deepEqual((await list()).activities, []);
-  assert.deepEqual((await list("?threadId=never-created")).activities, []);
+  assert.deepEqual((await list("?spaceId=never-created")).activities, []);
   assert.equal((await client.request("/api/activities/missing")).status, 404);
   assert.deepEqual(await client.history("activity-ordinary"), before);
   assert.deepEqual(await sessionBytes(service.dataDir, "activity-ordinary"), files);
@@ -83,13 +83,13 @@ test("activity e2e: authentication and ordinary chat do not create records; quer
 
 test("activity e2e: registration is idempotent, steps match tool calls, replay and process restart preserve the same record", async (t) => {
   const { service, model, client, one, list } = await fixture(t);
-  const threadId = "activity-complete";
+  const spaceId = "activity-complete";
   const message = { id: randomUUID(), content: script([start, start, activity("update", { progress: "Evidence collected" }), clock, complete]) };
-  const body = { threadId, runId: randomUUID(), expectedRevision: "empty", message };
+  const body = { spaceId, runId: randomUUID(), expectedRevision: "empty", message };
   const response = await client.request("/api/conversation/run", body);
   assert.equal(response.status, 200);
   assert.match(await response.text(), /RUN_FINISHED/);
-  const result = await one(threadId);
+  const result = await one(spaceId);
   assert.equal(result.activity.status, "completed");
   assert.equal(result.activity.result, "E2E report delivered");
   assert.deepEqual(result.activity.runIds, [body.runId]);
@@ -100,15 +100,15 @@ test("activity e2e: registration is idempotent, steps match tool calls, replay a
   assert.ok(result.steps.some((step) => step.id === `${body.runId}:main:tool:${clockCall.id}`));
   assertClosedSteps(result);
   const requests = model.requests.length;
-  const before = await sessionBytes(service.dataDir, threadId);
+  const before = await sessionBytes(service.dataDir, spaceId);
   const replay = await client.request("/api/conversation/run", body);
   assert.equal(replay.status, 200);
   assert.match(await replay.text(), /RUN_FINISHED/);
-  assert.deepEqual(await one(threadId), result);
-  assert.deepEqual(await sessionBytes(service.dataDir, threadId), before);
+  assert.deepEqual(await one(spaceId), result);
+  assert.deepEqual(await sessionBytes(service.dataDir, spaceId), before);
   assert.equal(model.requests.length, requests);
   await service.restart();
-  assert.deepEqual(await one(threadId), result);
+  assert.deepEqual(await one(spaceId), result);
   assert.equal(model.requests.length, requests, "restart must not dispatch work");
   assert.equal((await list()).activities.length, 1);
   await assert.rejects(stat(join(service.dataDir, "activities.json")), { code: "ENOENT" });
@@ -137,19 +137,19 @@ for (const end of ["hold", "fail"] as const) {
     const running = await client.startRun(script([start, complete], end), "activity-pending");
     if (end === "hold") {
       await waitForTest(() => model.requests.length >= baseline + 3, "final delivery request");
-      const pending = await one(running.threadId);
+      const pending = await one(running.spaceId);
       assert.equal(pending.activity.status, "running");
       assert.equal(pending.activity.result, null);
       assert.ok(pending.steps.some((step) => step.kind === "model" && step.status === "running"));
-      assert.equal((await client.json("/api/conversation/stop", { threadId: running.threadId, runId: running.runId })).stopped, true);
+      assert.equal((await client.json("/api/conversation/stop", { spaceId: running.spaceId, runId: running.runId })).stopped, true);
     }
     const events = await running.done;
     failed(events);
-    const result = await one(running.threadId);
+    const result = await one(running.spaceId);
     assert.equal(result.activity.status, end === "hold" ? "stopped" : "failed");
     assert.equal(result.activity.result, null);
     assertClosedSteps(result);
-    assert.doesNotMatch(JSON.stringify(result) + JSON.stringify(events) + JSON.stringify(await client.history(running.threadId)), /provider-secret-activity-diagnostic/);
+    assert.doesNotMatch(JSON.stringify(result) + JSON.stringify(events) + JSON.stringify(await client.history(running.spaceId)), /provider-secret-activity-diagnostic/);
   });
 }
 
@@ -160,19 +160,19 @@ test("activity e2e: Stop cancels the provider, ordinary turns leave the activity
   await waitForTest(() => model.requests.length >= baseline + 3, "running model after tool");
   const closed = model.slowClosed();
   const began = Date.now();
-  assert.equal((await client.json("/api/conversation/stop", { threadId: running.threadId, runId: running.runId })).stopped, true);
+  assert.equal((await client.json("/api/conversation/stop", { spaceId: running.spaceId, runId: running.runId })).stopped, true);
   failed(await running.done);
   await waitForTest(() => model.slowClosed() > closed, "provider connection cancelled");
   assert.ok(Date.now() - began < 3000);
-  const stopped = await one(running.threadId);
+  const stopped = await one(running.spaceId);
   assert.equal(stopped.activity.status, "stopped");
   assertClosedSteps(stopped);
-  succeeded(await client.run("ordinary hello", running.threadId));
-  assert.deepEqual(await one(running.threadId), stopped);
+  succeeded(await client.run("ordinary hello", running.spaceId));
+  assert.deepEqual(await one(running.spaceId), stopped);
   await service.restart();
-  assert.deepEqual(await one(running.threadId), stopped);
-  succeeded(await client.run(script([activity("resume", { activityId: stopped.activity.id }), clock, complete]), running.threadId));
-  const resumed = await one(running.threadId);
+  assert.deepEqual(await one(running.spaceId), stopped);
+  succeeded(await client.run(script([activity("resume", { activityId: stopped.activity.id }), clock, complete]), running.spaceId));
+  const resumed = await one(running.spaceId);
   assert.equal(resumed.activity.id, stopped.activity.id);
   assert.equal(resumed.activity.status, "completed");
   assert.equal(resumed.activity.runIds.length, 2);
@@ -188,7 +188,7 @@ for (const reason of ["timeout", "disconnect", "shutdown", "crash"] as const) {
     const baseline = model.requests.length;
     const running = await client.startRun(script([start], "hold"), "activity-lifecycle");
     await waitForTest(() => model.requests.length >= baseline + 2, "in-flight activity model");
-    const runningState = await one(running.threadId);
+    const runningState = await one(running.spaceId);
     assert.equal(runningState.activity.status, "running");
     if (reason === "disconnect") await running.cancel();
     else if (reason === "shutdown") await service.stop();
@@ -202,7 +202,7 @@ for (const reason of ["timeout", "disconnect", "shutdown", "crash"] as const) {
     const count = model.requests.length;
     if (reason === "shutdown" || reason === "crash") await service.start();
     else await service.restart();
-    const after = await one(running.threadId);
+    const after = await one(running.spaceId);
     assert.equal(after.activity.id, runningState.activity.id);
     assert.equal(after.activity.status, reason === "timeout" ? "failed" : reason === "disconnect" ? "stopped" : "interrupted");
     assert.equal(after.activity.result, null);
@@ -214,11 +214,11 @@ for (const reason of ["timeout", "disconnect", "shutdown", "crash"] as const) {
       }
     }
     assert.equal(model.requests.length, count);
-    const bytes = await sessionBytes(service.dataDir, running.threadId);
-    assert.deepEqual(await one(running.threadId), after);
-    assert.deepEqual(await sessionBytes(service.dataDir, running.threadId), bytes, "read-only interrupted projection must not append");
-    succeeded(await client.run(script([activity("resume", { activityId: after.activity.id }), complete]), running.threadId));
-    const resumed = await one(running.threadId);
+    const bytes = await sessionBytes(service.dataDir, running.spaceId);
+    assert.deepEqual(await one(running.spaceId), after);
+    assert.deepEqual(await sessionBytes(service.dataDir, running.spaceId), bytes, "read-only interrupted projection must not append");
+    succeeded(await client.run(script([activity("resume", { activityId: after.activity.id }), complete]), running.spaceId));
+    const resumed = await one(running.spaceId);
     assert.equal(resumed.activity.status, "completed");
     assertClosedSteps(resumed);
     assert.deepEqual(resumed.steps.slice(0, after.steps.length), after.steps);
@@ -232,14 +232,14 @@ for (const decision of ["approve", "deny", "expire", "cancel", "conflict"] as co
     const content = "FULL-APPROVAL-CONTENT\n" + "complete preview\n".repeat(100);
     const running = await client.startRun(script([start, { name: "write", args: { path, content } }]), "activity-approval");
     const action = await waitForTest(async () => (await client.pending()).find((item) => item.runId === running.runId), "file approval");
-    assert.equal(action.threadId, running.threadId);
+    assert.equal(action.spaceId, running.spaceId);
     assert.equal(action.preview.path, path);
     assert.equal(action.preview.after, content);
     assert.equal(action.preview.before, "");
     assert.equal(action.preview.beforeExists, false);
-    const target = join(service.dataDir, "workspace/threads", running.threadId, path);
+    const target = join(service.dataDir, "workspace/threads", running.spaceId, path);
     await assert.rejects(stat(target), { code: "ENOENT" });
-    const waiting = await one(running.threadId);
+    const waiting = await one(running.spaceId);
     assert.equal(waiting.activity.status, "waiting_approval");
     assert.equal(action.activityId, waiting.activity.id);
     assert.equal(action.execution, null);
@@ -249,7 +249,7 @@ for (const decision of ["approve", "deny", "expire", "cancel", "conflict"] as co
     assert.equal(approval.parentId, tool.id);
     assert.doesNotMatch(JSON.stringify(waiting), /FULL-APPROVAL-CONTENT|complete preview|report\.md/);
     if (decision === "cancel") {
-      await client.json("/api/conversation/stop", { threadId: running.threadId, runId: running.runId });
+      await client.json("/api/conversation/stop", { spaceId: running.spaceId, runId: running.runId });
       failed(await running.done);
     } else {
       if (decision === "conflict") await writeFile(target, "EXTERNAL-CONTENT", { mode: 0o600 });
@@ -257,7 +257,7 @@ for (const decision of ["approve", "deny", "expire", "cancel", "conflict"] as co
         assert.equal((await client.decideApproval(action.id, decision === "deny" ? "deny" : "approve")).status, 200);
       succeeded(await running.done);
     }
-    const result = await one(running.threadId);
+    const result = await one(running.spaceId);
     assertClosedSteps(result);
     const expected = decision === "approve" ? "succeeded" : decision === "deny" ? "denied" : decision === "expire" ? "expired" : decision === "cancel" ? "cancelled" : "succeeded";
     assert.equal(result.steps.find((step) => step.kind === "approval")?.status, expected);
@@ -310,11 +310,11 @@ for (const decision of ["approve", "cancel"] as const) {
     const { service, client, one } = await fixture(t);
     const running = await client.startRun(script([start, { name: "subagent", args: { agent: "worker", task: "帮我写入草稿" } }]), "activity-child-approval");
     const action = await waitForTest(async () => (await client.pending()).find((item) => item.runId === running.runId), "child approval in activity");
-    assert.equal(action.threadId, running.threadId);
+    assert.equal(action.spaceId, running.spaceId);
     // 子代理发起的审批预览仍指向真实文件作用域；归属字段由服务端既有装配决定，
     // 这里只断言本测试关心的作用域与完整内容，不推断子会话/父会话归属。
-    assert.ok(action.preview.scope === "space" || action.preview.scope === "thread");
-    const waiting = await one(running.threadId);
+    assert.ok(action.preview.scope === "space");
+    const waiting = await one(running.spaceId);
     assert.equal(waiting.activity.status, "waiting_approval");
     const approval = waiting.steps.find((step) => step.kind === "approval")!;
     const write = waiting.steps.find((step) => step.id === approval.parentId)!;
@@ -330,11 +330,11 @@ for (const decision of ["approve", "cancel"] as const) {
       succeeded(await running.done);
       assert.equal(await readFile(target, "utf8"), action.preview.after);
     } else {
-      await client.json("/api/conversation/stop", { threadId: running.threadId, runId: running.runId });
+      await client.json("/api/conversation/stop", { spaceId: running.spaceId, runId: running.runId });
       failed(await running.done);
       await assert.rejects(stat(target), { code: "ENOENT" });
     }
-    const result = await one(running.threadId);
+    const result = await one(running.spaceId);
     assertClosedSteps(result);
     assert.equal(result.steps.find((step) => step.kind === "approval")?.status, decision === "approve" ? "succeeded" : "cancelled");
     assert.equal(result.activity.status, decision === "approve" ? "awaiting_continuation" : "stopped");
@@ -356,11 +356,11 @@ test("activity e2e: cross-thread and completed resumes are refused; no HTTP acti
   const { client, model, one, list } = await fixture(t);
   succeeded(await client.run(script([start, complete]), "activity-owner"));
   const original = await one("activity-owner");
-  for (const threadId of ["activity-other", "activity-owner"]) {
-    const events = await client.run(script([activity("resume", { activityId: original.activity.id })]), threadId);
+  for (const spaceId of ["activity-other", "activity-owner"]) {
+    const events = await client.run(script([activity("resume", { activityId: original.activity.id })]), spaceId);
     succeeded(events);
     const actualResults = model.requests.at(-1)!.messages.filter((message) => message.role === "tool");
-    assert.match(JSON.stringify(actualResults), threadId === "activity-other" ? /Activity not found in this conversation/ : /Activity cannot be resumed/);
+    assert.match(JSON.stringify(actualResults), spaceId === "activity-other" ? /Activity not found in this conversation/ : /Activity cannot be resumed/);
     assert.deepEqual(await one("activity-owner"), original);
   }
   assert.equal((await list()).activities.length, 1);
@@ -378,8 +378,8 @@ test("activity e2e: cursor pagination, filters, malformed queries and deletion/r
   // 离线只调整排序时间：用真实生成的 JSONL 验证同毫秒全序与超过七天的留存，
   // 不在运行时开第二个 writer，也不伪造工具执行或完成状态。
   await service.stop();
-  for (const threadId of ["activity-page-a", "activity-page-b"]) {
-    for (const file of await sessionFiles(service.dataDir, threadId)) {
+  for (const spaceId of ["activity-page-a", "activity-page-b"]) {
+    for (const file of await sessionFiles(service.dataDir, spaceId)) {
       const entries = (await readFile(file, "utf8")).trimEnd().split("\n").map((line) => JSON.parse(line));
       for (const entry of entries) {
         if (entry.type === "custom" && entry.customType === "pi-muse.activity" && entry.data.kind === "overview") entry.data.activity.createdAt = "2020-01-01T00:00:00.000Z";
@@ -402,18 +402,18 @@ test("activity e2e: cursor pagination, filters, malformed queries and deletion/r
   } while (cursor);
   assert.deepEqual(ids, all.map((item) => item.id));
   assert.equal(new Set(ids).size, 6);
-  assert.equal((await list("?threadId=activity-page-a")).activities.length, 3);
+  assert.equal((await list("?spaceId=activity-page-a")).activities.length, 3);
   assert.equal((await list("?status=awaiting_continuation")).activities.length, 2);
-  const filtered = await list("?threadId=activity-page-a&status=completed&limit=1");
+  const filtered = await list("?spaceId=activity-page-a&status=completed&limit=1");
   assert.ok(filtered.nextCursor);
-  for (const query of ["?limit=0", "?limit=101", "?limit=1.5", "?limit=", "?limit=abc", "?limit=1&limit=2", "?unknown=1", "?cursor=invalid!", "?threadId=../bad", "?status=unknown",
-    `?threadId=activity-page-b&status=completed&cursor=${filtered.nextCursor}`]) {
+  for (const query of ["?limit=0", "?limit=101", "?limit=1.5", "?limit=", "?limit=abc", "?limit=1&limit=2", "?unknown=1", "?cursor=invalid!", "?spaceId=../bad", "?status=unknown",
+    `?spaceId=activity-page-b&status=completed&cursor=${filtered.nextCursor}`]) {
     assert.equal((await client.request("/api/activities" + query)).status, 400, query);
   }
-  const removed = all.filter((item) => item.threadId === "activity-page-a");
+  const removed = all.filter((item) => item.spaceId === "activity-page-a");
   await writeFile(join(service.dataDir, "workspace/shared/kept.md"), "SHARED-SURVIVES", { mode: 0o600 });
   await client.json("/api/spaces/activity-page-a", undefined, "DELETE");
-  assert.deepEqual((await list("?threadId=activity-page-a")).activities, []);
+  assert.deepEqual((await list("?spaceId=activity-page-a")).activities, []);
   for (const item of removed) assert.equal((await client.request(`/api/activities/${item.id}`)).status, 404);
   await assert.rejects(stat(join(service.dataDir, "sessions/activity-page-a")), { code: "ENOENT" });
   assert.equal(await readFile(join(service.dataDir, "workspace/shared/kept.md"), "utf8"), "SHARED-SURVIVES");
@@ -430,18 +430,18 @@ test("activity e2e: deleting an in-flight activity cancels its provider and cann
   const baseline = model.requests.length;
   const running = await client.startRun(script([start], "hold"), "activity-deleting");
   await waitForTest(() => model.requests.length >= baseline + 2, "in-flight activity to delete");
-  const record = await one(running.threadId);
+  const record = await one(running.spaceId);
   const disconnected = model.slowClosed();
-  await client.json(`/api/spaces/${running.threadId}`, undefined, "DELETE");
+  await client.json(`/api/spaces/${running.spaceId}`, undefined, "DELETE");
   failed(await running.done);
   await waitForTest(() => model.slowClosed() > disconnected, "deleted activity provider disconnect");
   assert.equal((await client.request(`/api/activities/${record.activity.id}`)).status, 404);
-  assert.deepEqual((await list(`?threadId=${running.threadId}`)).activities, []);
-  assert.deepEqual(await client.json("/api/conversation/stop", { threadId: running.threadId, runId: running.runId }), { stopped: false });
-  await assert.rejects(stat(join(service.dataDir, "sessions", running.threadId)), { code: "ENOENT" });
+  assert.deepEqual((await list(`?spaceId=${running.spaceId}`)).activities, []);
+  assert.deepEqual(await client.json("/api/conversation/stop", { spaceId: running.spaceId, runId: running.runId }), { stopped: false });
+  await assert.rejects(stat(join(service.dataDir, "sessions", running.spaceId)), { code: "ENOENT" });
   await service.restart();
   assert.equal((await client.request(`/api/activities/${record.activity.id}`)).status, 404);
-  assert.ok(!(await client.json("/api/spaces")).spaces.some((space: { id: string }) => space.id === running.threadId));
+  assert.ok(!(await client.json("/api/spaces")).spaces.some((space: { id: string }) => space.id === running.spaceId));
 });
 
 test("activity e2e: invalid persisted custom entries fail closed instead of disappearing from list or detail", async (t) => {

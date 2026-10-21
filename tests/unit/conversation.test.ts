@@ -26,7 +26,7 @@ const assistant = (content: AssistantMessage["content"]): AssistantMessage => ({
   stopReason: "stop", timestamp: 1,
 });
 const input = (content = turn.text, runId = "new-run"): ConversationInput => ({
-  threadId: "local-main", runId, expectedRevision: "leaf", message: { id: turn.userId, content },
+  spaceId: "local-main", runId, expectedRevision: "leaf", message: { id: turn.userId, content },
 });
 const user: import("../../src/features/conversation/types.js").HistoryMessage = { id: turn.userId, role: "user", content: turn.text };
 const emptyRecords = (): ConversationRecords => ({ turns: [], results: new Map() });
@@ -91,7 +91,7 @@ test("validator accepts incremental messages and retries the last failed user wi
 });
 
 test("validator rejects malformed identities, stale revisions and message edits", () => {
-  for (const threadId of ["../evil", "x".repeat(65), "-bad"]) expectError("UNSUPPORTED_THREAD", { ...input(), threadId });
+  for (const spaceId of ["../evil", "x".repeat(65), "-bad"]) expectError("UNSUPPORTED_SPACE", { ...input(), spaceId });
   expectError("INVALID_INPUT", input(turn.text, ""));
   expectError("INVALID_INPUT", { ...input(), message: { id: " ", content: "hello" } });
   expectError("INVALID_INPUT", input(" "));

@@ -8,21 +8,8 @@ import { connect, type AddressInfo } from "node:net";
 import { serve } from "@hono/node-server";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import {
-  type BaseEvent,
-  type Message,
-  RunStartedEventSchema,
-  RunFinishedEventSchema,
-  RunErrorEventSchema,
-  TextMessageStartEventSchema,
-  TextMessageContentEventSchema,
-  TextMessageEndEventSchema,
-  MessagesSnapshotEventSchema,
-  ToolCallStartEventSchema,
-  ToolCallArgsEventSchema,
-  ToolCallEndEventSchema,
-  ToolCallResultEventSchema,
-} from "@ag-ui/core";
+import { type BaseEvent, type Message } from "@ag-ui/core";
+import { sseEventSchema } from "../../src/http/contracts/sse-events.js";
 import type { ConversationInput } from "../../src/features/conversation/types.js";
 import { createSessionHistory } from "../../src/adapters/pi/session-history.js";
 import { createDataLayout, threadWorkspaceDir, sharedWorkspaceDir } from "../../src/adapters/storage/data-layout.js";
@@ -37,7 +24,7 @@ const snapshotRevisions = new WeakMap<Message, string>();
 const input = (messages: Message[], runId: string = randomUUID()): ConversationInput => {
   const message = messages.findLast((item) => item.role === "user")!;
   const expectedRevision = messages.map((item) => snapshotRevisions.get(item)).findLast(Boolean) ?? "empty";
-  return { threadId: "local-main", runId, expectedRevision,
+  return { spaceId: "local-main", runId, expectedRevision,
     message: { id: message.id, content: String(message.content ?? "") } };
 };
 const user = (content: string, id: string = randomUUID()): Message => ({
@@ -45,19 +32,6 @@ const user = (content: string, id: string = randomUUID()): Message => ({
   role: "user",
   content,
 });
-const schemas = {
-  RUN_STARTED: RunStartedEventSchema,
-  RUN_FINISHED: RunFinishedEventSchema,
-  RUN_ERROR: RunErrorEventSchema,
-  TEXT_MESSAGE_START: TextMessageStartEventSchema,
-  TEXT_MESSAGE_CONTENT: TextMessageContentEventSchema,
-  TEXT_MESSAGE_END: TextMessageEndEventSchema,
-  MESSAGES_SNAPSHOT: MessagesSnapshotEventSchema,
-  TOOL_CALL_START: ToolCallStartEventSchema,
-  TOOL_CALL_ARGS: ToolCallArgsEventSchema,
-  TOOL_CALL_END: ToolCallEndEventSchema,
-  TOOL_CALL_RESULT: ToolCallResultEventSchema,
-};
 // 服务端只应把只读工具集声明给模型；客户端伪造的 tools 永不透传。
 const declaredTools = (request: ModelRequest) =>
   (request.tools || [])
@@ -205,7 +179,7 @@ async function harness(
         body: body === undefined ? undefined : JSON.stringify(body),
       });
     const getHistory = (threadId = "local-main") =>
-      request("/api/conversation?threadId=" + encodeURIComponent(threadId))
+      request("/api/conversation?spaceId=" + encodeURIComponent(threadId))
         .then((x) => x.json())
         .then((snapshot) => {
           const messages = snapshot.messages as Message[];
@@ -228,8 +202,8 @@ async function harness(
         .split("\n\n")
         .filter((x) => x.startsWith("data: "))
         .map((x) => {
-          const event = JSON.parse(x.slice(6)) as BaseEvent;
-          schemas[event.type as keyof typeof schemas].parse(event);
+          const event = JSON.parse(x.slice(6));
+          sseEventSchema.parse(event);
           return event;
         });
     };
@@ -482,7 +456,7 @@ test("stop waits for pi idle, rejects concurrent run, preserves partial text and
   assert.equal(concurrent.at(-1)?.code, "agent_thread_locked");
   assert.equal(h.model.requests.length, 1);
   const stop = await h
-    .request("/api/conversation/stop", { threadId: "local-main", runId: "slow-run" })
+    .request("/api/conversation/stop", { spaceId: "local-main", runId: "slow-run" })
     .then((x) => x.json());
   assert.equal(stop.stopped, true);
   assert.equal(
@@ -506,7 +480,7 @@ test("stop waits for pi idle, rejects concurrent run, preserves partial text and
   assert.equal(
     (
       await h
-        .request("/api/conversation/stop", { threadId: "local-main", runId: "slow-run" })
+        .request("/api/conversation/stop", { spaceId: "local-main", runId: "slow-run" })
         .then((x) => x.json())
     ).stopped,
     false,
@@ -558,7 +532,7 @@ test("timeout and broken endpoint terminate with errors; validation cannot mutat
   assert.deepEqual(await h.getHistory(), canonical);
   // 非法 threadId 在宿主预校验即被拒绝（HTTP 400），不再进入 SSE 流。
   const wrong = input([...canonical, user("wrong")]);
-  wrong.threadId = "../../evil";
+  wrong.spaceId = "../../evil";
   assert.equal(
     (await h.request("/api/conversation/run", wrong)).status,
     400,
@@ -634,7 +608,7 @@ test("stop after a tool preserves its effect and displayed history while pi filt
   const pending = h.events(input([user("记住工具后慢流")], "tool-stop"));
   await until(() => h.model.requests.length === 2);
   await sleep(100);
-  assert.equal((await h.request("/api/conversation/stop", { threadId: "local-main", runId: "tool-stop" }).then((response) => response.json())).stopped, true);
+  assert.equal((await h.request("/api/conversation/stop", { spaceId: "local-main", runId: "tool-stop" }).then((response) => response.json())).stopped, true);
   assert.equal((await pending).at(-1)?.code, "STOPPED");
   assert.equal(
     (await h.service().conversationHub.forThread("local-main")).isRunning(),
@@ -797,7 +771,7 @@ for (const scenario of ["工具后失败", "工具后挂起", "工具后慢流"]
         assert.ok(Date.now() < deadline, "Tool result must reach the model before Stop");
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
-      const stopped = await h.request("/api/conversation/stop", { threadId: "local-main", runId: "hidden-failure" });
+      const stopped = await h.request("/api/conversation/stop", { spaceId: "local-main", runId: "hidden-failure" });
       assert.equal(stopped.status, 200);
     }
     const events = await running;
@@ -1250,7 +1224,7 @@ test("multi-thread: independent histories, thread listing and stop scoped per th
   // 两个 thread 各聊一轮，历史互不污染。
   await h.events(input([user("main thread question")], "t-main-1"));
   const trip = input([user("trip plan question")], "t-trip-1");
-  trip.threadId = "trip-2026";
+  trip.spaceId = "trip-2026";
   await h.events(trip);
   const mainHistory = await h.getHistory();
   assert.ok(mainHistory.some((x) => x.role === "user" && String(x.content).includes("main thread")));
@@ -1258,7 +1232,7 @@ test("multi-thread: independent histories, thread listing and stop scoped per th
   const tripHistory = await h.getHistory("trip-2026");
   assert.ok(tripHistory.some((x) => String(x.content).includes("trip plan")));
   const follow = input([...tripHistory, user("trip followup")], "t-trip-2");
-  follow.threadId = "trip-2026";
+  follow.spaceId = "trip-2026";
   assert.equal((await h.events(follow)).at(-1)?.type, "RUN_FINISHED");
   // thread 列表包含两个 id；非法 id 的请求被拒绝。
   const threads = await h
@@ -1268,7 +1242,7 @@ test("multi-thread: independent histories, thread listing and stop scoped per th
   assert.deepEqual(threads, ["local-main", "trip-2026"]);
   // 非法 threadId 现在在宿主预校验被 HTTP 400 拒绝（不进 SSE 流）。
   const evil = input([user("x")], "t-evil");
-  evil.threadId = "../evil";
+  evil.spaceId = "../evil";
   assert.equal(
     (await h.request("/api/conversation/run", evil)).status,
     400,
@@ -1300,19 +1274,19 @@ test("thread lifecycle: protected local-main, DELETE cascades jobs/monitors and 
   // 3. 创建一个 thread 并关联 job、monitor
   const threadId = "thread-to-delete";
   const runInput = input([user("hello from thread to delete")], "del-init");
-  runInput.threadId = threadId;
+  runInput.spaceId = threadId;
   assert.equal((await h.events(runInput)).at(-1)?.type, "RUN_FINISHED");
 
   await h.service().jobs.add("bound reminder", false, new Date(0).toISOString(), threadId);
   await h.service().monitors.create({
     url: "https://example.com/test",
     condition: "change",
-    originThreadId: threadId,
+    originSpaceId: threadId,
   });
 
   // 确认已建好
-  assert.ok((await h.service().jobs.list()).some((j) => j.originThreadId === threadId));
-  assert.ok((await h.service().monitors.list()).some((m) => m.originThreadId === threadId));
+  assert.ok((await h.service().jobs.list()).some((j) => j.originSpaceId === threadId));
+  assert.ok((await h.service().monitors.list()).some((m) => m.originSpaceId === threadId));
 
   // 4. 调用 DELETE /api/spaces/:spaceId
   const res = await h.request(`/api/spaces/${threadId}`, undefined, "DELETE");
@@ -1321,8 +1295,8 @@ test("thread lifecycle: protected local-main, DELETE cascades jobs/monitors and 
   assert.deepEqual(body, { ok: true, removed: { jobs: 1, monitors: 1 } });
 
   // 5. 校验级联结果
-  assert.ok(!(await h.service().jobs.list()).some((j) => j.originThreadId === threadId));
-  assert.ok(!(await h.service().monitors.list()).some((m) => m.originThreadId === threadId));
+  assert.ok(!(await h.service().jobs.list()).some((j) => j.originSpaceId === threadId));
+  assert.ok(!(await h.service().monitors.list()).some((m) => m.originSpaceId === threadId));
 
   // 6. 校验 thread 目录和列表
   const threads = await h.request("/api/spaces").then((x) => x.json()).then((x) => (x.spaces as { id: string }[]).map((y) => y.id));
@@ -1389,7 +1363,7 @@ test("session skills: tool trimming in model call", {
 
   // 发起一轮对话
   const run1 = input([user("hello")], "run-1");
-  run1.threadId = "thread-no-cron";
+  run1.spaceId = "thread-no-cron";
   assert.equal((await h.events(run1)).at(-1)?.type, "RUN_FINISHED");
 
   // 校验发送给模型的工具列表中不包含被关闭的 schedule, search_web, web_fetch
@@ -1404,7 +1378,7 @@ test("session skills: tool trimming in model call", {
 
   // 2. 在 thread-with-cron 中发送消息（默认全开）
   const run2 = input([user("hello")], "run-2");
-  run2.threadId = "thread-with-cron";
+  run2.spaceId = "thread-with-cron";
   assert.equal((await h.events(run2)).at(-1)?.type, "RUN_FINISHED");
 
   const req2 = h.model.requests.at(-1);
@@ -1458,7 +1432,7 @@ export default function (api) {
 
   // 1. 发起对话，验证 ping_custom 工具存在，且同名的 fake read 没有覆盖内置 read
   const run1 = input([user("hello")], "run-ext-1");
-  run1.threadId = "custom-ext-thread";
+  run1.spaceId = "custom-ext-thread";
   assert.equal((await h.events(run1)).at(-1)?.type, "RUN_FINISHED");
 
   const req1 = h.model.requests.at(-1);
@@ -1478,7 +1452,7 @@ export default function (api) {
 
   const extHistory = await h.getHistory("custom-ext-thread");
   const run2 = input([...extHistory, user("hello again")], "run-ext-2");
-  run2.threadId = "custom-ext-thread";
+  run2.spaceId = "custom-ext-thread";
   assert.equal((await h.events(run2)).at(-1)?.type, "RUN_FINISHED");
 
   const req2 = h.model.requests.at(-1);
@@ -1507,7 +1481,7 @@ test("thread instructions: GET/PUT REST endpoints and prompt injection per threa
 
   // 3. 在 email-thread 发起对话，检查 System Prompt 注入
   const run1 = input([user("hello email")], "run-inst-1");
-  run1.threadId = "email-thread";
+  run1.spaceId = "email-thread";
   assert.equal((await h.events(run1)).at(-1)?.type, "RUN_FINISHED");
 
   const req1 = h.model.requests.at(-1);
@@ -1518,7 +1492,7 @@ test("thread instructions: GET/PUT REST endpoints and prompt injection per threa
 
   // 4. 在另一个会话 code-thread 发起对话，System Prompt 不包含 email-thread 的规则
   const run2 = input([user("hello code")], "run-inst-2");
-  run2.threadId = "code-thread";
+  run2.spaceId = "code-thread";
   assert.equal((await h.events(run2)).at(-1)?.type, "RUN_FINISHED");
 
   const req2 = h.model.requests.at(-1);
@@ -1535,7 +1509,7 @@ test("thread instructions: conversation can modify its own instructions via inst
 
   // 1. 发送触发词"设定规则"，模型调用 instructions 工具 set "RULE-FROM-CHAT: Always be polite."
   const run1 = input([user("请设定规则")], "run-tool-inst-1");
-  run1.threadId = "chat-inst-thread";
+  run1.spaceId = "chat-inst-thread";
   const ev1 = await h.events(run1);
   assert.equal(ev1.at(-1)?.type, "RUN_FINISHED");
   const toolCall = ev1.find((e) => e.type === "TOOL_CALL_START") as any;
@@ -1550,7 +1524,7 @@ test("thread instructions: conversation can modify its own instructions via inst
   // 3. 下一轮对话，System Prompt 应包含刚设定的规则
   const hist = await h.getHistory("chat-inst-thread");
   const run2 = input([...hist, user("hello next")], "run-tool-inst-2");
-  run2.threadId = "chat-inst-thread";
+  run2.spaceId = "chat-inst-thread";
   assert.equal((await h.events(run2)).at(-1)?.type, "RUN_FINISHED");
 
   const req = h.model.requests.at(-1);
@@ -1573,11 +1547,11 @@ test("thread workspace: physical isolation per thread, shared workspace access a
 
   // 1. 触发会话初始化，专属工作目录被创建
   const run1 = input([user("hello email ws")], "ws-1");
-  run1.threadId = emailThread;
+  run1.spaceId = emailThread;
   assert.equal((await h.events(run1)).at(-1)?.type, "RUN_FINISHED");
 
   const run2 = input([user("hello code ws")], "ws-2");
-  run2.threadId = codeThread;
+  run2.spaceId = codeThread;
   assert.equal((await h.events(run2)).at(-1)?.type, "RUN_FINISHED");
 
   const emailDir = threadWorkspaceDir(h.service().layout, emailThread);
@@ -1619,7 +1593,7 @@ test("thread workspace: main and other threads deny private escapes, share files
   const read = async (threadId: string, path: string) => {
     const before = await h.getHistory(threadId);
     const request = input([...before, user(`读文件 ${path}`)]);
-    request.threadId = threadId;
+    request.spaceId = threadId;
     assert.equal((await h.events(request)).at(-1)?.type, "RUN_FINISHED");
     return h.model.requests.at(-1)!.messages.filter((message) => message.role === "tool").at(-1)?.content;
   };
@@ -1642,10 +1616,10 @@ test("thread workspace: main and other threads deny private escapes, share files
   assert.doesNotMatch(String(await read("local-main", "threads/mail-isolated/private.txt")), /MAIL-ONLY-CANARY/);
   assert.doesNotMatch(String(await read("local-main", "old-root.txt")), /OLD-ROOT-UNREACHABLE/);
   const before = new Map(await Promise.all(["local-main", "mail-isolated"].map(async (id) =>
-    [id, await h.request(`/api/conversation?threadId=${id}`).then((response) => response.json())] as const)));
+    [id, await h.request(`/api/conversation?spaceId=${id}`).then((response) => response.json())] as const)));
   await h.restart();
   for (const [id, snapshot] of before) {
-    assert.deepEqual(await h.request(`/api/conversation?threadId=${id}`).then((response) => response.json()), snapshot);
+    assert.deepEqual(await h.request(`/api/conversation?spaceId=${id}`).then((response) => response.json()), snapshot);
     const dir = join(layout.sessionsDir, id);
     for (const name of (await readdir(dir)).filter((file) => file.endsWith(".jsonl"))) {
       const header = JSON.parse((await readFile(join(dir, name), "utf8")).split("\n")[0]);
@@ -1716,9 +1690,9 @@ test("subagent: write approval is owned by the parent run and Stop cancels child
     await sleep(10);
   }
   assert.ok(action, "child should wait for approval");
-  assert.equal(action.threadId, "local-main");
+  assert.equal(action.spaceId, "local-main");
   assert.equal(action.runId, run.runId);
-  const stopped = await h.request("/api/conversation/stop", { threadId: run.threadId, runId: run.runId });
+  const stopped = await h.request("/api/conversation/stop", { spaceId: run.spaceId, runId: run.runId });
   assert.equal((await stopped.json()).stopped, true);
   const events = await pendingRun;
   assert.equal(events.at(-1)?.type, "RUN_ERROR");
@@ -1739,7 +1713,7 @@ test("subagent: Stop interrupts the child provider and releases the parent run",
   const response = h.events(run);
   await until(() => h.model.requests.length >= 2);
   const before = h.model.slowClosed();
-  await h.request("/api/conversation/stop", { threadId: run.threadId, runId: run.runId });
+  await h.request("/api/conversation/stop", { spaceId: run.spaceId, runId: run.runId });
   const events = await response;
   assert.equal(events.at(-1)?.type, "RUN_ERROR");
   await until(() => h.model.slowClosed() > before);
@@ -1996,7 +1970,7 @@ test("history larger than 1 MiB still accepts a small incremental turn and rejec
   assert.equal(after.length, history.length + 2);
   // 旧的全量 body 即使足够小也应按契约拒绝，而不是靠请求体大小限制偶然拒绝。
   const legacy = await h.request("/api/conversation/run", {
-    threadId: "local-main", runId: "legacy-body", messages: [user("legacy")],
+    spaceId: "local-main", runId: "legacy-body", messages: [user("legacy")],
     state: {}, tools: [], context: [], forwardedProps: {},
   });
   assert.equal(legacy.status, 400);
@@ -2020,11 +1994,11 @@ test("stale revisions and completed-message reuse return HTTP 409, late stop can
   assert.equal((await reused.json()).code, "MESSAGE_ID_CONFLICT");
   const pending = h.events(input([...history, user("freeze")], "new-active-run"));
   await until(() => h.model.requests.length === 2);
-  const lateStop = await h.request("/api/conversation/stop", { threadId: "local-main", runId: "completed-run" });
+  const lateStop = await h.request("/api/conversation/stop", { spaceId: "local-main", runId: "completed-run" });
   assert.equal(lateStop.status, 200);
   assert.equal((await lateStop.json()).stopped, false);
   assert.equal((await h.service().conversationHub.forThread("local-main")).isRunning(), true);
-  const stopped = await h.request("/api/conversation/stop", { threadId: "local-main", runId: "new-active-run" });
+  const stopped = await h.request("/api/conversation/stop", { spaceId: "local-main", runId: "new-active-run" });
   assert.equal((await stopped.json()).stopped, true);
   assert.equal((await pending).at(-1)?.code, "STOPPED");
 });

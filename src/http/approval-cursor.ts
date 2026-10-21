@@ -10,12 +10,11 @@ export const encodeApprovalCursor = (
   cursor: { resolvedAt: string; id: string },
   filter: ApprovalFilter,
 ): string => {
-  const spaceId = filter.spaceId ?? (filter as { threadId?: string }).threadId;
   return Buffer.from(
     JSON.stringify({
       resolvedAt: cursor.resolvedAt,
       id: cursor.id,
-      ...(spaceId !== undefined ? { spaceId, threadId: spaceId } : {}),
+      ...(filter.spaceId !== undefined ? { spaceId: filter.spaceId } : {}),
       ...(filter.activityId !== undefined ? { activityId: filter.activityId } : {}),
       ...(filter.status !== undefined ? { status: filter.status } : {}),
     }),
@@ -48,10 +47,8 @@ export const approvalCursorMatchesFilter = (
   cursor: ApprovalCursorPayloadDto,
   filter: ApprovalFilter,
 ): boolean => {
-  const cSpace = cursor.spaceId ?? (cursor as { threadId?: string }).threadId;
-  const fSpace = filter.spaceId ?? (filter as { threadId?: string }).threadId;
   return (
-    cSpace === fSpace &&
+    cursor.spaceId === filter.spaceId &&
     cursor.activityId === filter.activityId &&
     cursor.status === filter.status
   );

@@ -42,9 +42,9 @@ test("approval client uses the new routes and validates the pending envelope ins
   });
   const approval = {
     id: "approval-1", kind: "file_write", title: "Write draft",
-    spaceId: "local-main", threadId: "local-main",
-    workspaceSpaceId: "local-main", workspaceThreadId: "local-main",
-    preview: { scope: "space", ownerSpaceId: "local-main", ownerThreadId: "local-main", path: "draft.md", before: "", after: "complete preview", beforeExists: false }, status: "pending",
+    spaceId: "local-main",
+    workspaceSpaceId: "local-main",
+    preview: { scope: "space", ownerSpaceId: "local-main", path: "draft.md", before: "", after: "complete preview", beforeExists: false }, status: "pending",
     revision: 1, runId: null, activityId: null, toolCallId: null, subagentId: null, resolvedAt: null, decidedAt: null,
     createdAt: "2026-10-19T00:00:00.000Z", expiresAt: "2026-10-19T00:05:00.000Z", execution: null,
   };
@@ -79,11 +79,11 @@ test("chat client rejects malformed protocol events and streams that omit a term
   });
   let body = 'data: {"type":"TOOL_CALL_START","toolCallId":"missing-name"}\n\n';
   t.mock.method(globalThis, "fetch", async () => new Response(body, { headers: { "content-type": "text/event-stream" } }));
-  const input = { threadId: "main", runId: "run", expectedRevision: "empty", message: { id: "u", content: "hello" } };
+  const input = { spaceId: "main", runId: "run", expectedRevision: "empty", message: { id: "u", content: "hello" } };
   await assert.rejects(runConversation(input, () => assert.fail("invalid event must never reach the UI")), /不符合契约/);
-  body = 'data: {"type":"RUN_STARTED","threadId":"main","runId":"run"}\n\n';
+  body = 'data: {"type":"RUN_STARTED","spaceId":"main","runId":"run"}\n\n';
   await assert.rejects(runConversation(input, () => {}), /提前结束/);
-  body += 'data: {"type":"RUN_FINISHED","threadId":"main","runId":"run"}\n\n';
+  body += 'data: {"type":"RUN_FINISHED","spaceId":"main","runId":"run"}\n\n';
   const events: string[] = [];
   await runConversation(input, (event) => events.push(event.type));
   assert.deepEqual(events, ["RUN_STARTED", "RUN_FINISHED"]);

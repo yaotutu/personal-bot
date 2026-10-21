@@ -38,7 +38,6 @@ export type ConversationHistory = HistoryMessage[];
 /** 客户端只提交一条消息及读取时的历史版本，不能注入模型/工具历史。 */
 export type ConversationInput = {
   spaceId?: string;
-  threadId?: string;
   runId: string;
   expectedRevision: string;
   message: { id: string; content: string };
@@ -58,8 +57,8 @@ export type ExecutionEvent =
 /** 生命周期由协调器决定，文本/工具事件的协议形状由 AG-UI adapter 决定。 */
 export type ConversationEvent =
   | ExecutionEvent
-  | { type: "run_started"; spaceId?: string; threadId?: string; runId: string; assistantId: string }
-  | { type: "run_finished"; spaceId?: string; threadId?: string; runId: string }
+  | { type: "run_started"; spaceId?: string; runId: string; assistantId: string }
+  | { type: "run_finished"; spaceId?: string; runId: string }
   | { type: "run_error"; code: string; message: string }
   | { type: "history_snapshot"; messages: ConversationHistory }
   | { type: "text_end"; assistantId: string };

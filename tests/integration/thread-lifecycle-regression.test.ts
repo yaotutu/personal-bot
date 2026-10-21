@@ -65,7 +65,7 @@ const fixture = async (t: TestContext) => {
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const snapshot = async (id: string) => {
-    const response = await request(`/api/conversation?threadId=${id}`);
+    const response = await request(`/api/conversation?spaceId=${id}`);
     assert.equal(response.status, 200);
     return response.json() as Promise<{ messages: { role: string; content?: string }[]; revision: string }>;
   };
@@ -78,7 +78,7 @@ const fixture = async (t: TestContext) => {
   const run = async (id: string, text: string) => {
     const before = await snapshot(id);
     const response = await request("/api/conversation/run", "POST", {
-      threadId: id, runId: randomUUID(), expectedRevision: before.revision,
+      spaceId: id, runId: randomUUID(), expectedRevision: before.revision,
       message: { id: randomUUID(), content: text },
     });
     assert.equal(response.status, 200);
@@ -110,11 +110,11 @@ test("thread reads and late stop never create absent or deleted sessions, includ
   const deleting = h.request(`/api/spaces/${id}`, "DELETE");
   await entered.promise;
   assert.deepEqual(await h.snapshot(id), { messages: [], revision: "empty" });
-  const stop = await h.request("/api/conversation/stop", "POST", { threadId: id, runId: "old" });
+  const stop = await h.request("/api/conversation/stop", "POST", { spaceId: id, runId: "old" });
   assert.deepEqual(await stop.json(), { stopped: false });
   for (const [path, body] of [
     [`/api/spaces/${id}/instructions`, { instructions: "late" }],
-    ["/api/monitors", { url: "https://example.com", condition: "change", originThreadId: id }],
+    ["/api/monitors", { url: "https://example.com", condition: "change", originSpaceId: id }],
   ] as const) {
     const response = await h.request(path, path.includes("instructions") ? "PUT" : "POST", body);
     assert.equal(response.status, 409, path);
@@ -124,7 +124,7 @@ test("thread reads and late stop never create absent or deleted sessions, includ
   assert.equal((await deleting).status, 200);
   h.service().jobs.removeByOriginSpaceId = removeJobs;
   assert.deepEqual(await h.snapshot(id), { messages: [], revision: "empty" });
-  await h.request("/api/conversation/stop", "POST", { threadId: id, runId: "old" });
+  await h.request("/api/conversation/stop", "POST", { spaceId: id, runId: "old" });
   assert.equal(await h.listed(id), false);
   await assertMissing(join(h.dir, "sessions", id));
   await assertMissing(join(h.dir, "workspace", "threads", id));
@@ -138,7 +138,7 @@ test("history reads remain side-effect free while unrelated threads are deleted"
   for (let index = 0; index < 12; index++) await h.service().conversationHub.forSpace(`list-race-${index}`);
   const responses = await Promise.all([
     ...Array.from({ length: 12 }, (_, index) => h.request(`/api/spaces/list-race-${index}`, "DELETE")),
-    ...Array.from({ length: 30 }, (_, index) => h.request(`/api/conversation?threadId=never-created-${index}`)),
+    ...Array.from({ length: 30 }, (_, index) => h.request(`/api/conversation?spaceId=never-created-${index}`)),
     ...Array.from({ length: 15 }, () => h.request("/api/spaces")),
   ]);
   for (const response of responses) assert.equal(response.status, 200);
@@ -150,7 +150,7 @@ test("new monitor source receives notifications and deleted monitor snapshots ca
   const h = await fixture(t);
   const id = "new-monitor-source";
   const response = await h.request("/api/monitors", "POST", {
-    title: "MONITOR-ORIGIN", url: "https://example.com", condition: "contains", value: "MATCH", originThreadId: id,
+    title: "MONITOR-ORIGIN", url: "https://example.com", condition: "contains", value: "MATCH", originSpaceId: id,
   });
   assert.equal(response.status, 200);
   const monitor = await response.json() as { id: string };
@@ -270,8 +270,8 @@ test("space reset: new sessionId generated, history cleared, workspace/instructi
   assert.equal(actionAfter?.status, "cancelled");
 
   // 验证定时任务和监控仍保留
-  assert.ok((await h.service().jobs.list()).some((j) => (j.originSpaceId ?? j.originThreadId) === spaceId));
-  assert.ok((await h.service().monitors.list()).some((m) => (m.originSpaceId ?? m.originThreadId) === spaceId));
+  assert.ok((await h.service().jobs.list()).some((j) => j.originSpaceId === spaceId));
+  assert.ok((await h.service().monitors.list()).some((m) => m.originSpaceId === spaceId));
 
   // 8. 再次重置，传入 clearSchedules: true
   const resetRes2 = await h.request(`/api/spaces/${spaceId}/reset`, "POST", { clearSchedules: true });
@@ -281,8 +281,8 @@ test("space reset: new sessionId generated, history cleared, workspace/instructi
   assert.deepEqual(resetBody2.removed, { jobs: 1, monitors: 1 });
 
   // 验证定时任务和监控被级联清除
-  assert.ok(!(await h.service().jobs.list()).some((j) => (j.originSpaceId ?? j.originThreadId) === spaceId));
-  assert.ok(!(await h.service().monitors.list()).some((m) => (m.originSpaceId ?? m.originThreadId) === spaceId));
+  assert.ok(!(await h.service().jobs.list()).some((j) => j.originSpaceId === spaceId));
+  assert.ok(!(await h.service().monitors.list()).some((m) => m.originSpaceId === spaceId));
 });
 
 test("space reset during in-flight active run with pending approval reports cancelledApprovals: 1", async (t) => {
@@ -291,7 +291,7 @@ test("space reset during in-flight active run with pending approval reports canc
 
   // 1. 发起会话，触发写文件审批（"帮我写入草稿" 会让 fakeModel 触发 write 工具调用）
   const runPromise = h.request("/api/conversation/run", "POST", {
-    threadId: spaceId,
+    spaceId: spaceId,
     runId: randomUUID(),
     expectedRevision: "empty",
     message: { id: randomUUID(), content: "帮我写入草稿" },
@@ -300,10 +300,10 @@ test("space reset during in-flight active run with pending approval reports canc
   // 2. 等待审批登记且状态为 pending
   await until(async () => {
     const pendings = await h.service().actions.snapshotPending();
-    return pendings.some((a) => (a.spaceId ?? a.threadId) === spaceId);
+    return pendings.some((a) => a.spaceId === spaceId);
   });
   const pendingsBefore = await h.service().actions.snapshotPending();
-  const pending = pendingsBefore.find((a) => (a.spaceId ?? a.threadId) === spaceId)!;
+  const pending = pendingsBefore.find((a) => a.spaceId === spaceId)!;
   assert.equal(pending.status, "pending");
 
   // 3. 在运行中且审批 pending 状态下调用 reset
@@ -325,7 +325,7 @@ test("space reset during in-flight active run with pending approval reports canc
   const actionAfter = await h.service().actions.get(pending.id);
   assert.equal(actionAfter?.status, "cancelled");
   const pendingsAfter = await h.service().actions.snapshotPending();
-  assert.equal(pendingsAfter.filter((a) => (a.spaceId ?? a.threadId) === spaceId).length, 0);
+  assert.equal(pendingsAfter.filter((a) => a.spaceId === spaceId).length, 0);
 
   // 5. 验证历史已清空，可开启新对话
   const snapshot = await h.snapshot(spaceId);

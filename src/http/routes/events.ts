@@ -16,7 +16,7 @@ export const createWorkspaceEventRoutes = (events: WorkspaceEvents) => {
   const app = new Hono();
   let connections = 0;
   app.get("/api/events", (c) => {
-    if (connections >= MAX_CONNECTIONS) return c.json({ error: "Too many event connections" }, 429);
+    if (connections >= MAX_CONNECTIONS) return c.json({ error: "Too many event connections", code: "TOO_MANY_CONNECTIONS" }, 429);
     connections++;
     const signal = c.req.raw.signal;
     let flush = () => {};

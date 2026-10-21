@@ -40,7 +40,7 @@ export const createActivitiesRoutes = (
     const parsed = activitiesQuerySchema.safeParse(raw);
     if (!parsed.success) return c.json({ error: "Invalid activity query", code: "INVALID_REQUEST" }, 400);
     const { limit, cursor: encodedCursor, spaceId, status } = parsed.data;
-    const effectiveSpaceId = spaceId ?? (parsed.data as { threadId?: string }).threadId;
+    const effectiveSpaceId = spaceId;
     const filter: ActivityFilter = {
       ...(effectiveSpaceId !== undefined ? { spaceId: effectiveSpaceId } : {}),
       ...(status !== undefined ? { status } : {}),

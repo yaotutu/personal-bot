@@ -68,14 +68,14 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - **完成保护**：调用 `complete` 仅表示完成声明，须在当前轮次所有工具/子代理/审批步骤均已结束时方可调用；实际状态维持 pending，仅当本轮模型顺利收尾且最终回复文本成功交付客户端后，才在服务端投影为 `completed`；若中途又执行其它工具、被用户 Stop、失败或中断，声明失效并如实反映真实终态。
 - **权威存储与级联生命周期**：Activity 概览与步骤均以 custom entries (`pi-muse.activity`) 保存于该 thread 唯一的 SessionManager / JSONL 历史树中，不维护第二套历史或单独的 activities.json。来源会话被删除时，其活动记录随 JSONL 物理文件一并清理；重新建立同名会话不会复活已删除活动。
 - **真实逐步明细与安全观察**：明细步骤由 `createActivityObserver` 从真实的 SDK 事件流与审批回调捕获（包含 execution、model、tool、subagent、approval、file_commit），不依赖模型在事后回忆或编造。子代理步骤以 `main:tool:<parentCallId>` 为 parentId 形成嵌套；所有步骤严格遵守脱敏与安全展示规则，不暴露原始工具参数、全文载荷、模型思维或内部诊断。
-- **查询接口**：对外暴露只读的 `GET /api/activities`（支持 `limit` 1–100、不透明 base64url 游标、`threadId` 与 `status` 过滤；按 `createdAt` 倒序及唯一 ID 全序稳定排序）与 `GET /api/activities/:id`（概览与逐步明细）；不提供前端直接写或强制完成活动的 HTTP 接口。分页不冻结快照。
+- **查询接口**：对外暴露只读的 `GET /api/activities`（支持 `limit` 1–100、不透明 base64url 游标、`spaceId` 与 `status` 过滤；按 `createdAt` 倒序及唯一 ID 全序稳定排序）与 `GET /api/activities/:id`（概览与逐步明细）；不提供前端直接写或强制完成活动的 HTTP 接口。分页不冻结快照。
 
 ## 文件工具与审批
 
 - read/grep/find/ls 默认只可达 `DATA_DIR/workspace/threads/<threadId>/`，主会话使用 `threads/local-main/`，无父目录特权。`workspace/`、`threads/` 仅是容器，不得回退为会话根；`shared/...` 仅映射到 `workspace/shared/`。
 - 拒绝绝对路径、`..`、根/中间目录/目标符号链接。只读 operations 核查 SDK 最终解析路径，递归 grep/find 不跟随链接，ls 跳过链接。仅 read 可额外读取本轮启用技能的精确 `SKILL.md` 路径，不开放相邻文件或目录。
 - `bash` 永不暴露。`write`/`edit` 默认开启，可由 `tools.writable.enabled` 关闭；仅注册受控工具，不开放 pi 默认的无限制写工具。
-- 审批域记录人的决定和工具回报的执行事实，不直接执行副作用。每次操作登记完整路径、内容/编辑前后文本、文件基准版本及 threadId/runId/expiresAt，可关联 activityId/toolCallId；Web 原样转义展示完整预览，不能只展示截断摘要让人批准。
+- 审批域记录人的决定和工具回报的执行事实，不直接执行副作用。每次操作登记完整路径、内容/编辑前后文本、文件基准版本及 spaceId/runId/expiresAt，可关联 activityId/toolCallId；Web 原样转义展示完整预览，不能只展示截断摘要让人批准。
 - 截止时间登记时固定，决定时原子检查过期；Stop/abort 撤销 pending，启动前撤销旧进程遗留 pending。批准旧卡片不能复活已取消的执行。
 - 提交前再次核对路径、版本、审批期限与取消状态。不同工具实例共用逐物理路径队列；文件变化必须重新申请审批。拒绝、过期或运行取消不提交该次修改，不覆盖他人新内容。
 - 写入/编辑先写同目录临时文件再提交，限制正文大小；保护针对单进程工具并发，不承诺抵御外部恶意进程在最终检查与 rename 间的路径竞争，不增加跨进程锁或事务框架。

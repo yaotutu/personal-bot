@@ -56,7 +56,7 @@ test("deleted job snapshot cannot execute after asynchronous destination resolut
   t.after(async () => { resume(); await scheduler.close(); });
   scheduler.start();
   await waitFor(() => reached);
-  await jobs.removeByOriginThreadId("deleted");
+  await jobs.removeByOriginSpaceId("deleted");
   resume();
   await waitFor(() => !scheduler.isBusy());
   await scheduler.close();
@@ -197,7 +197,7 @@ test("restart rereads stored outcomes and schedules only future work", async (t)
   assert.equal(calls, 2, "restart neither replays completed work nor catches up missed schedules");
 });
 
-test("scheduler dispatches to originThreadId and skips busy origin while letting other threads run", async (t) => {
+test("scheduler dispatches to originSpaceId and skips busy origin while letting other threads run", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "personal-bot-scheduler-multi-"));
   const file = join(directory, "jobs.json");
   const jobs = createJobService(createJobRepository(file));
@@ -242,7 +242,7 @@ test("scheduler dispatches to originThreadId and skips busy origin while letting
   // thread-b 应该顺利运行并完成，而 thread-a 正在 busy 所以被跳过
   await waitFor(async () => {
     const list = await jobs.list();
-    const jobB = list.find((j) => j.originThreadId === "thread-b");
+    const jobB = list.find((j) => j.originSpaceId === "thread-b");
     return jobB?.lastStatus === "completed";
   });
 
@@ -255,7 +255,7 @@ test("scheduler dispatches to originThreadId and skips busy origin while letting
   // 等待 thread-a 触发并完成
   await waitFor(async () => {
     const list = await jobs.list();
-    const jobA = list.find((j) => j.originThreadId === "thread-a");
+    const jobA = list.find((j) => j.originSpaceId === "thread-a");
     return jobA?.lastStatus === "completed";
   });
 

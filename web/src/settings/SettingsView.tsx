@@ -36,8 +36,8 @@ const TARGET_LABELS: Record<"user" | "soul" | "instructions" | "memory", string>
 };
 
 /** 设置页：身份、按需检索记忆、SOUL/USER 人设、空间指令与 Dream 后台记忆整理。 */
-export const SettingsView = ({ spaceId, threadId = "local-main" }: { spaceId?: string; threadId?: string }) => {
-  const currentSpaceId = spaceId || threadId || "local-main";
+export const SettingsView = ({ spaceId = "local-main" }: { spaceId?: string }) => {
+  const currentSpaceId = spaceId;
   const [identity, setIdentity] = useState<IdentityDto | null>(null);
   const [memories, setMemories] = useState<MemoryDto[]>([]);
   const [searchQuery, setSearchQuery] = useState("");

@@ -135,13 +135,11 @@ export const createActionService = (
           expiresAt: new Date(createdAt + timeoutMs).toISOString(),
           resolvedAt: null,
           decidedAt: null,
-          spaceId: options.spaceId ?? options.threadId ?? null,
-          threadId: options.spaceId ?? options.threadId ?? null,
+          spaceId: options.spaceId ?? null,
           runId: options.runId ?? null,
           toolCallId: options.toolCallId ?? null,
           subagentId: options.subagentId ?? null,
-          workspaceSpaceId: options.workspaceSpaceId ?? options.workspaceThreadId ?? null,
-          workspaceThreadId: options.workspaceSpaceId ?? options.workspaceThreadId ?? null,
+          workspaceSpaceId: options.workspaceSpaceId ?? null,
           activityId: options.activityId ?? null,
         };
         const bytes = utf8Bytes(JSON.stringify(next));
@@ -187,8 +185,8 @@ export const createActionService = (
       const changed = await repository.update((items) => {
         const updated: PendingAction[] = [];
         for (const action of items) {
-          const actionSpaceId = action.spaceId ?? action.threadId;
-          const workspaceSpaceId = action.workspaceSpaceId ?? action.workspaceThreadId;
+          const actionSpaceId = action.spaceId;
+          const workspaceSpaceId = action.workspaceSpaceId;
           if (
             action.status === "pending" &&
             (actionSpaceId === spaceId || workspaceSpaceId === spaceId)
@@ -272,8 +270,7 @@ export const createActionService = (
       });
       const sorted = records.filter((action) =>
         (!query.status || action.status === query.status) &&
-        (!query.spaceId || action.spaceId === query.spaceId || action.threadId === query.spaceId) &&
-        (!query.threadId || action.spaceId === query.threadId || action.threadId === query.threadId) &&
+        (!query.spaceId || action.spaceId === query.spaceId) &&
         (!query.activityId || action.activityId === query.activityId))
         .sort((a, b) => b.resolvedAt.localeCompare(a.resolvedAt) || b.id.localeCompare(a.id));
       const { cursor } = query;

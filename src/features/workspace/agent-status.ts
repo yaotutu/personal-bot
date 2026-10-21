@@ -10,7 +10,7 @@ export type SubagentState = {
   startedAt: string | null; updatedAt: string; endedAt: string | null;
 };
 export type AgentStatus = {
-  activityId: string | null; spaceId: string; threadId?: string; runId: string; revision: number;
+  activityId: string | null; spaceId: string; runId: string; revision: number;
   source: "chat" | "job"; jobId: string | null; title: string;
   status: "running" | RunOutcome; phase: AgentPhase | null; label: string;
   tools: AgentToolState[]; subagents: SubagentState[]; pendingApprovalIds: string[];

@@ -62,7 +62,7 @@ export const createWorkspaceEvents = () => {
       if (item.status === "pending") approvals.set(item.id, copy(item));
       else approvals.delete(item.id);
       publish({ event: item.status === "pending" ? "approval_pending" : "approval_updated", approval: item });
-      const targetSpace = item.spaceId ?? item.threadId;
+      const targetSpace = item.spaceId;
       if (targetSpace && item.runId) liveRuns.get(runKey(targetSpace, item.runId))?.refreshApprovals();
     },
     /**
@@ -80,17 +80,17 @@ export const createWorkspaceEvents = () => {
       }
       publish({ event: "activity_updated", activity: overview });
     },
-    beginRun: (input: { spaceId?: string; threadId?: string; runId: string; source: "chat" | "job"; jobId?: string | null; title?: string; initialRevision?: number; onChange?: (status: AgentStatus) => void }): StatusRun => {
+    beginRun: (input: { spaceId?: string; runId: string; source: "chat" | "job"; jobId?: string | null; title?: string; initialRevision?: number; onChange?: (status: AgentStatus) => void }): StatusRun => {
       if (closed) throw new Error("Service is closing");
       if (active.size >= MAX_CURRENT_RUNS) throw new ExecutionCapacityError();
-      const spaceId = input.spaceId ?? input.threadId ?? "local-main";
+      const spaceId = input.spaceId ?? "local-main";
       const key = runKey(spaceId, input.runId);
       if (active.has(key)) throw new Error("Execution already active");
       const now = new Date().toISOString();
       let ended = false;
       let parentPhase: AgentPhase = "preparing";
       let state: AgentStatus = {
-        activityId: null, spaceId, threadId: spaceId, runId: input.runId, source: input.source, jobId: input.jobId ?? null,
+        activityId: null, spaceId, runId: input.runId, source: input.source, jobId: input.jobId ?? null,
         revision: input.initialRevision ?? 1, title: (input.title || "正在处理请求").slice(0, 500), status: "running", phase: "preparing", label: labelFor.preparing,
         tools: [], subagents: [], pendingApprovalIds: [], startedAt: now, updatedAt: now, endedAt: null,
       };
@@ -104,7 +104,7 @@ export const createWorkspaceEvents = () => {
       };
       const refresh = () => {
         if (ended) return;
-        const waiting = [...approvals.values()].filter((item) => (item.spaceId ?? item.threadId) === state.spaceId && item.runId === state.runId && Date.parse(item.expiresAt) > Date.now());
+        const waiting = [...approvals.values()].filter((item) => item.spaceId === state.spaceId && item.runId === state.runId && Date.parse(item.expiresAt) > Date.now());
         state.pendingApprovalIds = waiting.map((item) => item.id);
         for (const tool of state.tools) tool.status = waiting.some((item) => item.toolCallId === tool.toolCallId && item.subagentId === tool.subagentId) ? "waiting_approval" : "running";
         for (const child of state.subagents) if (child.status === "running" && waiting.some((item) => item.subagentId === child.id)) { child.phase = "waiting_approval"; child.label = labelFor.waiting_approval; }

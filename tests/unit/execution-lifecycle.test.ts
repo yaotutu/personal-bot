@@ -100,7 +100,7 @@ test("trigger cancelled while session opens never starts prompt; closed coordina
   await closing;
   assert.equal(fixture.calls.includes("prompt"), false);
   assert.equal((await conversation.trigger("later", "later")).status, "failed");
-  await assert.rejects(conversation.run({ threadId: "main", runId: "r", expectedRevision: "empty", message: { id: "u", content: "hello" } }, () => {}), { code: "SHUTDOWN" });
+  await assert.rejects(conversation.run({ spaceId: "main", runId: "r", expectedRevision: "empty", message: { id: "u", content: "hello" } }, () => {}), { code: "SHUTDOWN" });
 });
 
 test("busy conversation queues factual notification without another model turn and deduplicates IDs", async () => {

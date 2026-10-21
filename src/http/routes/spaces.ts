@@ -51,8 +51,8 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
     return conversationHub.resetSpace(spaceId, async ({ closeCurrent, reopen }) => {
       // 1. 记录重置前归属于该空间的待审批项 ID，用于准确统计作废项
       const pendingBefore = (await actions.snapshotPending()).filter((a) => {
-        const actionSpaceId = a.spaceId ?? a.threadId;
-        const workspaceSpaceId = a.workspaceSpaceId ?? a.workspaceThreadId;
+        const actionSpaceId = a.spaceId;
+        const workspaceSpaceId = a.workspaceSpaceId;
         return actionSpaceId === spaceId || workspaceSpaceId === spaceId;
       });
       const pendingIdsBefore = new Set(pendingBefore.map((a) => a.id));

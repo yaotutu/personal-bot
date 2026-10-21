@@ -22,7 +22,7 @@ const baseJob = (id: string): Job => ({
   enabled: true,
   createdAt: "2029-01-01T00:00:00.000Z",
   nextRunAt: "2030-01-01T00:00:00.000Z",
-  originThreadId: "local-main",
+  originSpaceId: "local-main",
 });
 
 test("nextRunAfter keeps one-time and daily scheduling semantics", () => {

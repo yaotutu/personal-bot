@@ -126,7 +126,7 @@ export const readActionsDocument = (
       item.revision >= 1 &&
       actionTime(item.createdAt) &&
       actionTime(item.expiresAt) &&
-      (Object.hasOwn(item, "spaceId") ? nullableContext(item.spaceId) : (Object.hasOwn(item, "threadId") && nullableContext(item.threadId))) &&
+      Object.hasOwn(item, "spaceId") && nullableContext(item.spaceId) &&
       nullableContext(item.runId) &&
       nullableContext(item.toolCallId) &&
       nullableContext(item.subagentId) &&

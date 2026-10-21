@@ -123,7 +123,7 @@ const ActionApproval = ({
  * 工作区实时状态：只保留服务端推送的当前集合，不另建活动/审批历史。
  *
  * 版本规则（与服务端契约一致）：
- * - 运行以 (threadId, runId) 为身份，只应用更高 revision；终态帧移除并留下版本墓碑，
+ * - 运行以 (spaceId, runId) 为身份，只应用更高 revision；终态帧移除并留下版本墓碑，
  *   迟到的旧 running 帧不能复活。instanceId 变化时清空运行与运行版本缓存。
  * - 审批以 id 为身份；revision 跨进程持久，ready 重建 pending 集合时不能让版本倒退，
  *   终态移除后保留 tombstone，迟到的 approval_pending 不能重新显示已处理审批。

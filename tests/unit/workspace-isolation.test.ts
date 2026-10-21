@@ -353,8 +353,8 @@ test("two sessions approving the same shared file only let one commit, even when
     poll: actions.poll,
     cancel: actions.cancel,
   };
-  const factoryA = createWritableFileTools(rootA, approving, 5_000, { threadId: "local-main", runId: "run-a" }, sharedDir, layout.workspaceDir);
-  const factoryB = createWritableFileTools(rootB, approving, 5_000, { threadId: "trip-2026", runId: "run-b" }, sharedDir, layout.workspaceDir);
+  const factoryA = createWritableFileTools(rootA, approving, 5_000, { spaceId: "local-main", runId: "run-a" }, sharedDir, layout.workspaceDir);
+  const factoryB = createWritableFileTools(rootB, approving, 5_000, { spaceId: "trip-2026", runId: "run-b" }, sharedDir, layout.workspaceDir);
   const writeTool = (tools: WriteTools) => tools.find((tool) => tool.name === "write")!;
   const results = await Promise.all([
     callTool(writeTool(factoryA), { path: "shared/note.md", content: "from-A" }),

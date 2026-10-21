@@ -44,8 +44,8 @@ SSE 端点声明 `text/event-stream`，通过每端点 `x-sse-events` 提供机�
 
 当前两类流的语义不同，修改时必须分别核对契约和真实行为：
 
-- **聊天流**：只提交 `{threadId, runId, expectedRevision, message:{id,content}}`，不回传全量历史；revision 冲突在 SSE 前返回 HTTP 409，同一成功 run 的原消息可幂等重放。非法 threadId 在宿主预校验即 HTTP 400，不进入聊天 SSE。流断开会取消所属 run。
-- **聊天同步与 Stop**：历史返回 `{messages, revision}`；Stop 同时绑定 threadId/runId，Web 等待取消完成后刷新权威历史。版本冲突恢复未接纳草稿，切换会话取消原流；这些正确性步骤必须在生成契约中完整表达，不能只依赖本文。
+- **聊天流**：只提交 `{spaceId, runId, expectedRevision, message:{id,content}}`，不回传全量历史；revision 冲突在 SSE 前返回 HTTP 409，同一成功 run 的原消息可幂等重放。非法 spaceId 在宿主预校验即 HTTP 400，不进入聊天 SSE。流断开会取消所属 run。
+- **聊天同步与 Stop**：历史返回 `{messages, revision}`；Stop 同时绑定 spaceId/runId，Web 等待取消完成后刷新权威历史。版本冲突恢复未接纳草稿，切换会话取消原流；这些正确性步骤必须在生成契约中完整表达，不能只依赖本文。
 - **工作区通知**：单向通知客户端重读状态，断连不取消聊天；ready 后读取相应快照，刷新中收到新通知要补刷，重连重新同步。准确事件、心跳与重放能力以本端点契约为准，不复制聊天取消语义。
 
 ## 工具报文与自有 Web 一致性

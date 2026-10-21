@@ -59,7 +59,6 @@ const originSpaceIdSchema = z.string().refine(isSpaceId, "Invalid originSpaceId"
 
 export const jobsQuerySchema = z.strictObject({
   spaceId: z.string().refine(isSpaceId, "Invalid spaceId").optional().describe("按归属空间过滤；省略表示不按空间过滤"),
-  threadId: z.string().refine(isSpaceId, "Invalid threadId").optional().describe("兼容字段：等同于 spaceId"),
   sort: z.enum(["nextRunAt", "updatedAt", "createdAt"]).default("nextRunAt").describe("排序字段，默认 nextRunAt"),
   order: z.enum(["asc", "desc"]).optional().describe("排序方向：按 nextRunAt 默认 asc，按 updatedAt/createdAt 默认 desc"),
 });
@@ -73,7 +72,6 @@ export const updateJobSchema = z.strictObject({
   daily: z.boolean().optional().describe("是否每天重复"),
   at: z.string().trim().min(1).max(64).optional().describe("设定时刻（daily 为 HH:mm，如 '09:00'；一次性为 ISO 8601 时间戳）"),
   originSpaceId: originSpaceIdSchema,
-  originThreadId: originSpaceIdSchema,
 });
 
 // ---------------------------------------------------------------------------
@@ -111,7 +109,6 @@ export const goalStatusSchema = z.object({
 // ---------------------------------------------------------------------------
 export const monitorsQuerySchema = z.strictObject({
   spaceId: z.string().refine(isSpaceId, "Invalid spaceId").optional().describe("按归属空间过滤；省略表示不按空间过滤"),
-  threadId: z.string().refine(isSpaceId, "Invalid threadId").optional().describe("兼容字段：等同于 spaceId"),
   sort: z.enum(["createdAt", "lastCheckedAt", "status"]).optional().describe("排序字段，默认 createdAt"),
   order: z.enum(["asc", "desc"]).optional().describe("排序方向，默认 desc"),
 });
@@ -129,7 +126,6 @@ export const createMonitorSchema = z.strictObject({
   title: z.string().trim().min(1).max(120).optional().describe("展示标题，默认用 URL"),
   intervalMinutes: z.number().int().min(5).max(1440).optional().describe("检查间隔（分钟），默认 30，最小 5"),
   originSpaceId: originSpaceIdSchema,
-  originThreadId: originSpaceIdSchema,
 });
 
 export const updateMonitorSchema = z.strictObject({
@@ -141,7 +137,6 @@ export const updateMonitorSchema = z.strictObject({
   value: z.string().max(200).optional().describe("contains 条件的关键词"),
   intervalMinutes: z.number().int().min(5).max(1440).optional().describe("检查间隔（分钟），最小 5"),
   originSpaceId: originSpaceIdSchema,
-  originThreadId: originSpaceIdSchema,
 });
 
 // ---------------------------------------------------------------------------
@@ -162,21 +157,18 @@ export const resetSpaceSchema = z.object({
 });
 export type ResetSpaceRequestDto = z.infer<typeof resetSpaceSchema>;
 export const runRequestSchema = z.strictObject({
-  spaceId: spaceIdSchema.optional().describe("空间标识；首次出现即创建独立空间"),
-  threadId: spaceIdSchema.optional().describe("兼容字段：等同于 spaceId"),
+  spaceId: spaceIdSchema.default("local-main").describe("空间标识；缺省为 local-main"),
   runId: z.string().min(1).max(200).describe("本轮唯一 ID；同一成功请求可幂等重放"),
   expectedRevision: z.string().min(1).max(200).describe("GET /api/conversation 返回的版本；新空会话为 empty，冲突返回 409"),
   message: z.strictObject({
     id: z.string().trim().min(1).max(200),
-    content: z.string().min(1).max(32000).refine((value) => !!value.trim(), "Message cannot be blank"),
+    content: z.string().min(1).max(32000).refine((value) => Boolean(value.trim()), "Message cannot be blank"),
   }).describe("唯一的新用户消息；失败重试使用原消息 ID 和内容"),
-}).refine((data) => Boolean(data.spaceId || data.threadId), "spaceId or threadId required")
-.describe("增量聊天请求，响应为 AG-UI SSE；客户端不回传历史");
+}).describe("增量聊天请求，响应为 AG-UI SSE；客户端不回传历史");
 export const stopRequestSchema = z.strictObject({
-  spaceId: spaceIdSchema.optional(),
-  threadId: spaceIdSchema.optional(),
+  spaceId: spaceIdSchema.default("local-main").describe("空间标识；缺省为 local-main"),
   runId: z.string().min(1).max(200).describe("只停止该 run；迟到请求不会影响后续运行"),
-}).refine((data) => Boolean(data.spaceId || data.threadId), "spaceId or threadId required");
+});
 
 // ---------------------------------------------------------------------------
 // 技能：会话级开关覆盖

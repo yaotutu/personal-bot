@@ -19,10 +19,10 @@ export const createMonitorsRoutes = (
     const query = monitorsQuerySchema.safeParse(c.req.query());
     if (!query.success) return c.json({ error: "Invalid query parameters", code: "INVALID_REQUEST" }, 400);
 
-    const targetSpace = query.data.spaceId ?? query.data.threadId;
+    const targetSpace = query.data.spaceId;
     let all = await monitors.list();
     if (targetSpace) {
-      all = all.filter((m) => (m.originSpaceId ?? m.originThreadId) === targetSpace);
+      all = all.filter((m) => (m.originSpaceId ?? "local-main") === targetSpace);
     }
 
     const sortField = query.data.sort ?? "createdAt";
@@ -59,12 +59,11 @@ export const createMonitorsRoutes = (
     if (!parsed.success) return c.json({ error: "Invalid monitor request", code: "INVALID_REQUEST" }, 400);
     if (parsed.data.condition === "contains" && !parsed.data.value?.trim())
       return c.json({ error: "contains condition needs a keyword", code: "KEYWORD_REQUIRED" }, 400);
-    const targetSpace = parsed.data.originSpaceId ?? parsed.data.originThreadId;
+    const targetSpace = parsed.data.originSpaceId;
     const create = async () => {
       const monitor = await monitors.create({
         ...parsed.data,
         originSpaceId: targetSpace,
-        originThreadId: targetSpace,
       });
       return c.json(presentMonitor(monitor));
     };
@@ -95,7 +94,7 @@ export const createMonitorsRoutes = (
       return c.json({ error: "contains condition needs a keyword", code: "KEYWORD_REQUIRED" }, 400);
     }
 
-    const targetSpace = parsed.data.originSpaceId ?? parsed.data.originThreadId;
+    const targetSpace = parsed.data.originSpaceId;
     const update = async () => {
       const updated = await monitors.update(c.req.param("id"), {
         title: parsed.data.title,
@@ -104,7 +103,6 @@ export const createMonitorsRoutes = (
         value: parsed.data.value,
         intervalMinutes: parsed.data.intervalMinutes,
         originSpaceId: targetSpace,
-        originThreadId: targetSpace,
       });
       if (!updated) return c.json({ error: "Monitor not found", code: "MONITOR_NOT_FOUND" }, 404);
       return c.json(presentMonitor(updated));

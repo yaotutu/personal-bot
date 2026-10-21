@@ -28,7 +28,7 @@ const dueJob = (id = "test-job"): Job => ({
   enabled: true,
   createdAt: new Date(0).toISOString(),
   nextRunAt: new Date(0).toISOString(),
-  originThreadId: "local-main",
+  originSpaceId: "local-main",
 });
 const schedulerConfig = createConfig({ runtime: { schedulerIntervalMs: 10 } });
 // 调度器只需三个方法；生产会话仍由组合入口创建，不为测试另造执行内核。
@@ -506,7 +506,7 @@ test("HTTP and pi tools use the same composed stores; conversation exposes no st
   })).status, 200);
   assert.equal(memoryWrites.mock.callCount(), 1);
   const run = (content: string, id: string) => main.run({
-    threadId: "local-main", runId: id,
+    spaceId: "local-main", runId: id,
     expectedRevision: main.snapshot().revision, message: { id, content },
   }, () => {});
   await run("记住我喜欢喝茶", "memory-turn");

@@ -9,7 +9,7 @@ export const createConversationRoutes = (
   const { conversationHub } = dependencies;
   const app = new Hono();
   app.get("/api/conversation", async (c) => {
-    const spaceId = c.req.query("spaceId") || c.req.query("threadId") || "local-main";
+    const spaceId = c.req.query("spaceId") || "local-main";
     try {
       const conversation = await conversationHub.findSpace(spaceId);
       return c.json(conversation?.snapshot() ?? { messages: [], revision: "empty" });

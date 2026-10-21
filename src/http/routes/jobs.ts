@@ -14,10 +14,10 @@ export const createJobsRoutes = (
     const query = jobsQuerySchema.safeParse(c.req.query());
     if (!query.success) return c.json({ error: "Invalid query parameters", code: "INVALID_REQUEST" }, 400);
 
-    const targetSpace = query.data.spaceId ?? query.data.threadId;
+    const targetSpace = query.data.spaceId;
     let all = await jobs.list();
     if (targetSpace) {
-      all = all.filter((j) => (j.originSpaceId ?? j.originThreadId) === targetSpace);
+      all = all.filter((j) => (j.originSpaceId ?? "local-main") === targetSpace);
     }
 
     const sortField = query.data.sort ?? "nextRunAt";
@@ -67,7 +67,7 @@ export const createJobsRoutes = (
     const existing = await jobs.get(c.req.param("id"));
     if (!existing) return c.json({ error: "Job not found", code: "JOB_NOT_FOUND" }, 404);
 
-    const originSpaceId = parsed.data.originSpaceId ?? parsed.data.originThreadId;
+    const originSpaceId = parsed.data.originSpaceId;
     const nextDaily = parsed.data.daily !== undefined ? parsed.data.daily : existing.daily;
     const nextAt = parsed.data.at !== undefined ? parsed.data.at.trim() : existing.at;
 

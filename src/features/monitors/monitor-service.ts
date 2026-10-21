@@ -17,7 +17,7 @@ export const createMonitorService = (repository: MonitorRepository) => {
     get: async (id: string): Promise<Monitor | undefined> =>
       (await repository.read()).find((monitor) => monitor.id === id),
     create: (
-      input: { title?: string; url: string; condition: MonitorCondition; value?: string; intervalMinutes?: number; originSpaceId?: string; originThreadId?: string },
+      input: { title?: string; url: string; condition: MonitorCondition; value?: string; intervalMinutes?: number; originSpaceId?: string },
     ): Promise<Monitor> =>
       repository.update((items) => {
         if (input.condition === "contains" && !input.value?.trim())
@@ -33,9 +33,8 @@ export const createMonitorService = (repository: MonitorRepository) => {
           intervalMinutes: Math.max(MIN_INTERVAL_MINUTES, input.intervalMinutes ?? 30),
           status: "active",
           createdAt: now(),
-          originSpaceId: input.originSpaceId ?? input.originThreadId,
-          originThreadId: input.originSpaceId ?? input.originThreadId,
-          checks: 0,
+          originSpaceId: input.originSpaceId,
+                    checks: 0,
         };
         items.push(monitor);
         return { items, result: monitor };
@@ -83,7 +82,6 @@ export const createMonitorService = (repository: MonitorRepository) => {
         value?: string;
         intervalMinutes?: number;
         originSpaceId?: string;
-        originThreadId?: string;
       },
     ): Promise<Monitor | undefined> =>
       repository.update((items) => {
@@ -115,10 +113,9 @@ export const createMonitorService = (repository: MonitorRepository) => {
           monitor.intervalMinutes = Math.max(MIN_INTERVAL_MINUTES, input.intervalMinutes);
         }
 
-        const nextOrigin = input.originSpaceId ?? input.originThreadId;
+        const nextOrigin = input.originSpaceId;
         if (nextOrigin !== undefined) {
           monitor.originSpaceId = nextOrigin;
-          monitor.originThreadId = nextOrigin;
         }
 
         if (urlChanged || conditionChanged || valueChanged) {
@@ -146,13 +143,10 @@ export const createMonitorService = (repository: MonitorRepository) => {
       }),
     removeByOriginSpaceId: (originSpaceId: string): Promise<number> =>
       repository.update((items) => {
-        const next = items.filter((x) => x.originSpaceId !== originSpaceId && x.originThreadId !== originSpaceId);
+        const next = items.filter((x) => (x.originSpaceId ?? "local-main") !== originSpaceId);
         const count = items.length - next.length;
         return { items: next, result: count };
       }),
-    removeByOriginThreadId(originThreadId: string): Promise<number> {
-      return this.removeByOriginSpaceId(originThreadId);
-    },
     /** 重置空间会话但保留监控时，清空尚未投递的旧通知，避免污染新会话。 */
     clearPendingByOriginSpaceId: (originSpaceId: string): Promise<number> =>
       repository.update((items) => {

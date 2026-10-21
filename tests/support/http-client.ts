@@ -77,12 +77,12 @@ export const createTestClient = (baseUrl: () => string, token: string, timeoutMs
   /** 决定返回 Response，调用方自行断言 200/409；409 响应体携带当前审批视图。 */
   const decideApproval = (id: string, decision: "approve" | "deny") =>
     request(`/api/approvals/${encodeURIComponent(id)}/decision`, { decision });
-  const history = (threadId: string) => json(`/api/conversation?threadId=${encodeURIComponent(threadId)}`);
-  const startRun = async (content: string, threadId = "local-main") => {
-    const current = await history(threadId);
+  const history = (spaceId = "local-main") => json(`/api/conversation?spaceId=${encodeURIComponent(spaceId)}`);
+  const startRun = async (content: string, spaceId = "local-main") => {
+    const current = await history(spaceId);
     const runId = randomUUID();
     const response = await request("/api/conversation/run", {
-      threadId, runId, expectedRevision: current.revision, message: { id: randomUUID(), content },
+      spaceId, runId, expectedRevision: current.revision, message: { id: randomUUID(), content },
     });
     if (response.status !== 200 || !response.body) throw new Error(`Run returned ${response.status}`);
     const reader = response.body.getReader();
@@ -110,9 +110,9 @@ export const createTestClient = (baseUrl: () => string, token: string, timeoutMs
     })();
     // 等待审批/fixture时先接住错误，最终仍由调用方await done断言，不吞失败。
     void done.catch(() => undefined);
-    return { threadId, runId, events, done, cancel: () => reader.cancel() };
+    return { spaceId, threadId: spaceId, runId, events, done, cancel: () => reader.cancel() };
   };
-  const run = async (content: string, threadId?: string) => (await startRun(content, threadId)).done;
+  const run = async (content: string, spaceId?: string) => (await startRun(content, spaceId)).done;
   return {
     request, json, history, startRun, run,
     // 通知流与审批新协议 helper；pending 保留“当前待审批集合”语义，内部走 ready。

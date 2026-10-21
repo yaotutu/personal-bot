@@ -245,7 +245,6 @@ export const getAgentSnapshot = async (signal?: AbortSignal): Promise<AgentSnaps
 export const listJobs = async (
   query?: {
     spaceId?: string;
-    threadId?: string;
     sort?: "nextRunAt" | "updatedAt" | "createdAt";
     order?: "asc" | "desc";
   },
@@ -253,7 +252,6 @@ export const listJobs = async (
 ): Promise<JobDto[]> => {
   const params = new URLSearchParams();
   if (query?.spaceId) params.set("spaceId", query.spaceId);
-  if (query?.threadId) params.set("threadId", query.threadId);
   if (query?.sort) params.set("sort", query.sort);
   if (query?.order) params.set("order", query.order);
   const suffix = params.size ? `?${params.toString()}` : "";
@@ -591,13 +589,11 @@ export const listPendingApprovals = async (signal?: AbortSignal): Promise<Approv
 // ---------------------------------------------------------------------------
 export const listMonitors = async (query?: {
   spaceId?: string;
-  threadId?: string;
   sort?: "createdAt" | "lastCheckedAt" | "status";
   order?: "asc" | "desc";
 }): Promise<MonitorDto[]> => {
   const params = new URLSearchParams();
   if (query?.spaceId) params.set("spaceId", query.spaceId);
-  if (query?.threadId) params.set("threadId", query.threadId);
   if (query?.sort) params.set("sort", query.sort);
   if (query?.order) params.set("order", query.order);
   const qs = params.toString();
@@ -620,7 +616,6 @@ export const createMonitor = async (input: {
   title?: string;
   intervalMinutes?: number;
   originSpaceId?: string;
-  originThreadId?: string;
 }): Promise<MonitorDto> => {
   const response = await request("/api/monitors", {
     method: "POST",
@@ -651,7 +646,6 @@ export const updateMonitor = async (
     value?: string;
     intervalMinutes?: number;
     originSpaceId?: string;
-    originThreadId?: string;
   },
 ): Promise<MonitorDto> => {
   const response = await request(`/api/monitors/${id}`, {

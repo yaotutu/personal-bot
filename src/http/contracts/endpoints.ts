@@ -216,7 +216,7 @@ export const endpoints: EndpointSpec[] = [
     operationId: "listJobs",
     method: "get", path: "/api/jobs", tag: "任务", summary: "查询定时任务列表",
     hint:
-      "按条件查询定时任务列表。支持按 spaceId（或 threadId）过滤，支持按 nextRunAt、updatedAt、createdAt 排序（默认按 nextRunAt 升序），全量返回，不分页。",
+      "按条件查询定时任务列表。支持按 spaceId 过滤，支持按 nextRunAt、updatedAt、createdAt 排序（默认按 nextRunAt 升序），全量返回，不分页。",
     auth: true, query: req.jobsQuerySchema, response: resp.jobsResponse,
   },
   {
@@ -336,7 +336,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "listMonitors",
     method: "get", path: "/api/monitors", tag: "监控", summary: "查询网页监控列表",
-    hint: "按条件查询网页监控列表。支持按 spaceId（或 threadId）过滤，支持按 createdAt、lastCheckedAt、status 排序（默认按 createdAt 降序），全量返回，不分页。",
+    hint: "按条件查询网页监控列表。支持按 spaceId 过滤，支持按 createdAt、lastCheckedAt、status 排序（默认按 createdAt 降序），全量返回，不分页。",
     auth: true, query: req.monitorsQuerySchema, response: resp.monitorsResponse,
   },
   {

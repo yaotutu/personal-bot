@@ -16,8 +16,8 @@ const newPending = (overrides: Partial<PendingAction> = {}): PendingAction => ({
   payload: { path: "notes.md", originalContent: "", content: "hello", beforeExists: "true", baseVersion: "v1" },
   status: "pending", revision: 1,
   createdAt: "2026-01-01T00:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z", resolvedAt: null, decidedAt: null,
-  threadId: "local-main", runId: "run-1", toolCallId: "tc-1", subagentId: null,
-  workspaceThreadId: "local-main", activityId: null,
+  spaceId: "local-main", runId: "run-1", toolCallId: "tc-1", subagentId: null,
+  workspaceSpaceId: "local-main", activityId: null,
   ...overrides,
 });
 
@@ -27,7 +27,7 @@ const resolvePending = (pending: PendingAction, status: "approved" | "denied" | 
 });
 
 const expectedPreview = {
-  scope: "space", ownerSpaceId: "local-main", ownerThreadId: "local-main", path: "notes.md", before: "", after: "hello", beforeExists: true,
+  scope: "space", ownerSpaceId: "local-main", path: "notes.md", before: "", after: "hello", beforeExists: true,
 };
 
 type Frame = { event: string | null; data: any; raw: string };
@@ -87,7 +87,7 @@ test("unit: no legacy invalidate; throwing subscriber is dropped; copies are iso
   let badCalls = 0;
   events.subscribe({ notify: () => { badCalls++; throw new Error("boom"); }, close: () => {} });
   events.subscribe({ notify: (event) => seen.push(event), close: () => {} });
-  const run = events.beginRun({ threadId: "local-main", runId: "run-copy", source: "chat" });
+  const run = events.beginRun({ spaceId: "local-main", runId: "run-copy", source: "chat" });
   assert.equal(badCalls, 1); // 坏订阅者只被调用一次，随后被移除
 
   const first = seen[0];
@@ -113,7 +113,7 @@ test("unit: a finished run stays terminal and stops publishing", () => {
   const events = createWorkspaceEvents();
   const seen: WorkspaceUpdate[] = [];
   events.subscribe({ notify: (event) => seen.push(event), close: () => {} });
-  const run = events.beginRun({ threadId: "local-main", runId: "run-done", source: "chat" });
+  const run = events.beginRun({ spaceId: "local-main", runId: "run-done", source: "chat" });
   run.observe({ kind: "tool", phase: "start", toolCallId: "tc-1", name: "write", subagentId: null });
   const terminal = run.finish("succeeded");
   assert.deepEqual([terminal.status, terminal.phase, terminal.tools.length, terminal.endedAt !== null, events.current().length],
@@ -129,7 +129,7 @@ test("unit: a finished run stays terminal and stops publishing", () => {
 
 test("unit: pending approvals put the parent tool and subagent into waiting_approval", () => {
   const events = createWorkspaceEvents();
-  const run = events.beginRun({ threadId: "local-main", runId: "run-wait", source: "chat" });
+  const run = events.beginRun({ spaceId: "local-main", runId: "run-wait", source: "chat" });
   run.observe({ kind: "tool", phase: "start", toolCallId: "tc-parent", name: "write", subagentId: null });
   run.observe({ kind: "subagent", phase: "start", id: "sub-1", role: "worker" });
   const parent = newPending({ id: "approval-parent", runId: "run-wait", toolCallId: "tc-parent" });
@@ -163,7 +163,7 @@ test("routes: ready is the complete empty snapshot with instanceId", async () =>
 
 test("routes: ready carries the full existing run and pending approval snapshot", async () => {
   const events = createWorkspaceEvents();
-  const run = events.beginRun({ threadId: "local-main", runId: "run-ready", source: "chat" });
+  const run = events.beginRun({ spaceId: "local-main", runId: "run-ready", source: "chat" });
   run.observe({ kind: "tool", phase: "start", toolCallId: "tc-1", name: "write", subagentId: null });
   const pending = newPending({ id: "approval-ready", runId: "run-ready", toolCallId: "tc-1" });
   events.seedApprovals([pending]);
@@ -182,7 +182,7 @@ test("routes: ready carries the full existing run and pending approval snapshot"
 
 test("routes: status exposes tool name/hidden, subagent lifecycle, increasing revisions", async () => {
   const events = createWorkspaceEvents();
-  const run = events.beginRun({ threadId: "local-main", runId: "run-status", source: "chat" });
+  const run = events.beginRun({ spaceId: "local-main", runId: "run-status", source: "chat" });
   const sse = await open(events);
   await sse.take(1); // ready
 
@@ -190,7 +190,7 @@ test("routes: status exposes tool name/hidden, subagent lifecycle, increasing re
   const nextStatus = async () => {
     const [frame] = await sse.take(1);
     assert.equal(frame.event, "agent_status_updated");
-    assert.deepEqual([frame.data.instanceId, frame.data.threadId, frame.data.runId], [events.instanceId, "local-main", "run-status"]);
+    assert.deepEqual([frame.data.instanceId, frame.data.spaceId, frame.data.runId], [events.instanceId, "local-main", "run-status"]);
     revisions.push(frame.data.revision);
     return frame.data;
   };
@@ -226,7 +226,7 @@ test("routes: status exposes tool name/hidden, subagent lifecycle, increasing re
 
 test("routes: approval_pending is full, terminal is lightweight, status waits correctly", async () => {
   const events = createWorkspaceEvents();
-  const run = events.beginRun({ threadId: "local-main", runId: "run-approval", source: "chat" });
+  const run = events.beginRun({ spaceId: "local-main", runId: "run-approval", source: "chat" });
   run.observe({ kind: "tool", phase: "start", toolCallId: "tc-1", name: "write", subagentId: null });
   const sse = await open(events);
   const [ready] = await sse.take(1);
@@ -323,7 +323,7 @@ test("routes: 30s heartbeat is a comment frame", async (t) => {
 
 test("routes: slow reader merges run frames but preserves approval order", async () => {
   const events = createWorkspaceEvents();
-  const run = events.beginRun({ threadId: "local-main", runId: "run-slow", source: "chat" });
+  const run = events.beginRun({ spaceId: "local-main", runId: "run-slow", source: "chat" });
   const response = await createWorkspaceEventRoutes(events).request("/api/events");
   const sse = sseReader(response.body!.getReader());
 
@@ -351,7 +351,7 @@ test("routes: overflowing the bounded queue disconnects; 9th connection is 429",
   for (let i = 0; i < 8; i++) readers.push((await app.request("/api/events")).body!.getReader());
   const rejected = await app.request("/api/events");
   assert.equal(rejected.status, 429);
-  assert.deepEqual(await rejected.json(), { error: "Too many event connections" });
+  assert.deepEqual(await rejected.json(), { error: "Too many event connections", code: "TOO_MANY_CONNECTIONS" });
   for (const reader of readers) await reader.cancel();
   assert.equal((await app.request("/api/events")).status, 200);
 });

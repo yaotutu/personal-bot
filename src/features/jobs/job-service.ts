@@ -88,7 +88,6 @@ export const createJobService = (repository: JobRepository) => ({
       id: randomUUID(), prompt: prompt.trim(), daily, at, enabled: true,
       createdAt: new Date().toISOString(), nextRunAt: nextRunAfter(daily, at, new Date()),
       originSpaceId,
-      originThreadId: originSpaceId,
     };
     return { items: [...items, job], result: job };
   }),
@@ -102,13 +101,10 @@ export const createJobService = (repository: JobRepository) => ({
 
   /** 级联删除属于指定空间的全部定时任务 */
   removeByOriginSpaceId: (originSpaceId: string): Promise<number> => repository.update((items) => {
-    const remaining = items.filter((item) => item.originSpaceId !== originSpaceId && item.originThreadId !== originSpaceId);
+    const remaining = items.filter((item) => (item.originSpaceId ?? "local-main") !== originSpaceId);
     const count = items.length - remaining.length;
     return { items: remaining, result: count };
   }),
-  removeByOriginThreadId(originThreadId: string): Promise<number> {
-    return this.removeByOriginSpaceId(originThreadId);
-  },
 
   /** 彻底删除单项定时任务；成功返回 true，不存在返回 false。 */
   remove: (id: string): Promise<boolean> => repository.update((items) => {
@@ -130,7 +126,7 @@ export const createJobService = (repository: JobRepository) => ({
     const prompt = updates.prompt !== undefined ? updates.prompt.trim() : job.prompt;
     const daily = updates.daily !== undefined ? updates.daily : job.daily;
     const at = updates.at !== undefined ? updates.at.trim() : job.at;
-    const originSpaceId = updates.originSpaceId !== undefined ? updates.originSpaceId : (job.originSpaceId ?? job.originThreadId);
+    const originSpaceId = updates.originSpaceId !== undefined ? updates.originSpaceId : job.originSpaceId;
     const timeChanged = daily !== job.daily || at !== job.at;
     const nextRunAt = timeChanged && job.enabled ? nextRunAfter(daily, at, new Date()) : job.nextRunAt;
     const updated: Job = {
@@ -140,7 +136,6 @@ export const createJobService = (repository: JobRepository) => ({
       at,
       nextRunAt,
       originSpaceId,
-      originThreadId: originSpaceId,
     };
     return { items: items.map((item) => item === job ? updated : item), result: updated };
   }),
