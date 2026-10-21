@@ -5,10 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createService } from "../../src/bootstrap/create-service.js";
 import { createConfig } from "../../src/config/load-config.js";
-import { agentSnapshot, taskDetail, taskView } from "../../src/http/contracts/responses.js";
+import { agentSnapshot, deleteGoalResponse, deleteMemoryResponse, goalsResponse, jobDetail, jobItem, memoriesResponse, memoryItem, monitorItem, monitorsResponse } from "../../src/http/contracts/responses.js";
 import { approvalSummary, approvalView } from "../../src/http/contracts/approvals.js";
 import { presentJob, presentJobDetail } from "../../src/http/job-presenters.js";
-import { createMonitorSchema, taskControlSchema } from "../../src/http/contracts/rest.js";
+import { presentMonitor } from "../../src/http/monitor-presenters.js";
+import { createGoalSchema, createMemorySchema, createMonitorSchema, goalsQuerySchema, jobControlSchema, jobsQuerySchema, memoriesQuerySchema, monitorControlSchema, monitorsQuerySchema, updateGoalSchema, updateJobSchema, updateMemorySchema, updateMonitorSchema } from "../../src/http/contracts/rest.js";
 import { endpoints } from "../../src/http/contracts/endpoints.js";
 import type { AgentSnapshotDto } from "../../src/http/contracts/responses.js";
 import type { Job } from "../../src/features/jobs/types.js";
@@ -23,14 +24,57 @@ const job: Job = {
 // 先经过 JSON 编解码，覆盖 undefined 字段在真实 HTTP 响应中被省略的行为。
 const wireValue = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
 
-test("task control only accepts target=job and rejects target=task so legacy payloads 400", () => {
+test("job and monitor contracts validate lifecycle actions, updates and query parameters strictly", () => {
   for (const action of ["pause", "resume", "cancel", "retry"] as const) {
-    assert.equal(taskControlSchema.safeParse({ target: "job", action }).success, true);
-    // target=task 是历史后台任务调度，已下线，统一 400。
-    assert.equal(taskControlSchema.safeParse({ target: "task", action }).success, false);
-    // 缺 target 也是 400，避免收不到字段的客户端误入路由。
-    assert.equal(taskControlSchema.safeParse({ action }).success, false);
+    assert.equal(jobControlSchema.safeParse({ action }).success, true);
+    // 携带未知字段报错（strictObject）
+    assert.equal(jobControlSchema.safeParse({ action, extra: 1 }).success, false);
   }
+  assert.equal(jobControlSchema.safeParse({ action: "unknown" }).success, false);
+
+  for (const action of ["pause", "resume", "stop"] as const) {
+    assert.equal(monitorControlSchema.safeParse({ action }).success, true);
+    assert.equal(monitorControlSchema.safeParse({ action, extra: 1 }).success, false);
+  }
+  assert.equal(monitorControlSchema.safeParse({ action: "cancel" }).success, false);
+
+  assert.equal(updateJobSchema.safeParse({ prompt: "new prompt", daily: true, at: "09:00" }).success, true);
+  assert.equal(updateJobSchema.safeParse({ prompt: "" }).success, false);
+  assert.equal(updateJobSchema.safeParse({ extra: true }).success, false);
+
+  assert.equal(updateMonitorSchema.safeParse({ title: "New title", url: "https://example.com/new", condition: "change" }).success, true);
+  assert.equal(updateMonitorSchema.safeParse({ extra: true }).success, false);
+
+  assert.equal(jobsQuerySchema.safeParse({}).success, true);
+  assert.equal(jobsQuerySchema.safeParse({ spaceId: "local-main", sort: "nextRunAt", order: "asc" }).success, true);
+  assert.equal(jobsQuerySchema.safeParse({ sort: "invalid" }).success, false);
+
+  assert.equal(monitorsQuerySchema.safeParse({}).success, true);
+  assert.equal(monitorsQuerySchema.safeParse({ spaceId: "local-main", sort: "createdAt", order: "desc" }).success, true);
+  assert.equal(monitorsQuerySchema.safeParse({ sort: "invalid" }).success, false);
+
+  assert.equal(memoriesQuerySchema.safeParse({}).success, true);
+  assert.equal(memoriesQuerySchema.safeParse({ q: "hello", limit: 5, sort: "createdAt", order: "asc" }).success, true);
+  assert.equal(memoriesQuerySchema.safeParse({ limit: 99 }).success, false);
+  assert.equal(memoriesQuerySchema.safeParse({ extra: 1 }).success, false);
+  assert.equal(createMemorySchema.safeParse({ text: "valid fact", source: "test" }).success, true);
+  assert.equal(createMemorySchema.safeParse({ text: "   " }).success, false);
+  assert.deepEqual(createMemorySchema.parse({ text: "valid", extra: 1 }), { text: "valid" });
+  assert.equal(updateMemorySchema.safeParse({ text: "updated" }).success, true);
+  assert.equal(updateMemorySchema.safeParse({ text: "" }).success, false);
+  assert.equal(deleteMemoryResponse.safeParse({ ok: true, id: "m1" }).success, true);
+  assert.equal(deleteMemoryResponse.safeParse({ ok: false, id: "m1" }).success, false);
+
+  assert.equal(goalsQuerySchema.safeParse({}).success, true);
+  assert.equal(goalsQuerySchema.safeParse({ status: "active", category: "study", sort: "createdAt", order: "asc" }).success, true);
+  assert.equal(goalsQuerySchema.safeParse({ status: "invalid" }).success, false);
+  assert.equal(goalsQuerySchema.safeParse({ extra: 1 }).success, false);
+  assert.equal(createGoalSchema.safeParse({ title: "Run 5k", milestones: ["Buy shoes"] }).success, true);
+  assert.equal(createGoalSchema.safeParse({ title: "" }).success, false);
+  assert.equal(updateGoalSchema.safeParse({ title: "Run 10k", status: "completed" }).success, true);
+  assert.equal(updateGoalSchema.safeParse({ status: "invalid" }).success, false);
+  assert.equal(deleteGoalResponse.safeParse({ ok: true, id: "g1" }).success, true);
+  assert.equal(deleteGoalResponse.safeParse({ ok: false, id: "g1" }).success, false);
 });
 
 test("creation contracts for remaining domains preserve optional source threads and reject unsafe IDs", () => {
@@ -78,20 +122,21 @@ test("POST /api/agent/tasks is not registered in the contract and the unmounted 
 test("response contracts cover job presenter and wrapped detail without dropping fields", () => {
   const dto = presentJob(job);
   const body = wireValue(dto);
-  assert.deepEqual(taskView.strict().parse(body), body);
+  assert.deepEqual(jobItem.strict().parse(body), body);
   const detail = presentJobDetail(job);
   const detailBody = wireValue(detail);
-  assert.deepEqual(taskDetail.strict().parse(detailBody), detailBody);
-  assert.equal(taskDetail.safeParse({ task: detail.task, events: detail.events }).success, true);
-  assert.equal(taskDetail.safeParse({ ...detail.task, events: detail.events }).success, false);
-  // kind 收敛后所有合法 taskView.kind === "job"，旧 task 别名应被拒绝。
-  assert.equal(taskView.safeParse({ ...dto, kind: "task" }).success, false);
-  assert.equal(taskView.safeParse({ ...dto, kind: "document" }).success, false);
+  assert.deepEqual(jobDetail.strict().parse(detailBody), detailBody);
+  assert.equal(jobDetail.safeParse({ job: detail.job, events: detail.events }).success, true);
+  assert.equal(jobDetail.safeParse({ ...detail.job, events: detail.events }).success, false);
+  // kind 固定为 "job"，其他别名均被拒绝。
+  assert.equal(jobItem.safeParse({ ...dto, kind: "task" }).success, false);
+  assert.equal(jobItem.safeParse({ ...dto, kind: "document" }).success, false);
 });
 
 test("approval contract preserves complete text, cancellation and optional execution context", () => {
   const preview = {
-    scope: "thread" as const,
+    scope: "space" as const,
+    ownerSpaceId: "local-main",
     ownerThreadId: "local-main",
     path: "notes.md",
     before: "旧内容",
@@ -101,10 +146,12 @@ test("approval contract preserves complete text, cancellation and optional execu
   const legacy = {
     id: "approval",
     revision: 1,
+    spaceId: "local-main",
     threadId: "local-main",
     runId: "run-1",
     toolCallId: "tc-1",
     subagentId: null,
+    workspaceSpaceId: "local-main",
     workspaceThreadId: "local-main",
     activityId: null,
     kind: "file_write" as const,
@@ -132,11 +179,16 @@ test("approval contract preserves complete text, cancellation and optional execu
     else assert.deepEqual(approvalSummary.strict().parse(summary), summary);
   }
   assert.equal(approvalView.safeParse({ ...legacy, status: "unknown" }).success, false);
-  // scope=shared 时 ownerThreadId 必须为 null；nullable 关联字段不能用空串伪装。
-  const shared = { ...legacy, preview: { ...preview, scope: "shared" as const, ownerThreadId: null }, workspaceThreadId: null };
+  // scope=shared 时 ownerSpaceId 与 ownerThreadId 必须为 null；nullable 关联字段不能用空串伪装。
+  const shared = {
+    ...legacy,
+    preview: { ...preview, scope: "shared" as const, ownerSpaceId: null, ownerThreadId: null },
+    workspaceSpaceId: null,
+    workspaceThreadId: null,
+  };
   assert.deepEqual(approvalView.strict().parse(shared), shared);
   assert.equal(approvalView.safeParse({ ...legacy, revision: 0 }).success, false);
-  assert.equal(approvalView.safeParse({ ...legacy, preview: { ...preview, ownerThreadId: "" } }).success, false);
+  assert.equal(approvalView.safeParse({ ...legacy, preview: { ...preview, ownerSpaceId: "" } }).success, false);
 });
 
 test("HTTP snapshot matches contract with job-only tasks and no worker projection", async (t) => {
@@ -177,23 +229,51 @@ test("HTTP snapshot matches contract with job-only tasks and no worker projectio
   // 使用 Web 同一导入路径，编译期检查完整集合类型；无需前端 casts 就能访问各域字段。
   const snapshot: AgentSnapshotDto = agentSnapshot.strict().parse(body);
   assert.deepEqual(snapshot, body);
-  assert.deepEqual(snapshot.tasks.map((item) => item.id), [job.id]);
-  assert.equal(snapshot.tasks[0].kind, "job");
+  assert.equal(Object.hasOwn(body, "tasks"), false);
   assert.equal(Object.hasOwn(body, "notifications"), false);
   // 后台任务域已下线：响应体不再含 worker 字段。
   assert.equal(Object.hasOwn(body, "worker"), false);
   assert.equal(Object.hasOwn(snapshot, "worker"), false);
-  assert.equal(snapshot.goals[0].milestones[0].id, goal.milestones[0].id);
-  assert.equal(snapshot.monitors[0].originThreadId, "trip-2026");
-  assert.equal(Object.hasOwn(body.monitors[0], "pendingNotification"), false);
-  // 任务详情路由现在只查 jobs；查询失败返回 404，没有 task 兜底。
-  const missing = await service.app.request(`/api/agent/tasks/${job.id}`, { headers });
+  assert.equal(Object.hasOwn(body, "goals"), false);
+  assert.equal(Object.hasOwn(snapshot, "goals"), false);
+  assert.equal(Object.hasOwn(body, "monitors"), false);
+  assert.equal(Object.hasOwn(snapshot, "monitors"), false);
+  assert.equal(Object.hasOwn(body, "memories"), false);
+  assert.equal(Object.hasOwn(snapshot, "memories"), false);
+
+  const goalsRes = await service.app.request("/api/goals", { headers });
+  assert.equal(goalsRes.status, 200);
+  const goalsBody = await goalsRes.json();
+  assert.deepEqual(goalsResponse.strict().parse(goalsBody), goalsBody);
+  assert.deepEqual(goalsBody.goals.map((item: { id: string }) => item.id), [goal.id]);
+  assert.equal(goalsBody.goals[0].milestones[0].id, goal.milestones[0].id);
+
+  const monitorsRes = await service.app.request("/api/monitors", { headers });
+  assert.equal(monitorsRes.status, 200);
+  const monitorsBody = await monitorsRes.json();
+  assert.deepEqual(monitorsBody.monitors.map((item: { id: string }) => item.id), [monitor.id]);
+  assert.equal(monitorsBody.monitors[0].originSpaceId, "trip-2026");
+  assert.equal(Object.hasOwn(monitorsBody.monitors[0], "pendingNotification"), false);
+
+  const jobsRes = await service.app.request("/api/jobs", { headers });
+  assert.equal(jobsRes.status, 200);
+  const jobsBody = await jobsRes.json();
+  assert.deepEqual(jobsBody.jobs.map((item: { id: string }) => item.id), [job.id]);
+  assert.equal(jobsBody.jobs[0].kind, "job");
+
+  // 任务详情路由现在查 /api/jobs/:id；查询失败返回 404。
+  const missing = await service.app.request(`/api/jobs/${job.id}`, { headers });
   assert.equal(missing.status, 404);
   t.mock.method(service.jobs, "get", async () => job);
-  const detail = await service.app.request(`/api/agent/tasks/${job.id}`, { headers });
+  const detail = await service.app.request(`/api/jobs/${job.id}`, { headers });
   assert.equal(detail.status, 200);
   const detailBody = await detail.json();
-  assert.deepEqual(taskDetail.strict().parse(detailBody), detailBody);
+  assert.deepEqual(jobDetail.strict().parse(detailBody), detailBody);
+
+  const memoriesRes = await service.app.request("/api/memories", { headers });
+  assert.equal(memoriesRes.status, 200);
+  const memoriesBody = await memoriesRes.json();
+  assert.deepEqual(memoriesResponse.strict().parse(memoriesBody), { memories: [] });
 });
 
 // 审批不依赖工作台其他域；历史只取摘要，完整正文只能从 pending 或单项详情取得。
@@ -209,7 +289,7 @@ test("approval queries isolate pending previews from workspace failures and hist
   const expired = await service.actions.submit("file_write", "Expired", { path: "expired.md", content, originalContent: "", baseVersion: "missing", beforeExists: "false" }, { timeoutMs: 1 });
   await new Promise((resolve) => setTimeout(resolve, 10));
   await service.actions.expirePending();
-  t.mock.method(service.memory, "list", async () => { throw new Error("unrelated failure"); });
+  t.mock.method(service.identity, "get", async () => { throw new Error("unrelated failure"); });
   assert.equal((await service.app.request("/api/agent", { headers })).status, 500);
 
   // 待审批通过 /api/events 的 ready 事件获取，与快照故障隔离。

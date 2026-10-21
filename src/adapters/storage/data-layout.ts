@@ -1,6 +1,6 @@
 import { lstat, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { isThreadId } from "../../features/conversation/validate-input.js";
+import { isSpaceId } from "../../features/conversation/validate-input.js";
 
 /**
  * 统一描述个人助手的数据文件布局。
@@ -9,6 +9,7 @@ import { isThreadId } from "../../features/conversation/validate-input.js";
  */
 export type DataLayout = {
   root: string;
+  profileDir: string;
   workspaceDir: string;
   sessionsDir: string;
   agentDir: string;
@@ -28,20 +29,22 @@ export type DataLayout = {
 
 export const createDataLayout = (dataDir: string): DataLayout => {
   const root = resolve(dataDir);
+  const profileDir = join(root, "profile");
   return {
     root,
+    profileDir,
     workspaceDir: join(root, "workspace"),
     sessionsDir: join(root, "sessions"),
     agentDir: join(root, "agent"),
     piAuthFile: join(root, "agent", "auth.json"),
-    memoryFile: join(root, "memory.json"),
+    memoryFile: join(profileDir, "memory.json"),
     jobsFile: join(root, "jobs.json"),
     goalsFile: join(root, "goals.json"),
     actionsFile: join(root, "actions.json"),
     monitorsFile: join(root, "monitors.json"),
-    soulFile: join(root, "SOUL.md"),
-    userFile: join(root, "USER.md"),
-    dreamFile: join(root, "DREAM.md"),
+    soulFile: join(profileDir, "SOUL.md"),
+    userFile: join(profileDir, "USER.md"),
+    dreamFile: join(profileDir, "DREAM.md"),
     authKeyFile: join(root, "auth.key"),
     skillsDir: join(root, "skills"),
     subagentsDir: join(root, "subagents"),
@@ -49,30 +52,36 @@ export const createDataLayout = (dataDir: string): DataLayout => {
 };
 
 /** 单 owner 多会话：每个 thread 独占 sessions/<threadId>/ 下的 pi 会话树。 */
-export const threadSessionsDir = (layout: DataLayout, threadId: string) =>
-  join(layout.sessionsDir, threadId);
+export const spaceSessionsDir = (layout: DataLayout, spaceId: string) =>
+  join(layout.sessionsDir, spaceId);
+export const threadSessionsDir = spaceSessionsDir;
 
 /** 每个会话的技能覆盖文件：sessions/<threadId>/skills.json */
-export const threadSkillsFile = (layout: DataLayout, threadId: string) =>
-  join(threadSessionsDir(layout, threadId), "skills.json");
+export const spaceSkillsFile = (layout: DataLayout, spaceId: string) =>
+  join(spaceSessionsDir(layout, spaceId), "skills.json");
+export const threadSkillsFile = spaceSkillsFile;
 
 /** 每个会话的专属指令文件：sessions/<threadId>/INSTRUCTIONS.md */
-export const threadInstructionsFile = (layout: DataLayout, threadId: string) =>
-  join(threadSessionsDir(layout, threadId), "INSTRUCTIONS.md");
+export const spaceInstructionsFile = (layout: DataLayout, spaceId: string) =>
+  join(spaceSessionsDir(layout, spaceId), "INSTRUCTIONS.md");
+export const threadInstructionsFile = spaceInstructionsFile;
 
 /** 每个会话的 Dream 补充提示词：sessions/<threadId>/DREAM.md */
-export const threadDreamPromptFile = (layout: DataLayout, threadId: string) =>
-  join(threadSessionsDir(layout, threadId), "DREAM.md");
+export const spaceDreamPromptFile = (layout: DataLayout, spaceId: string) =>
+  join(spaceSessionsDir(layout, spaceId), "DREAM.md");
+export const threadDreamPromptFile = spaceDreamPromptFile;
 
 /** 每个会话的 Dream 状态文件：sessions/<threadId>/dream.json */
-export const threadDreamFile = (layout: DataLayout, threadId: string) =>
-  join(threadSessionsDir(layout, threadId), "dream.json");
+export const spaceDreamFile = (layout: DataLayout, spaceId: string) =>
+  join(spaceSessionsDir(layout, spaceId), "dream.json");
+export const threadDreamFile = spaceDreamFile;
 
-/** workspace/ 与 threads/ 仅为容器；主会话、用户会话和内部任务没有父目录访问特权。 */
-export const threadWorkspaceDir = (layout: DataLayout, threadId: string) => {
-  if (!isThreadId(threadId)) throw new Error("Invalid threadId");
-  return join(layout.workspaceDir, "threads", threadId);
+/** workspace/ 与 threads/ 仅为容器；空间与内部任务没有父目录访问特权。 */
+export const spaceWorkspaceDir = (layout: DataLayout, spaceId: string) => {
+  if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId / Invalid threadId");
+  return join(layout.workspaceDir, "threads", spaceId);
 };
+export const threadWorkspaceDir = spaceWorkspaceDir;
 
 /** 所有会话通过 shared/ 别名显式访问的共享目录，不在私有目录内建立链接。 */
 export const sharedWorkspaceDir = (layout: DataLayout) =>
@@ -89,20 +98,23 @@ const ensureWorkspaceDirectory = async (directory: string) => {
 };
 
 /** 只初始化新布局，不读取、搬移或删除原 workspace 根目录下的旧文件。 */
-export const ensureThreadLayout = async (layout: DataLayout) => {
+export const ensureSpaceLayout = async (layout: DataLayout) => {
   await mkdir(layout.root, { recursive: true, mode: 0o700 });
+  await mkdir(layout.profileDir, { recursive: true, mode: 0o700 });
   await mkdir(layout.sessionsDir, { recursive: true, mode: 0o700 });
   await ensureWorkspaceDirectory(layout.workspaceDir);
   await ensureWorkspaceDirectory(join(layout.workspaceDir, "threads"));
   await ensureWorkspaceDirectory(sharedWorkspaceDir(layout));
-  await ensureWorkspaceDirectory(threadWorkspaceDir(layout, "local-main"));
+  await ensureWorkspaceDirectory(spaceWorkspaceDir(layout, "local-main"));
 };
+export const ensureThreadLayout = ensureSpaceLayout;
 
-/** 从容器到私有根逐级拒绝链接，避免初始化本身跟随链接替其他会话创建目录。 */
-export const ensureThreadWorkspace = async (layout: DataLayout, threadId: string) => {
-  const directory = threadWorkspaceDir(layout, threadId);
+/** 从容器到私有根逐级拒绝链接，避免初始化本身跟随链接替其他空间创建目录。 */
+export const ensureSpaceWorkspace = async (layout: DataLayout, spaceId: string) => {
+  const directory = spaceWorkspaceDir(layout, spaceId);
   await ensureWorkspaceDirectory(layout.workspaceDir);
   await ensureWorkspaceDirectory(join(layout.workspaceDir, "threads"));
   await ensureWorkspaceDirectory(sharedWorkspaceDir(layout));
   await ensureWorkspaceDirectory(directory);
 };
+export const ensureThreadWorkspace = ensureSpaceWorkspace;

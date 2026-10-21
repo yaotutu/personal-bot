@@ -4,10 +4,11 @@ import type { SessionManager } from "@earendil-works/pi-coding-agent";
 
 const date = z.string().datetime();
 const overview = z.object({
-  id: z.string().uuid(), threadId: z.string(), title: z.string().max(160), goal: z.string().max(2000), deliverable: z.string().max(2000),
+  id: z.string().uuid(), spaceId: z.string().optional(), threadId: z.string().optional(),
+  title: z.string().max(160), goal: z.string().max(2000), deliverable: z.string().max(2000),
   status: z.enum(activityStatuses), progress: z.string().max(2000), result: z.string().max(2000).nullable(),
   runIds: z.array(z.string()), currentRunId: z.string().nullable(), createdAt: date, updatedAt: date, finishedAt: date.nullable(),
-}).strict();
+}).refine((data) => Boolean(data.spaceId || data.threadId), "spaceId or threadId required");
 const step = z.object({
   id: z.string(), runId: z.string(), parentId: z.string().nullable(), kind: z.enum(["execution", "model", "tool", "subagent", "approval", "file_commit"]),
   title: z.string().max(240), status: z.enum(["running", "succeeded", "failed", "denied", "cancelled", "expired", "interrupted"]),

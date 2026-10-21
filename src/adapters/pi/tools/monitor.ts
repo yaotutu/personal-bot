@@ -6,7 +6,7 @@ import type { MonitorCondition } from "../../../features/monitors/types.js";
 /** 对话式监控工具：创建/列表/暂停/恢复/停止。检查由调度器周期执行。 */
 export const monitorTool = (
   monitors: Pick<MonitorService, "create" | "list" | "control">,
-  originThreadId?: string,
+  originSpaceId?: string,
 ) =>
   defineTool({
     name: "monitor",
@@ -49,7 +49,7 @@ export const monitorTool = (
           };
         try {
           const monitor = await monitors.create({
-            originThreadId,
+            originSpaceId,
             title: params.title ?? params.url,
             url: params.url,
             condition: (params.condition ?? "change") as MonitorCondition,

@@ -4,7 +4,7 @@ import type { JobService } from "../../../features/jobs/job-service.js";
 
 // P4 对话式定时任务工具：模型把自然语言时间转成参数。一次性用 ISO 时间
 // （含时区），每日用 HH:mm。崩了重跑哲学：调度器只是扫表 + 诚实状态。
-export const scheduleTool = (jobs: Pick<JobService, "add" | "list" | "cancel">, threadId?: string) =>
+export const scheduleTool = (jobs: Pick<JobService, "add" | "list" | "cancel">, spaceId?: string) =>
   defineTool({
     name: "schedule",
     label: "Scheduled jobs",
@@ -56,7 +56,7 @@ export const scheduleTool = (jobs: Pick<JobService, "add" | "list" | "cancel">, 
             details: undefined,
             isError: true,
           };
-        const job = await jobs.add(params.prompt, daily, params.at, threadId || "local-main");
+        const job = await jobs.add(params.prompt, daily, params.at, spaceId || "local-main");
         return {
           content: [
             {

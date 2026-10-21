@@ -6,18 +6,18 @@ import {
   getAgentSnapshot,
   getDreamOverview,
   getProfile,
-  getThreadDream,
-  getThreadInstructions,
+  getSpaceDream,
+  getSpaceInstructions,
   listMemories,
-  resolveThreadDreamPending,
-  runThreadDream,
+  resolveSpaceDreamPending,
+  runSpaceDream,
   saveGlobalDreamPrompt,
   saveIdentity,
   saveProfile,
-  saveThreadInstructions,
-  updateThreadDream,
+  saveSpaceInstructions,
+  updateSpaceDream,
   type DreamOverviewDto,
-  type DreamThreadDto,
+  type DreamSpaceDto,
   type IdentityDto,
   type MemoryDto,
 } from "../lib/api";
@@ -31,12 +31,13 @@ const TONES: { value: string; label: string }[] = [
 const TARGET_LABELS: Record<"user" | "soul" | "instructions" | "memory", string> = {
   user: "USER.md（用户画像）",
   soul: "SOUL.md（助手人设）",
-  instructions: "本会话 INSTRUCTIONS.md",
+  instructions: "本空间 INSTRUCTIONS.md",
   memory: "memory.json（长期记忆）",
 };
 
-/** 设置页：身份、按需检索记忆、SOUL/USER 人设、会话指令与 Dream 后台记忆整理。 */
-export const SettingsView = ({ threadId = "local-main" }: { threadId?: string }) => {
+/** 设置页：身份、按需检索记忆、SOUL/USER 人设、空间指令与 Dream 后台记忆整理。 */
+export const SettingsView = ({ spaceId, threadId = "local-main" }: { spaceId?: string; threadId?: string }) => {
+  const currentSpaceId = spaceId || threadId || "local-main";
   const [identity, setIdentity] = useState<IdentityDto | null>(null);
   const [memories, setMemories] = useState<MemoryDto[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -46,7 +47,7 @@ export const SettingsView = ({ threadId = "local-main" }: { threadId?: string })
   const [instructions, setInstructions] = useState("");
   const [purpose, setPurpose] = useState("");
   const [dreamOverview, setDreamOverview] = useState<DreamOverviewDto | null>(null);
-  const [threadDream, setThreadDream] = useState<DreamThreadDto | null>(null);
+  const [spaceDream, setSpaceDream] = useState<DreamSpaceDto | null>(null);
   const [pendingTargets, setPendingTargets] = useState<
     Record<string, "user" | "soul" | "instructions" | "memory">
   >({});
@@ -68,18 +69,18 @@ export const SettingsView = ({ threadId = "local-main" }: { threadId?: string })
     });
     reloadMemories();
     void getProfile().then(setProfile);
-    void getThreadInstructions(threadId).then((data) => setInstructions(data.instructions));
+    void getSpaceInstructions(currentSpaceId).then((data) => setInstructions(data.instructions));
     void getDreamOverview().then(setDreamOverview);
-    void getThreadDream(threadId).then((data) => {
-      setThreadDream(data);
+    void getSpaceDream(currentSpaceId).then((data) => {
+      setSpaceDream(data);
       setPurpose(data.purpose);
     });
   };
 
-  useEffect(reload, [threadId]);
+  useEffect(reload, [currentSpaceId]);
 
-  const allPending = (dreamOverview?.threads ?? []).flatMap((item) =>
-    item.pending.map((entry) => ({ ...entry, threadId: item.threadId })),
+  const allPending = (dreamOverview?.spaces ?? []).flatMap((item) =>
+    item.pending.map((entry) => ({ ...entry, spaceId: item.spaceId })),
   );
 
   return (
@@ -132,7 +133,7 @@ export const SettingsView = ({ threadId = "local-main" }: { threadId?: string })
           </section>
         )}
 
-        {dreamOverview && threadDream && (
+        {dreamOverview && spaceDream && (
           <section className="rounded-2xl border border-stone-200 bg-white p-5 space-y-4">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -140,14 +141,14 @@ export const SettingsView = ({ threadId = "local-main" }: { threadId?: string })
                   Dream 后台记忆整理（每 {dreamOverview.intervalHours} 小时）
                 </h2>
                 <p className="mt-0.5 text-xs text-stone-400">
-                  当前会话：{threadId}。SOUL/USER/会话指令每轮常驻；memory.json 作为沉淀库按需检索。
+                  当前空间：{currentSpaceId}。SOUL/USER/空间指令每轮常驻；memory.json 作为沉淀库按需检索。
                 </p>
               </div>
               <button
                 disabled={runningDream}
                 onClick={() => {
                   setRunningDream(true);
-                  void runThreadDream(threadId)
+                  void runSpaceDream(currentSpaceId)
                     .then(
                       () => {
                         reload();
@@ -159,7 +160,7 @@ export const SettingsView = ({ threadId = "local-main" }: { threadId?: string })
                 }}
                 className="rounded-lg bg-stone-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-stone-700 disabled:opacity-50"
               >
-                {runningDream ? "整理中…" : "立即整理此会话"}
+                {runningDream ? "整理中…" : "立即整理此空间"}
               </button>
             </div>
 
@@ -167,29 +168,29 @@ export const SettingsView = ({ threadId = "local-main" }: { threadId?: string })
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={threadDream.enabled}
+                  checked={spaceDream.enabled}
                   onChange={(e) =>
-                    void updateThreadDream(threadId, { enabled: e.target.checked }).then(
+                    void updateSpaceDream(currentSpaceId, { enabled: e.target.checked }).then(
                       (next) => {
-                        setThreadDream(next);
+                        setSpaceDream(next);
                         flash(next.enabled ? "已开启自动整理" : "已关闭自动整理");
                       },
                       (err: Error) => flash(err.message),
                     )
                   }
                 />
-                <span>开启此会话自动整理</span>
+                <span>开启此空间自动整理</span>
               </label>
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={threadDream.inheritGlobalPrompt}
+                  checked={spaceDream.inheritGlobalPrompt}
                   onChange={(e) =>
-                    void updateThreadDream(threadId, {
+                    void updateSpaceDream(currentSpaceId, {
                       inheritGlobalPrompt: e.target.checked,
                     }).then(
                       (next) => {
-                        setThreadDream(next);
+                        setSpaceDream(next);
                         flash("已更新继承设置");
                       },
                       (err: Error) => flash(err.message),
@@ -200,30 +201,30 @@ export const SettingsView = ({ threadId = "local-main" }: { threadId?: string })
               </label>
             </div>
 
-            {threadDream.lastRun && (
+            {spaceDream.lastRun && (
               <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600">
                 <div>
-                  最近整理：{threadDream.lastRun.at} · 状态：{threadDream.lastRun.status} · 处理新消息：
-                  {threadDream.lastRun.processed} 条
-                  {threadDream.lastRun.changed.length > 0 &&
-                    ` · 已更新：${threadDream.lastRun.changed.join(", ")}`}
+                  最近整理：{spaceDream.lastRun.at} · 状态：{spaceDream.lastRun.status} · 处理新消息：
+                  {spaceDream.lastRun.processed} 条
+                  {spaceDream.lastRun.changed.length > 0 &&
+                    ` · 已更新：${spaceDream.lastRun.changed.join(", ")}`}
                 </div>
-                {threadDream.lastRun.error && (
-                  <div className="mt-1 text-red-600">错误：{threadDream.lastRun.error}</div>
+                {spaceDream.lastRun.error && (
+                  <div className="mt-1 text-red-600">错误：{spaceDream.lastRun.error}</div>
                 )}
               </div>
             )}
 
             <div>
               <label className="text-xs font-medium text-stone-500">
-                会话指令（sessions/{threadId}/INSTRUCTIONS.md，每轮携带）
+                空间指令（sessions/{currentSpaceId}/INSTRUCTIONS.md，每轮携带）
               </label>
               {!purpose && (
                 <div className="mt-1 flex gap-2">
                   <input
                     value={purpose}
                     onChange={(e) => setPurpose(e.target.value)}
-                    placeholder="可选：声明会话用途（生成 ## 会话用途 段落，供 Dream 归类本会话规则）"
+                    placeholder="可选：声明空间用途（生成 ## 空间用途 段落，供 Dream 归类本空间规则）"
                     className="flex-1 rounded-lg border border-stone-300 px-2.5 py-1 text-xs outline-none focus:border-stone-500"
                   />
                 </div>
@@ -232,57 +233,57 @@ export const SettingsView = ({ threadId = "local-main" }: { threadId?: string })
                 value={instructions}
                 onChange={(e) => setInstructions(e.target.value)}
                 rows={4}
-                placeholder="例如：## 会话用途\n处理工作邮件草稿\n\n每封回信以 Best regards 结尾。"
+                placeholder="例如：## 空间用途\n处理工作邮件草稿\n\n每封回信以 Best regards 结尾。"
                 className="mt-1 w-full resize-y rounded-lg border border-stone-300 px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:border-stone-500"
               />
               <button
                 onClick={() =>
-                  void saveThreadInstructions(
-                    threadId,
+                  void saveSpaceInstructions(
+                    currentSpaceId,
                     instructions,
-                    purpose && !instructions.includes("## 会话用途") ? purpose : undefined,
+                    purpose && !instructions.includes("## 空间用途") ? purpose : undefined,
                   ).then(
                     (saved) => {
                       setInstructions(saved.instructions);
-                      void getThreadDream(threadId).then((next) => {
-                        setThreadDream(next);
+                      void getSpaceDream(currentSpaceId).then((next) => {
+                        setSpaceDream(next);
                         setPurpose(next.purpose);
                       });
-                      flash("会话指令已保存");
+                      flash("空间指令已保存");
                     },
                     (e: Error) => flash(e.message),
                   )
                 }
                 className="mt-2 rounded-lg border border-stone-300 px-3 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50"
               >
-                保存会话指令
+                保存空间指令
               </button>
             </div>
 
             <div>
               <label className="text-xs font-medium text-stone-500">
-                此会话 Dream 补充提示词（sessions/{threadId}/DREAM.md）
+                此空间 Dream 补充提示词（sessions/{currentSpaceId}/DREAM.md）
               </label>
               <textarea
-                value={threadDream.prompt}
-                onChange={(e) => setThreadDream({ ...threadDream, prompt: e.target.value })}
+                value={spaceDream.prompt}
+                onChange={(e) => setSpaceDream({ ...spaceDream, prompt: e.target.value })}
                 rows={3}
-                placeholder="仅对当前会话生效的额外整理提示词…"
+                placeholder="仅对当前空间生效的额外整理提示词…"
                 className="mt-1 w-full resize-y rounded-lg border border-stone-300 px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:border-stone-500"
               />
               <button
                 onClick={() =>
-                  void updateThreadDream(threadId, { prompt: threadDream.prompt }).then(
+                  void updateSpaceDream(currentSpaceId, { prompt: spaceDream.prompt }).then(
                     (next) => {
-                      setThreadDream(next);
-                      flash("会话 Dream 提示词已保存");
+                      setSpaceDream(next);
+                      flash("空间 Dream 提示词已保存");
                     },
                     (e: Error) => flash(e.message),
                   )
                 }
                 className="mt-2 rounded-lg border border-stone-300 px-3 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50"
               >
-                保存会话补充提示词
+                保存空间补充提示词
               </button>
             </div>
 
@@ -328,7 +329,7 @@ export const SettingsView = ({ threadId = "local-main" }: { threadId?: string })
                       className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs space-y-2"
                     >
                       <div className="flex items-center justify-between text-stone-500">
-                        <span>来源会话：{item.threadId}</span>
+                        <span>来源空间：{item.spaceId}</span>
                         <span>原因：{item.reason}</span>
                       </div>
                       <p className="whitespace-pre-wrap text-sm text-stone-800">{item.text}</p>
@@ -355,7 +356,7 @@ export const SettingsView = ({ threadId = "local-main" }: { threadId?: string })
                         </select>
                         <button
                           onClick={() =>
-                            void resolveThreadDreamPending(item.threadId, item.id, {
+                            void resolveSpaceDreamPending(item.spaceId, item.id, {
                               action: "apply",
                               target: chosen,
                             }).then(
@@ -372,7 +373,7 @@ export const SettingsView = ({ threadId = "local-main" }: { threadId?: string })
                         </button>
                         <button
                           onClick={() =>
-                            void resolveThreadDreamPending(item.threadId, item.id, {
+                            void resolveSpaceDreamPending(item.spaceId, item.id, {
                               action: "dismiss",
                             }).then(
                               () => {

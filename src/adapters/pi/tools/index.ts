@@ -22,13 +22,13 @@ import { SUBAGENT_TOOL_NAME } from "../subagent/extension.js";
 
 type ToolDependencies = {
   root: string;
-  threadId?: string;
+  spaceId?: string;
   runId?: string;
   memory: MemoryService;
   jobs: JobService;
   isSubagent?: boolean;
   subagentId?: string;
-  workspaceThreadId?: string;
+  workspaceSpaceId?: string;
   currentActivityId?: () => string | null;
   activity?: ActivityRun;
   activityObservation?: ActivityToolObservation;
@@ -65,17 +65,17 @@ export const skillToToolsMap: Record<string, string[]> = {
 const registrations = [
   { names: ["currentTime"], create: (_deps: ToolDependencies) => [currentTimeTool] },
   { names: [ACTIVITY_TOOL_NAME], create: (deps: ToolDependencies) => deps.activity && !isSubagent(deps) ? [createActivityTool(deps.activity)] : [] },
-  { names: ["instructions"], create: (deps: ToolDependencies) => isSubagent(deps) || !deps.layout ? [] : [instructionsTool(deps.layout, deps.threadId)] },
+  { names: ["instructions"], create: (deps: ToolDependencies) => isSubagent(deps) || !deps.layout ? [] : [instructionsTool(deps.layout, deps.spaceId)] },
   { names: ["memory", "memory_search"], create: (deps: ToolDependencies) => [memoryTool(deps.memory), memorySearchTool(deps.memory)] },
-  { names: ["schedule"], create: (deps: ToolDependencies) => isSubagent(deps) ? [] : [scheduleTool(deps.jobs, deps.threadId)] },
+  { names: ["schedule"], create: (deps: ToolDependencies) => isSubagent(deps) ? [] : [scheduleTool(deps.jobs, deps.spaceId)] },
   { names: ["goal"], create: (deps: ToolDependencies) => deps.goals ? [goalTool(deps.goals)] : [] },
-  { names: ["monitor"], create: (deps: ToolDependencies) => !isSubagent(deps) && deps.monitors ? [monitorTool(deps.monitors, deps.threadId)] : [] },
+  { names: ["monitor"], create: (deps: ToolDependencies) => !isSubagent(deps) && deps.monitors ? [monitorTool(deps.monitors, deps.spaceId)] : [] },
   { names: ["read", "grep", "find", "ls"], create: (deps: ToolDependencies) => createFileTools(deps.root, deps.sharedDir, { boundaryDir: deps.layout?.workspaceDir, readOnlyFiles: deps.readOnlyFiles }) },
   // 写文件默认开启，经人工审批闸门；config tools.writable=false 可整体关闭。
   {
     names: ["write", "edit"],
     create: (deps: ToolDependencies) =>
-      deps.actions ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { threadId: deps.threadId, runId: deps.runId, subagentId: deps.subagentId, workspaceThreadId: deps.workspaceThreadId ?? deps.threadId, activityId: deps.currentActivityId }, deps.sharedDir, deps.layout?.workspaceDir, deps.activityObservation) : [],
+      deps.actions ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { spaceId: deps.spaceId, runId: deps.runId, subagentId: deps.subagentId, workspaceSpaceId: deps.workspaceSpaceId ?? deps.spaceId, activityId: deps.currentActivityId }, deps.sharedDir, deps.layout?.workspaceDir, deps.activityObservation) : [],
   },
   { names: ["search_web", "web_fetch"], create: (deps: ToolDependencies) => deps.web ? createWebTools(deps.web) : [] },
   { names: ["get_weather"], create: (deps: ToolDependencies) => deps.weather ? [weatherTool(deps.weather)] : [] },

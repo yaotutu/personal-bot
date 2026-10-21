@@ -26,12 +26,12 @@ export const createEventProjector = (
     switch (event.type) {
       case "run_started":
         assistantId = event.assistantId;
-        emit({ type: EventType.RUN_STARTED, threadId: event.threadId, runId: event.runId });
+        emit({ type: EventType.RUN_STARTED, spaceId: event.spaceId, threadId: event.spaceId, runId: event.runId } as BaseEvent);
         break;
       case "run_finished":
         toolNames.clear();
         startedTools.clear();
-        emit({ type: EventType.RUN_FINISHED, threadId: event.threadId, runId: event.runId });
+        emit({ type: EventType.RUN_FINISHED, spaceId: event.spaceId, threadId: event.spaceId, runId: event.runId } as BaseEvent);
         break;
       case "run_error":
         toolNames.clear();

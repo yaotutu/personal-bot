@@ -39,20 +39,22 @@ const schedulerFor = (
 
 test("DataLayout describes the current paths without migrating legacy data", () => {
   const root = resolve(".personal-bot-test");
+  const profileDir = join(root, "profile");
   assert.deepEqual(createDataLayout("./.personal-bot-test"), {
     root,
+    profileDir,
     workspaceDir: join(root, "workspace"),
     sessionsDir: join(root, "sessions"),
     agentDir: join(root, "agent"),
     piAuthFile: join(root, "agent", "auth.json"),
-    memoryFile: join(root, "memory.json"),
+    memoryFile: join(profileDir, "memory.json"),
     jobsFile: join(root, "jobs.json"),
     goalsFile: join(root, "goals.json"),
     actionsFile: join(root, "actions.json"),
     monitorsFile: join(root, "monitors.json"),
-    soulFile: join(root, "SOUL.md"),
-    userFile: join(root, "USER.md"),
-    dreamFile: join(root, "DREAM.md"),
+    soulFile: join(profileDir, "SOUL.md"),
+    userFile: join(profileDir, "USER.md"),
+    dreamFile: join(profileDir, "DREAM.md"),
     authKeyFile: join(root, "auth.key"),
     skillsDir: join(root, "skills"),
     subagentsDir: join(root, "subagents"),
@@ -499,7 +501,7 @@ test("HTTP and pi tools use the same composed stores; conversation exposes no st
     Authorization: `Bearer ${service.auth.login()}`,
     "Content-Type": "application/json",
   };
-  assert.equal((await service.app.request("/api/agent/memories", {
+  assert.equal((await service.app.request("/api/memories", {
     method: "POST", headers, body: JSON.stringify({ text: "UI memory" }),
   })).status, 200);
   assert.equal(memoryWrites.mock.callCount(), 1);
@@ -512,8 +514,11 @@ test("HTTP and pi tools use the same composed stores; conversation exposes no st
   await run("提醒我喝茶", "schedule-turn");
   assert.equal(jobWrites.mock.callCount(), 1);
   const snapshot = await (await service.app.request("/api/agent", { headers })).json();
-  assert.equal(snapshot.memories.length, 2);
-  assert.equal(snapshot.tasks[0].id, (await service.jobs.list())[0].id);
+  assert.equal(Object.hasOwn(snapshot, "memories"), false);
+  const memoriesRes = await (await service.app.request("/api/memories", { headers })).json();
+  assert.equal(memoriesRes.memories.length, 2);
+  const jobsRes = await (await service.app.request("/api/jobs", { headers })).json();
+  assert.equal(jobsRes.jobs[0].id, (await service.jobs.list())[0].id);
   const closed = service.close();
   assert.equal(service.close(), closed);
   await closed;

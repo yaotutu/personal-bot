@@ -135,11 +135,13 @@ export const createActionService = (
           expiresAt: new Date(createdAt + timeoutMs).toISOString(),
           resolvedAt: null,
           decidedAt: null,
-          threadId: options.threadId ?? null,
+          spaceId: options.spaceId ?? options.threadId ?? null,
+          threadId: options.spaceId ?? options.threadId ?? null,
           runId: options.runId ?? null,
           toolCallId: options.toolCallId ?? null,
           subagentId: options.subagentId ?? null,
-          workspaceThreadId: options.workspaceThreadId ?? null,
+          workspaceSpaceId: options.workspaceSpaceId ?? options.workspaceThreadId ?? null,
+          workspaceThreadId: options.workspaceSpaceId ?? options.workspaceThreadId ?? null,
           activityId: options.activityId ?? null,
         };
         const bytes = utf8Bytes(JSON.stringify(next));
@@ -178,6 +180,27 @@ export const createActionService = (
         return { items, result: action };
       });
       if (changed) notify([changed]);
+    },
+
+    /** 空间重置或删除时批量取消归属该空间的待审批项，返回实际被取消的审批 ID 列表。 */
+    cancelBySpaceId: async (spaceId: string): Promise<string[]> => {
+      const changed = await repository.update((items) => {
+        const updated: PendingAction[] = [];
+        for (const action of items) {
+          const actionSpaceId = action.spaceId ?? action.threadId;
+          const workspaceSpaceId = action.workspaceSpaceId ?? action.workspaceThreadId;
+          if (
+            action.status === "pending" &&
+            (actionSpaceId === spaceId || workspaceSpaceId === spaceId)
+          ) {
+            settle(action, "cancelled");
+            updated.push(action);
+          }
+        }
+        return updated.length ? { items, result: updated } : { result: updated };
+      });
+      notify(changed);
+      return changed.map((item) => item.id);
     },
 
     /** 启动撤销旧 pending，并将遗留在途提交标记为 unknown；不补跑文件操作。 */
@@ -249,7 +272,8 @@ export const createActionService = (
       });
       const sorted = records.filter((action) =>
         (!query.status || action.status === query.status) &&
-        (!query.threadId || action.threadId === query.threadId) &&
+        (!query.spaceId || action.spaceId === query.spaceId || action.threadId === query.spaceId) &&
+        (!query.threadId || action.spaceId === query.threadId || action.threadId === query.threadId) &&
         (!query.activityId || action.activityId === query.activityId))
         .sort((a, b) => b.resolvedAt.localeCompare(a.resolvedAt) || b.id.localeCompare(a.id));
       const { cursor } = query;

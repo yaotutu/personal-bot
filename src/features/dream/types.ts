@@ -50,17 +50,17 @@ export type DreamState = {
   pending: DreamPending[];
 };
 
-export const defaultDreamState = (threadId: string): DreamState => ({
-  enabled: threadId === "local-main",
+export const defaultDreamState = (spaceId: string): DreamState => ({
+  enabled: spaceId === "local-main",
   inheritGlobalPrompt: true,
   pending: [],
 });
 
-/** 单个会话 Dream 状态的存取端口；实现负责串行读改写与损坏文件报错。 */
+/** 单个空间 Dream 状态的存取端口；实现负责串行读改写与损坏文件报错。 */
 export type DreamRepository = {
-  read: (threadId: string) => Promise<DreamState>;
+  read: (spaceId: string) => Promise<DreamState>;
   update: <T>(
-    threadId: string,
+    spaceId: string,
     change: (state: DreamState) => { state?: DreamState; result: T },
     options?: { allowCreate?: boolean },
   ) => Promise<T>;

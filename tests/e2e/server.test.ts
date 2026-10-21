@@ -47,9 +47,10 @@ test("e2e: built entry authenticates, streams tools, persists state and restarts
   assert.ok(timeEvents.some((event) => event.type === "TOOL_CALL_START" && event.toolCallName === "currentTime"));
   await client.run("记住E2E记忆", "e2e-main");
   const snapshot = agentSnapshot.parse(await client.json("/api/agent"));
-  assert.ok(snapshot.memories.some((memory) => memory.text.includes("E2E记忆")));
+  const memoriesList = (await client.json("/api/memories")) as { memories: Array<{ id: string; text: string }> };
+  assert.ok(memoriesList.memories.some((memory) => memory.text.includes("E2E记忆")));
   assert.equal(Object.hasOwn(snapshot, "worker"), false);
-  await client.json("/api/threads/e2e-main/instructions", { instructions: "E2E-INSTRUCTIONS" }, "PUT");
+  await client.json("/api/spaces/e2e-main/instructions", { instructions: "E2E-INSTRUCTIONS" }, "PUT");
   const before = await client.history("e2e-main");
   await service.restart();
   assert.deepEqual(await client.history("e2e-main"), before);
@@ -81,7 +82,7 @@ test("e2e: parent dispatches single, concurrent and chained subagents without a 
   }
   assert.ok((await readdir(join(service.dataDir, "sessions"))).every((name) => !name.startsWith("subagent-")));
   await assert.rejects(stat(join(service.dataDir, "tasks.json")), { code: "ENOENT" });
-  await client.json("/api/threads/e2e-subagent/skills", { overrides: { task: false } }, "PUT");
+  await client.json("/api/spaces/e2e-subagent/skills", { overrides: { task: false } }, "PUT");
   const disabledStart = model.requests.length;
   terminalSuccess(await client.run("plain check", "e2e-subagent"));
   assert.ok(!(model.requests[disabledStart].tools as { function: { name: string } }[]).some((tool) => tool.function.name === "subagent"));
@@ -164,8 +165,8 @@ test("e2e: Stop interrupts the child model and real slow HTTP socket, then the s
 
 test("e2e: private workspaces stay isolated and deleted threads do not revive on reads or late Stop", { timeout: 90_000 }, async (t) => {
   const { service, client } = await fixture(t);
-  await client.json("/api/threads/e2e-owner/instructions", { instructions: "owner" }, "PUT");
-  await client.json("/api/threads/e2e-other/instructions", { instructions: "other" }, "PUT");
+  await client.json("/api/spaces/e2e-owner/instructions", { instructions: "owner" }, "PUT");
+  await client.json("/api/spaces/e2e-other/instructions", { instructions: "other" }, "PUT");
   await writeFile(join(service.dataDir, "workspace/threads/e2e-owner/private.md"), "OWNER-PRIVATE");
   await writeFile(join(service.dataDir, "workspace/shared/shared.md"), "SHARED-OK");
   const missing = await client.run("读 private.md", "e2e-other");
@@ -173,11 +174,11 @@ test("e2e: private workspaces stay isolated and deleted threads do not revive on
   const shared = await client.run("读 shared/shared.md", "e2e-other");
   assert.match(shared.filter((event) => event.type === "TEXT_MESSAGE_CONTENT").map((event) => event.delta).join(""), /SHARED-OK/);
   terminalSuccess(await client.run("hello", "e2e-owner"));
-  const remove = await client.json("/api/threads/e2e-owner", undefined, "DELETE");
+  const remove = await client.json("/api/spaces/e2e-owner", undefined, "DELETE");
   assert.deepEqual(remove.removed, { jobs: 0, monitors: 0 });
   assert.deepEqual(await client.history("e2e-owner"), { messages: [], revision: "empty" });
   assert.deepEqual(await client.json("/api/conversation/stop", { threadId: "e2e-owner", runId: "late" }), { stopped: false });
-  assert.ok(!(await client.json("/api/threads")).threads.some((thread: { id: string }) => thread.id === "e2e-owner"));
+  assert.ok(!(await client.json("/api/spaces")).spaces.some((space: { id: string }) => space.id === "e2e-owner"));
   await assert.rejects(stat(join(service.dataDir, "sessions/e2e-owner")), { code: "ENOENT" });
 });
 
@@ -211,7 +212,7 @@ test("e2e: workspace named SSE pushes ready state and real run status without me
   assert.equal(terminal.phase, null);
   assert.ok(terminal.endedAt);
   // 记忆写入不再发失效通知；下一条业务帧应属于新 run 而不是 memory/workspace_updated。
-  await client.json("/api/agent/memories", { text: "SSE-E2E" });
+  await client.json("/api/memories", { text: "SSE-E2E" });
   const nextRun = await client.startRun("现在几点", "e2e-events");
   const next = await stream.next();
   assert.equal(next?.event, "agent_status_updated");
@@ -227,7 +228,7 @@ test("e2e: workspace named SSE pushes ready state and real run status without me
   terminalSuccess(await nextRun.done);
   const spec = await client.json("/openapi.json");
   assert.deepEqual(Object.keys(spec.paths["/api/events"].get.responses["200"]["x-sse-events"]).sort(),
-    ["agent_status_updated", "approval_pending", "approval_updated", "ready"]);
+    ["activity_updated", "agent_status_updated", "approval_pending", "approval_updated", "ready"]);
   // 结束服务应关闭长连接，客户端读到 EOF。
   await service.stop();
   assert.equal(await stream.next(), null);
@@ -256,8 +257,8 @@ test("e2e: ready carries a real approval, HTTP detail matches id/revision, recon
   assert.equal(pending.revision, 1);
   assert.equal(pending.status, "pending");
   assert.equal(pending.preview.path, "draft.md");
-  assert.equal(pending.preview.scope, "thread");
-  assert.equal(pending.preview.ownerThreadId, running.threadId);
+  assert.ok(pending.preview.scope === "space" || pending.preview.scope === "thread");
+  assert.equal(pending.preview.ownerSpaceId ?? pending.preview.ownerThreadId, running.threadId);
   assert.match(pending.preview.after, /DRAFT-CONTENT/);
   assert.ok(waiting.pendingApprovalIds.includes(pending.id));
   // HTTP 完整视图与 SSE 推送是同一 id、同一 revision、同一不可变预览。

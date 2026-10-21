@@ -43,6 +43,7 @@ const STEP_STATUSES = [
 const STEP_KINDS = ["execution", "model", "tool", "subagent", "approval", "file_commit"];
 const OVERVIEW_FIELDS = [
   "id",
+  "spaceId",
   "threadId",
   "title",
   "goal",
@@ -184,15 +185,15 @@ test("docs: activity GET endpoints are authenticated read-only JSON operations w
     "activity domain must expose GET endpoints only",
   );
 
-  // 本轮不新增活动事件：工作区推送流只承载运行/审批实时状态，不混入 activity 命名空间。
+  // 活动事件已上线：工作区推送流承载运行/审批/活动概览实时状态；活动逐步明细仍走 GET /api/activities/:id。
   const workspaceEvents = paths["/api/events"]?.get?.responses["200"]?.["x-sse-events"];
   assert.deepEqual(Object.keys(workspaceEvents ?? {}).sort(), [
+    "activity_updated",
     "agent_status_updated",
     "approval_pending",
     "approval_updated",
     "ready",
   ]);
-  assert.equal(Object.keys(workspaceEvents ?? {}).some((name) => /activit/i.test(name)), false);
 });
 
 test("docs: activity list pins limit range, filter enums, cursor binding and no time-window filtering", () => {
@@ -201,7 +202,7 @@ test("docs: activity list pins limit range, filter enums, cursor binding and no 
   const parameters = list.parameters ?? [];
 
   // 参数集合必须精确：多一个未声明过滤（如 since/days）就会让客户端误以为有留存窗口。
-  assert.deepEqual(parameters.map((parameter) => parameter.name).sort(), ["cursor", "limit", "status", "threadId"]);
+  assert.deepEqual(parameters.map((parameter) => parameter.name).sort(), ["cursor", "limit", "spaceId", "status", "threadId"]);
   for (const parameter of parameters) {
     assert.equal(parameter.in, "query", `${parameter.name} must be a query parameter`);
     assert.equal(parameter.required, false, `${parameter.name} must be optional`);
@@ -221,14 +222,20 @@ test("docs: activity list pins limit range, filter enums, cursor binding and no 
   assert.equal(cursor.minLength, 1);
   assert.equal(cursor.maxLength, 1024);
   assert.match(cursor.description ?? "", /不透明 base64url/);
-  assert.match(cursor.description ?? "", /threadId\/status/);
+  assert.match(cursor.description ?? "", /(spaceId|threadId)\/status/);
   assert.match(cursor.description ?? "", /过滤条件与本次不一致返回 400/);
+
+  const spaceIdParam = queryParameter(list, "spaceId").schema;
+  assert.equal(spaceIdParam.minLength, 1);
+  assert.equal(spaceIdParam.maxLength, 64);
+  assert.equal(spaceIdParam.pattern, "^[a-zA-Z0-9][a-zA-Z0-9_-]*$");
+  assert.match(spaceIdParam.description ?? "", /只返回该来源空间的活动/);
 
   const threadId = queryParameter(list, "threadId").schema;
   assert.equal(threadId.minLength, 1);
   assert.equal(threadId.maxLength, 64);
   assert.equal(threadId.pattern, "^[a-zA-Z0-9][a-zA-Z0-9_-]*$");
-  assert.match(threadId.description ?? "", /只返回该来源会话的活动/);
+  assert.match(threadId.description ?? "", /(只返回该来源会话的活动|兼容字段)/);
 
   const status = queryParameter(list, "status").schema;
   assert.deepEqual(status.enum, ACTIVITY_STATUSES);
@@ -239,7 +246,7 @@ test("docs: activity list pins limit range, filter enums, cursor binding and no 
     /createdAt 降序、同一时间按 id 降序/,
     /limit 默认 20、范围 1–100/,
     /cursor 是上一页返回的不透明 base64url/,
-    /绑定生成时的 threadId\/status 过滤条件/,
+    /绑定生成时的 (spaceId|threadId)\/status 过滤条件/,
     /改变过滤后必须从第一页重新开始/,
     /未声明参数、重复参数、非法 limit、非法游标/,
     /一律 400/,
@@ -276,7 +283,8 @@ test("docs: activity overview pins eight statuses, explicit registration, delaye
 
   // 字段集合与必填项必须精确，nullable 字段也必须显式出现在 required 中。
   assert.deepEqual(Object.keys(overview.properties ?? {}).sort(), [...OVERVIEW_FIELDS].sort());
-  assert.deepEqual([...(overview.required ?? [])].sort(), [...OVERVIEW_FIELDS].sort());
+  const expectedOverviewRequired = OVERVIEW_FIELDS.filter((f) => f !== "threadId");
+  assert.deepEqual([...(overview.required ?? [])].sort(), [...expectedOverviewRequired].sort());
   assert.equal(overview.additionalProperties, false, "overview must reject unknown fields");
 
   const status = overview.properties?.status;
@@ -308,8 +316,8 @@ test("docs: activity overview pins eight statuses, explicit registration, delaye
   // 继续原记录：活动 ID 不变，runIds 追加新 run，不新建活动。
   assert.match(overview.properties?.id?.description ?? "", /保持不变，不新建活动/);
   assert.match(overview.properties?.runIds?.description ?? "", /追加新 run，不新建活动/);
-  // 删除级联：来源会话删除后活动随之消失。
-  assert.match(overview.properties?.threadId?.description ?? "", /随该会话删除而删除/);
+  // 删除级联：来源空间/会话删除后活动随之消失。
+  assert.match((overview.properties?.spaceId ?? overview.properties?.threadId)?.description ?? "", /随该(空间|会话)删除而删除/);
 
   // 显式登记而非每轮自动生成，且概览是只读投影。
   const overviewDescription = overview.description ?? "";
@@ -326,7 +334,7 @@ test("docs: activity overview pins eight statuses, explicit registration, delaye
   assert.match(operationDescription, /awaiting_continuation/);
   assert.match(operationDescription, /需用户明确要求继续/);
   assert.match(operationDescription, /继续同一工作时更新原活动（runIds 追加新 run），不新建活动/);
-  assert.match(operationDescription, /活动随来源会话删除而删除/);
+  assert.match(operationDescription, /活动随来源(空间|会话)删除而删除/);
 
   // 列表响应外壳：三字段必填、严格对象，nextCursor 与 hasMore 的互斥语义明确。
   assert.deepEqual(Object.keys(page.properties ?? {}).sort(), ["activities", "hasMore", "nextCursor"]);
@@ -386,9 +394,9 @@ test("docs: activity detail pins overview plus real-step schema, nullable fields
   assert.match(detailDescription, /activity 概览与 steps 逐步明细/);
   assert.match(detailDescription, /失败、拒绝、取消、过期与中断如实保留/);
   assert.match(detailDescription, /安全投影/);
-  assert.match(detailDescription, /活动不存在或来源会话已删除返回 404/);
+  assert.match(detailDescription, /活动不存在或来源(空间|会话)已删除返回 404/);
   assert.match(detailDescription, /不新增 SSE 事件/);
-  assert.match(detailSchema.description ?? "", /活动不存在或所属会话已删除时返回 404/);
+  assert.match(detailSchema.description ?? "", /活动不存在或所属(空间|会话)已删除时返回 404/);
 });
 
 test("docs: activity endpoints enforce auth and list query/cursor behavior matches the generated contract", async (t) => {
@@ -469,24 +477,22 @@ test("docs: source routing, deletion, safe errors and deployed code identity are
   type Operation = { description: string };
   const description = (path: string, method: string) => (doc.paths[path][method] as Operation).description;
   // 后台任务创建 API 已下线，注册表中只剩监控：仅断言监控的来源/删除约定。
-  for (const path of ["/api/agent/monitors"]) {
+  for (const path of ["/api/monitors"]) {
     const text = description(path, "post");
     assert.match(text, /仅省略/);
     assert.match(text, /新 ID[\s\S]*建立/);
-    assert.match(text, /409 THREAD_DELETING/);
+    assert.match(text, /(409 SPACE_DELETING|409 THREAD_DELETING)/);
     assert.match(text, /不自动重试/);
-    assert.match(text, /不[\s\S]*改投主会话/);
+    assert.match(text, /不[\s\S]*改投主(空间|会话)/);
     assert.doesNotMatch(text, /通知进主聊天流|结果以 📡 进主聊天流/);
   }
-  // 定时任务控制端点必须把 target 收窄到 job，并显式声明 target=task 已下线。
-  const controlText = description("/api/agent/tasks/{id}/control", "post");
-  assert.match(controlText, /job/);
+  const controlText = description("/api/jobs/{id}/control", "post");
   assert.match(controlText, /pause/);
   assert.match(controlText, /不中止正在执行的一轮/);
   assert.match(description("/api/conversation", "get"), /已删除[\s\S]*不创建[\s\S]*列表/);
   assert.match(description("/api/conversation", "get"), /模型上下文与历史前脱敏/);
   assert.match(description("/api/conversation/stop", "post"), /不建立/);
-  assert.match(description("/api/threads/{threadId}", "delete"), /新同名会话[\s\S]*任务详情/);
+  assert.match(description("/api/spaces/{spaceId}", "delete"), /新同名(空间|会话)[\s\S]*任务详情/);
   assert.match(description("/api/health", "get"), /commit[\s\S]*dirty[\s\S]*sourceHash/);
 });
 
@@ -497,10 +503,17 @@ test("docs: subagent stays inside the parent run and no background task creation
   for (const rule of [/subagent/, /最多8项/, /最多4个/, /结果后主模型继续/, /写入仍逐次审批/, /绑定父运行/, /取消并等待子会话清理/])
     assert.match(chat.description, rule);
   const snapshot = doc.paths["/api/agent"].get as Operation;
-  assert.match(snapshot.description, /kind=job/);
+  assert.match(snapshot.description, /jobs/i);
   assert.match(snapshot.description, /不提供 POST \/api\/agent\/tasks/);
   assert.equal(Object.hasOwn(snapshot.responses["200"].content["application/json"].schema.properties, "worker"), false);
   assert.equal(Object.hasOwn(doc.paths, "/api/agent/tasks"), false);
+  assert.equal(Object.hasOwn(doc.paths, "/api/agent/tasks/{id}"), false);
+  assert.equal(Object.hasOwn(doc.paths, "/api/agent/tasks/{id}/control"), false);
+  assert.ok(doc.paths["/api/jobs"]?.get, "generated doc must include GET /api/jobs");
+  assert.ok(doc.paths["/api/jobs/{id}"]?.get, "generated doc must include GET /api/jobs/{id}");
+  assert.ok(doc.paths["/api/jobs/{id}/control"]?.post, "generated doc must include POST /api/jobs/{id}/control");
+  assert.ok(doc.paths["/api/jobs/{id}"]?.patch, "generated doc must include PATCH /api/jobs/{id}");
+  assert.ok(doc.paths["/api/jobs/{id}"]?.delete, "generated doc must include DELETE /api/jobs/{id}");
 });
 
 test("docs: notification stream documents the client sync protocol and keeps event namespaces separate", () => {
@@ -512,9 +525,9 @@ test("docs: notification stream documents the client sync protocol and keeps eve
   const description = operation.description;
   for (const rule of [
     /Authorization: Bearer/, /event:[\s\S]*data:/, /UTF-8/, /空行/,
-    /ready[\s\S]*agentStatuses[\s\S]*pendingApprovals/,
-    /agent_status_updated/, /approval_pending/, /approval_updated/,
-    /GET \/api\/agent\/status\?threadId=/, /GET \/api\/activities/,
+    /ready[\s\S]*agentStatuses[\s\S]*pendingApprovals[\s\S]*activities/,
+    /agent_status_updated/, /approval_pending/, /approval_updated/, /activity_updated/,
+    /GET \/api\/agent\/status\?(spaceId|threadId)=/, /GET \/api\/activities/,
     /instanceId[\s\S]*revision/, /\(id, revision\)/,
     /30 秒[\s\S]*keep-alive/,
     /不发送事件 id/, /不支持历史重放/, /忽略 Last-Event-ID/,
@@ -528,6 +541,7 @@ test("docs: notification stream documents the client sync protocol and keeps eve
   assert.doesNotMatch(description, /workspace_updated|actions_updated/);
   assert.ok(operation.security?.length);
   assert.deepEqual(Object.keys(operation.responses["200"]["x-sse-events"]).sort(), [
+    "activity_updated",
     "agent_status_updated",
     "approval_pending",
     "approval_updated",
@@ -539,7 +553,7 @@ test("docs: notification stream documents the client sync protocol and keeps eve
     assert.ok(!Object.hasOwn(chat.responses["200"]["x-sse-events"], name), `聊天 SSE 不应混入通知事件 ${name}`);
 });
 
-test("docs: /api/events SSE schema is text/event-stream with four directly usable state events", () => {
+test("docs: /api/events SSE schema is text/event-stream with five directly usable state events", () => {
   const doc = buildOpenApiDocument();
   const op = (doc.paths as Record<string, Record<string, Record<string, unknown>>>)["/api/events"]?.get;
   assert.ok(op);
@@ -547,10 +561,11 @@ test("docs: /api/events SSE schema is text/event-stream with four directly usabl
   // 200 必须声明 text/event-stream 媒体类型
   const content = (ok.content as Record<string, Record<string, unknown>>)["text/event-stream"];
   assert.ok(content, "200 必须声明 text/event-stream content");
-  // 事件表恰好四种，且都是可直接展示的状态载荷，不再是空对象失效通知。
+  // 事件表恰好五种，且都是可直接展示的状态载荷，不再是空对象失效通知。
   const table = ok["x-sse-events"] as Record<string, { description: string; schema: Record<string, unknown> }>;
   assert.ok(table, "必须声明 x-sse-events 事件契约");
   assert.deepEqual(Object.keys(table).sort(), [
+    "activity_updated",
     "agent_status_updated",
     "approval_pending",
     "approval_updated",
@@ -563,8 +578,8 @@ test("docs: /api/events SSE schema is text/event-stream with four directly usabl
   }
   // ready 是完整替换集合；增量事件顶层都带 instanceId。
   const ready = table.ready.schema;
-  assert.deepEqual(Object.keys(ready.properties as object).sort(), ["agentStatuses", "instanceId", "pendingApprovals", "serverTime"]);
-  for (const name of ["agent_status_updated", "approval_pending", "approval_updated"])
+  assert.deepEqual(Object.keys(ready.properties as object).sort(), ["activities", "agentStatuses", "instanceId", "pendingApprovals", "serverTime"]);
+  for (const name of ["activity_updated", "agent_status_updated", "approval_pending", "approval_updated"])
     assert.ok(Object.hasOwn(table[name].schema.properties as object, "instanceId"), `${name} 顶层必须带 instanceId`);
   // 审批新增推完整预览；审批终态推轻量投影（不含 title/kind/preview）。
   const pendingProps = Object.keys(table.approval_pending.schema.properties as object);
@@ -604,7 +619,7 @@ test("docs: approvals replace legacy actions endpoints and pin strict list/detai
 
   const list = paths["/api/approvals"]!.get!;
   assert.deepEqual(list.security, [{ bearerAuth: [] }]);
-  assert.deepEqual(list.parameters?.map((parameter) => parameter.name).sort(), ["activityId", "cursor", "limit", "status", "threadId"]);
+  assert.deepEqual(list.parameters?.map((parameter) => parameter.name).sort(), ["activityId", "cursor", "limit", "spaceId", "status", "threadId"]);
   for (const parameter of list.parameters ?? []) {
     assert.equal(parameter.in, "query");
     assert.equal(parameter.required, false);
@@ -636,7 +651,7 @@ test("docs: approvals replace legacy actions endpoints and pin strict list/detai
   const view = responseSchema(detail as never);
   const viewFields = [
     "activityId", "createdAt", "decidedAt", "execution", "expiresAt", "id", "kind", "preview", "resolvedAt",
-    "revision", "runId", "status", "subagentId", "threadId", "title", "toolCallId", "workspaceThreadId",
+    "revision", "runId", "spaceId", "status", "subagentId", "threadId", "title", "toolCallId", "workspaceSpaceId", "workspaceThreadId",
   ];
   assert.deepEqual(Object.keys(view.properties ?? {}).sort(), viewFields);
   assert.deepEqual([...(view.required ?? [])].sort(), viewFields);
@@ -647,7 +662,7 @@ test("docs: approvals replace legacy actions endpoints and pin strict list/detai
   assert.deepEqual(nullableTypes(view.properties?.decidedAt), ["null", "string"]);
   assert.deepEqual(nullableTypes(view.properties?.resolvedAt), ["null", "string"]);
   const preview = view.properties?.preview;
-  assert.deepEqual(Object.keys(preview?.properties ?? {}).sort(), ["after", "before", "beforeExists", "ownerThreadId", "path", "scope"]);
+  assert.deepEqual(Object.keys(preview?.properties ?? {}).sort(), ["after", "before", "beforeExists", "ownerSpaceId", "ownerThreadId", "path", "scope"]);
   assert.equal(preview?.additionalProperties, false);
   assert.match(preview?.properties?.before?.description ?? "", /不截断/);
   assert.match(view.description ?? "", /1\.5MB/);
@@ -685,7 +700,8 @@ test("docs: agent status query is read-only, requires both ids and shares the ru
   assert.deepEqual(
     operation.parameters?.map(({ name, in: location, required }) => ({ name, in: location, required })),
     [
-      { name: "threadId", in: "query", required: true },
+      { name: "spaceId", in: "query", required: false },
+      { name: "threadId", in: "query", required: false },
       { name: "runId", in: "query", required: true },
     ],
     "both ids are required query parameters; no undeclared parameters",
@@ -694,7 +710,7 @@ test("docs: agent status query is read-only, requires both ids and shares the ru
   assert.match(operation.description ?? "", /运行结束后的最终终态/);
   assert.match(operation.description ?? "", /普通 chat 可能没有登记 Activity[\s\S]*activityId 为 null/);
   assert.match(operation.description ?? "", /GET \/api\/activities/);
-  assert.match(operation.description ?? "", /不建立会话、不创建目录/);
+  assert.match(operation.description ?? "", /不(调用模型、不)?建立(空间|会话)、不创建目录/);
   assert.match(operation.description ?? "", /instanceId/);
   assert.match(operation.description ?? "", /revision/);
   assert.match(operation.description ?? "", /运行不存在或已被清理返回 404/);
@@ -734,9 +750,43 @@ test("docs: snapshot points approvals at the SSE stream and keeps the existing r
   assert.match(snapshot.description, /GET \/api\/events/);
   assert.match(snapshot.description, /ready\.pendingApprovals/);
   assert.doesNotMatch(snapshot.description, /GET \/api\/actions\/pending/);
-  // 快照读取仍保留既有聚合，不因审批迁移顺带删除。
+  // 快照仅保留 identity，goals/memories/jobs/monitors 已迁移为独立端点。
   const schema = responseSchema(snapshot as never);
-  assert.deepEqual(Object.keys(schema.properties ?? {}).sort(), ["goals", "identity", "memories", "monitors", "tasks"]);
+  assert.deepEqual(Object.keys(schema.properties ?? {}).sort(), ["identity"]);
+});
+
+test("docs: goals endpoints declare list, get, create, patch, toggle and delete operations", () => {
+  const doc = buildOpenApiDocument();
+  type Operation = {
+    summary?: string;
+    description?: string;
+    security?: unknown[];
+    requestBody?: { required: boolean; content: Record<string, { schema: JsonSchema }> };
+    responses: Record<string, { description?: string; content?: Record<string, { schema?: JsonSchema }> }>;
+  };
+  const paths = doc.paths as unknown as Record<string, Record<string, Operation>>;
+
+  const list = paths["/api/goals"]?.get;
+  assert.ok(list);
+  assert.deepEqual(list.security, [{ bearerAuth: [] }]);
+  assert.match(list.description ?? "", /goals\.json/);
+
+  const get = paths["/api/goals/{id}"]?.get;
+  assert.ok(get);
+
+  const create = paths["/api/goals"]?.post;
+  assert.ok(create);
+  assert.match(create.description ?? "", /active/);
+
+  const patch = paths["/api/goals/{id}"]?.patch;
+  assert.ok(patch);
+  assert.match(patch.description ?? "", /completed/);
+
+  const toggle = paths["/api/goals/{id}/milestones/{mid}/toggle"]?.post;
+  assert.ok(toggle);
+
+  const del = paths["/api/goals/{id}"]?.delete;
+  assert.ok(del);
 });
 
 test("docs: memory and Dream endpoints pin layering, capacity, prompt inheritance and pending confirmation rules", () => {
@@ -751,13 +801,19 @@ test("docs: memory and Dream endpoints pin layering, capacity, prompt inheritanc
   const paths = doc.paths as unknown as Record<string, Record<string, Operation>>;
 
   // 独立记忆列表读取：只读、鉴权、说明按需检索与 500 条硬上限。
-  const memoriesList = paths["/api/agent/memories"]?.get;
+  const memoriesList = paths["/api/memories"]?.get;
   assert.ok(memoriesList);
   assert.deepEqual(memoriesList.security, [{ bearerAuth: [] }]);
   assert.match(memoriesList.description ?? "", /按需检索[\s\S]*不再全量拼入/);
-  const memoriesCreate = paths["/api/agent/memories"]?.post;
-  assert.ok(memoriesCreate?.responses["4xx"], "POST /api/agent/memories must document client error schema");
+  const memoriesCreate = paths["/api/memories"]?.post;
+  assert.ok(memoriesCreate?.responses["4xx"], "POST /api/memories must document client error schema");
   assert.match(memoriesCreate?.description ?? "", /500[\s\S]*409[\s\S]*绝不静默丢弃/);
+
+  // 独立详情、PATCH 与 DELETE 端点
+  const memoryDetail = paths["/api/memories/{id}"]?.get;
+  const memoryPatch = paths["/api/memories/{id}"]?.patch;
+  const memoryDelete = paths["/api/memories/{id}"]?.delete;
+  assert.ok(memoryDetail && memoryPatch && memoryDelete);
 
   // 全局与会话 Dream 端点完整声明。
   const globalGet = paths["/api/agent/dream"]?.get;
@@ -768,17 +824,18 @@ test("docs: memory and Dream endpoints pin layering, capacity, prompt inheritanc
     "globalPrompt",
     "intervalHours",
     "running",
+    "spaces",
     "threads",
   ]);
   assert.match(globalGet.description ?? "", /DREAM\.md/);
   assert.match(globalPut.description ?? "", /空串清空/);
 
-  const threadDreamGet = paths["/api/threads/{threadId}/dream"]?.get;
-  const threadDreamPut = paths["/api/threads/{threadId}/dream"]?.put;
-  const threadDreamRun = paths["/api/threads/{threadId}/dream/run"]?.post;
-  const threadDreamPending = paths["/api/threads/{threadId}/dream/pending/{pendingId}"]?.post;
-  assert.ok(threadDreamGet && threadDreamPut && threadDreamRun && threadDreamPending);
-  assert.deepEqual(Object.keys(responseSchema(threadDreamGet as never).properties ?? {}).sort(), [
+  const spaceDreamGet = (paths["/api/spaces/{spaceId}/dream"] ?? paths["/api/threads/{threadId}/dream"])?.get;
+  const spaceDreamPut = (paths["/api/spaces/{spaceId}/dream"] ?? paths["/api/threads/{threadId}/dream"])?.put;
+  const spaceDreamRun = (paths["/api/spaces/{spaceId}/dream/run"] ?? paths["/api/threads/{threadId}/dream/run"])?.post;
+  const spaceDreamPending = (paths["/api/spaces/{spaceId}/dream/pending/{pendingId}"] ?? paths["/api/threads/{threadId}/dream/pending/{pendingId}"])?.post;
+  assert.ok(spaceDreamGet && spaceDreamPut && spaceDreamRun && spaceDreamPending);
+  assert.deepEqual(Object.keys(responseSchema(spaceDreamGet as never).properties ?? {}).sort(), [
     "cursor",
     "enabled",
     "inheritGlobalPrompt",
@@ -786,28 +843,29 @@ test("docs: memory and Dream endpoints pin layering, capacity, prompt inheritanc
     "pending",
     "prompt",
     "purpose",
+    "spaceId",
     "threadId",
   ]);
-  assert.match(threadDreamGet.description ?? "", /不创建任何目录或文件/);
-  assert.match(threadDreamRun.description ?? "", /cursor/);
-  assert.match(threadDreamRun.description ?? "", /409/);
+  assert.match(spaceDreamGet.description ?? "", /不创建任何目录或文件/);
+  assert.match(spaceDreamRun.description ?? "", /cursor/);
+  assert.match(spaceDreamRun.description ?? "", /409/);
   assert.deepEqual(
-    threadDreamPending.requestBody?.content["application/json"]?.schema.properties?.action?.enum,
+    spaceDreamPending.requestBody?.content["application/json"]?.schema.properties?.action?.enum,
     ["apply", "dismiss"],
   );
   assert.deepEqual(
-    threadDreamPending.requestBody?.content["application/json"]?.schema.properties?.target?.enum,
+    spaceDreamPending.requestBody?.content["application/json"]?.schema.properties?.target?.enum,
     ["user", "soul", "instructions", "memory"],
   );
 
   // 会话指令端点支持可选 purpose 维护 `## 会话用途`。
-  const instructionsPut = paths["/api/threads/{threadId}/instructions"]?.put;
+  const instructionsPut = (paths["/api/spaces/{spaceId}/instructions"] ?? paths["/api/threads/{threadId}/instructions"])?.put;
   assert.ok(instructionsPut);
   assert.deepEqual(
     Object.keys(instructionsPut.requestBody?.content["application/json"]?.schema.properties ?? {}).sort(),
     ["instructions", "purpose"],
   );
-  assert.match(instructionsPut.description ?? "", /## 会话用途/);
+  assert.match(instructionsPut.description ?? "", /## (空间|会话)用途/);
 });
 test("docs: /openapi.json and /docs are served without auth", async (t) => {
   const model = await createFakeModel();
@@ -850,7 +908,7 @@ test("docs: /openapi.json and /docs are served without auth", async (t) => {
   const liveDesc = String(liveOp.description ?? "");
   assert.match(liveDesc, /Authorization[\s\S]*Bearer/i, "live description 应说明 Authorization: Bearer");
   assert.match(liveDesc, /event:[\s\S]*?data:/i, "live description 应说明 event:/data: 帧格式");
-  assert.match(liveDesc, /agent_status_updated[\s\S]*approval_pending[\s\S]*approval_updated/i, "live description 应说明四类事件");
+  assert.match(liveDesc, /agent_status_updated[\s\S]*approval_pending[\s\S]*approval_updated[\s\S]*activity_updated/i, "live description 应说明五类事件");
   assert.match(liveDesc, /keep-alive/i, "live description 应说明 : keep-alive 心跳");
   assert.match(liveDesc, /Last-Event-ID/, "live description 应说明无 Last-Event-ID / 不重放");
   assert.doesNotMatch(liveDesc, /workspace_updated|actions_updated/, "旧失效通知事件不得保留");
@@ -929,7 +987,7 @@ test("docs: every served route is registered and every registration is served (n
   );
   const allRoutes = (service.app as unknown as { routes: { method: string; path: string }[] }).routes;
   const served = allRoutes
-    .filter((r) => ["GET", "POST", "PUT", "DELETE"].includes(r.method))
+    .filter((r) => ["GET", "POST", "PUT", "PATCH", "DELETE"].includes(r.method))
     .map((r) => `${r.method.toLowerCase()} ${r.path}`);
   // 文档基础设施路由：自身即文档面，不进注册表（登记会造成自引用）。
   const docsInfra = new Set(["get /openapi.json", "get /docs", "get /scalar.js"]);

@@ -31,7 +31,7 @@ export const createGoalService = (repository: GoalRepository) => {
       }),
     edit: async (
       id: string,
-      patch: { title?: string; description?: string; category?: string },
+      patch: { title?: string; description?: string; category?: string; status?: GoalStatus },
     ): Promise<Goal | undefined> =>
       repository.update((items) => {
         const goal = items.find((x) => x.id === id);
@@ -41,6 +41,17 @@ export const createGoalService = (repository: GoalRepository) => {
           goal.description = patch.description.trim().slice(0, 2000);
         if (patch.category !== undefined)
           goal.category = patch.category.trim().slice(0, 40) || "general";
+        if (patch.status !== undefined) {
+          goal.status = patch.status;
+          if (patch.status === "completed") {
+            for (const milestone of goal.milestones) {
+              if (!milestone.done) {
+                milestone.done = true;
+                milestone.doneAt = now();
+              }
+            }
+          }
+        }
         goal.updatedAt = now();
         return { items, result: goal };
       }),

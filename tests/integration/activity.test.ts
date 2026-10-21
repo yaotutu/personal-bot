@@ -285,7 +285,7 @@ test("activity-integration: thread deletion cascade deletes its activities", asy
   const actId = list.activities[0]!.id;
 
   // 删除该会话
-  const delRes = await service.app.request(`/api/threads/${customThread}`, {
+  const delRes = await service.app.request(`/api/spaces/${customThread}`, {
     method: "DELETE",
     headers,
   });

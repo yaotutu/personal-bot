@@ -124,7 +124,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     record(scenario, { previousResultSubstituted: true, chainResultReturned: true });
 
     scenario = "isolation";
-    await client.json("/api/threads/live-isolation/instructions", { instructions: "PARENT-RULE-NOT-COPIED-582c" }, "PUT");
+    await client.json("/api/spaces/live-isolation/instructions", { instructions: "PARENT-RULE-NOT-COPIED-582c" }, "PUT");
     await writeFile(join(dataDir, "workspace/threads/live-isolation/private.txt"), "PRIVATE-NO-LEAK-421e", { mode: 0o600 });
     await writeFile(join(dataDir, "workspace/shared/live-shared.txt"), "LIVE-SHARED-OK-a7cd", { mode: 0o600 });
     const isolation = await begin(scenario, delegate({ agent: "worker", task: "实际调用read三次：private.txt、shared/live-shared.txt、../live-isolation/private.txt。仅根据工具结果报告，不猜测，不写文件。" }));
@@ -279,17 +279,17 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     record(scenario, { resumedSameActivity: true, finalStatus: "completed" });
 
     scenario = "restart";
-    const threads = (await client.json("/api/threads")).threads as { id: string }[];
-    const histories = Object.fromEntries(await Promise.all(threads.map(async (thread) => [thread.id, await client.history(thread.id)])));
+    const spaces = (await client.json("/api/spaces")).spaces as { id: string }[];
+    const histories = Object.fromEntries(await Promise.all(spaces.map(async (space) => [space.id, await client.history(space.id)])));
     const actions = await readFile(join(dataDir, "actions.json"), "utf8");
     const sharedHashes = async () => Object.fromEntries(await Promise.all((await readdir(join(dataDir, "workspace/shared"))).map(async (name) => [name, createHash("sha256").update(await readFile(join(dataDir, "workspace/shared", name))).digest("hex")])));
     const hashes = await sharedHashes(); const requestCount = proxy.traces.length;
     await stopService(); await startService();
-    for (const thread of threads) assert.deepEqual(await client.history(thread.id), histories[thread.id]);
+    for (const space of spaces) assert.deepEqual(await client.history(space.id), histories[space.id]);
     assert.equal(await readFile(join(dataDir, "actions.json"), "utf8"), actions); assert.deepEqual(await sharedHashes(), hashes);
     // 重启后 pending 仍由 ready 给出；不重新执行模型，也不伪造历史重放。
     assert.deepEqual(await client.pending(), []); assert.equal(proxy.traces.length, requestCount);
-    record(scenario, { threads: threads.length, historiesAndFilesEqual: true, automaticModelRequests: 0 });
+    record(scenario, { spaces: spaces.length, historiesAndFilesEqual: true, automaticModelRequests: 0 });
   } catch {
     results.push({ name: scenario, passed: false }); process.stdout.write(`[FAIL] ${scenario}: expected tool/state evidence was not observed; no automatic retry.\n`); process.exitCode = 1;
   } finally {

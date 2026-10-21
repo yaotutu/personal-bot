@@ -8,7 +8,7 @@ import { getBuiltinSkillsDir } from "./builtin-skills.js";
 import { writeJsonDocument } from "./json-document.js";
 import { InvalidDocumentError } from "./document-schemas.js";
 import { createSerializedWriter } from "../../shared/serialized-writer.js";
-import { isThreadId } from "../../features/conversation/validate-input.js";
+import { isSpaceId } from "../../features/conversation/validate-input.js";
 import type { SkillCatalog, SkillRepository } from "../../features/skills/port.js";
 
 const overridesSchema = z.strictObject({ overrides: z.record(z.string(), z.boolean()) });
@@ -89,9 +89,9 @@ const readOverrides = async (file: string): Promise<Record<string, boolean>> => 
 export const createSkillRepository = (layout: DataLayout): SkillRepository => {
   const builtinDir = getBuiltinSkillsDir();
   const serialized = createSerializedWriter();
-  const fileFor = (threadId: string) => {
-    if (!isThreadId(threadId)) throw new Error("Invalid threadId");
-    return threadSkillsFile(layout, threadId);
+  const fileFor = (spaceId: string) => {
+    if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId");
+    return threadSkillsFile(layout, spaceId);
   };
   return {
     listSkills: () => serialized(async () => {
@@ -101,8 +101,16 @@ export const createSkillRepository = (layout: DataLayout): SkillRepository => {
       for (const skill of user.skills) merged.set(skill.name, skill);
       return { skills: [...merged.values()], diagnostics: [...builtin.diagnostics, ...user.diagnostics] };
     }),
-    getThreadOverrides: (threadId) => serialized(() => readOverrides(fileFor(threadId))),
-    setThreadOverrides: (threadId, overrides) => serialized(async () => {
+    getSpaceOverrides: (spaceId) => serialized(() => readOverrides(fileFor(spaceId))),
+    setSpaceOverrides: (spaceId, overrides) => serialized(async () => {
+      const file = fileFor(spaceId);
+      await readOverrides(file);
+      const document = overridesSchema.parse({ overrides });
+      await mkdir(dirname(file), { recursive: true, mode: 0o700 });
+      await writeJsonDocument(file, document);
+    }),
+    getThreadOverrides: (threadId: string) => serialized(() => readOverrides(fileFor(threadId))),
+    setThreadOverrides: (threadId: string, overrides: Record<string, boolean>) => serialized(async () => {
       const file = fileFor(threadId);
       await readOverrides(file);
       const document = overridesSchema.parse({ overrides });

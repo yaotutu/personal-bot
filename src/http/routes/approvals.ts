@@ -38,9 +38,10 @@ export const createApprovalsRoutes = (
     if (!raw) return c.json({ error: "Invalid approval query" }, 400);
     const parsed = approvalListQuery.safeParse(raw);
     if (!parsed.success) return c.json({ error: "Invalid approval query" }, 400);
-    const { limit, cursor: encodedCursor, threadId, activityId, status } = parsed.data;
+    const { limit, cursor: encodedCursor, spaceId, activityId, status } = parsed.data;
+    const effectiveSpaceId = spaceId ?? (parsed.data as { threadId?: string }).threadId;
     const filter: ApprovalFilter = {
-      ...(threadId !== undefined ? { threadId } : {}),
+      ...(effectiveSpaceId !== undefined ? { spaceId: effectiveSpaceId } : {}),
       ...(activityId !== undefined ? { activityId } : {}),
       ...(status !== undefined ? { status } : {}),
     };

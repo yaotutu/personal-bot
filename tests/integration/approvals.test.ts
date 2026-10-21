@@ -176,7 +176,7 @@ test("approvals: /pending returns full preview shape, not raw payload, and disap
   assert.equal(record.preview.after, fullContent);
   assert.equal(record.preview.after.length, fullContent.length);
   assert.equal(record.preview.beforeExists, true);
-  assert.equal(record.preview.scope, "thread");
+  assert.equal(record.preview.scope, "space");
   assert.equal(record.preview.ownerThreadId, "local-main");
   assert.equal(Object.hasOwn(record, "payload"), false, "/pending must not expose raw payload");
   // execution 始终存在；pending 时为 null。
@@ -590,7 +590,7 @@ test("approvals: buildOpenApiDocument registers the four routes with parameters,
   const list = paths["/api/approvals"]!.get!;
   assert.deepEqual(
     (list.parameters ?? []).map((p) => p.name).sort(),
-    ["activityId", "cursor", "limit", "status", "threadId"],
+    ["activityId", "cursor", "limit", "spaceId", "status", "threadId"],
   );
   const limitSchema = list.parameters!.find((p) => p.name === "limit")!.schema;
   assert.equal(limitSchema.type, "integer");
@@ -707,17 +707,20 @@ test("approvals: zod schemas confirm wire shapes", () => {
   const pendingItem = {
     id: "id",
     revision: 1,
+    spaceId: null,
     threadId: null,
     runId: null,
     toolCallId: null,
     subagentId: null,
+    workspaceSpaceId: null,
     workspaceThreadId: null,
     activityId: null,
     kind: "file_write" as const,
     title: "t",
     status: "pending" as const,
     preview: {
-      scope: "thread" as const,
+      scope: "space" as const,
+      ownerSpaceId: "owner",
       ownerThreadId: "owner",
       path: "p",
       before: "",

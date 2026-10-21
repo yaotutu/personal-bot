@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { createSerializedWriter } from "../../shared/serialized-writer.js";
 import { defaultIdentity } from "../../features/identity/types.js";
 import type { MemoryRepository, MemoryState } from "../../features/memory/types.js";
@@ -39,6 +40,7 @@ export const createMemoryRepository = (file: string, onCommitted?: () => void): 
         const state = await readState(file);
         const changed = change(state);
         if (changed.state) {
+          await mkdir(dirname(file), { recursive: true, mode: 0o700 });
           await writeJsonDocument(file, changed.state);
           // memory 与 identity 的通知和写锁一样共用；通知错误不回滚已落盘的数据。
           try { onCommitted?.(); } catch { /* 客户端重连后会重新同步。 */ }

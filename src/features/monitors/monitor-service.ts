@@ -17,7 +17,7 @@ export const createMonitorService = (repository: MonitorRepository) => {
     get: async (id: string): Promise<Monitor | undefined> =>
       (await repository.read()).find((monitor) => monitor.id === id),
     create: (
-      input: { title?: string; url: string; condition: MonitorCondition; value?: string; intervalMinutes?: number; originThreadId?: string },
+      input: { title?: string; url: string; condition: MonitorCondition; value?: string; intervalMinutes?: number; originSpaceId?: string; originThreadId?: string },
     ): Promise<Monitor> =>
       repository.update((items) => {
         if (input.condition === "contains" && !input.value?.trim())
@@ -33,7 +33,8 @@ export const createMonitorService = (repository: MonitorRepository) => {
           intervalMinutes: Math.max(MIN_INTERVAL_MINUTES, input.intervalMinutes ?? 30),
           status: "active",
           createdAt: now(),
-          originThreadId: input.originThreadId,
+          originSpaceId: input.originSpaceId ?? input.originThreadId,
+          originThreadId: input.originSpaceId ?? input.originThreadId,
           checks: 0,
         };
         items.push(monitor);
@@ -73,6 +74,61 @@ export const createMonitorService = (repository: MonitorRepository) => {
           return { items, result: { ok: true, monitor } };
         },
       ),
+    update: (
+      id: string,
+      input: {
+        title?: string;
+        url?: string;
+        condition?: MonitorCondition;
+        value?: string;
+        intervalMinutes?: number;
+        originSpaceId?: string;
+        originThreadId?: string;
+      },
+    ): Promise<Monitor | undefined> =>
+      repository.update((items) => {
+        const monitor = items.find((x) => x.id === id);
+        if (!monitor) return { result: undefined };
+
+        const nextCondition = input.condition ?? monitor.condition;
+        const nextValue = input.value !== undefined ? (input.value.trim() || undefined) : monitor.value;
+        if (nextCondition === "contains" && !nextValue) {
+          throw Object.assign(new Error("contains condition needs a keyword"), {
+            code: "INVALID_MONITOR",
+          });
+        }
+
+        if (input.title !== undefined) {
+          monitor.title = input.title.trim().slice(0, 120) || monitor.title;
+        }
+        const urlChanged = input.url !== undefined && input.url.trim() !== monitor.url;
+        const conditionChanged = input.condition !== undefined && input.condition !== monitor.condition;
+        const valueChanged = input.value !== undefined && nextValue !== monitor.value;
+
+        if (input.url !== undefined) {
+          monitor.url = input.url.trim();
+        }
+        monitor.condition = nextCondition;
+        monitor.value = nextValue;
+
+        if (input.intervalMinutes !== undefined) {
+          monitor.intervalMinutes = Math.max(MIN_INTERVAL_MINUTES, input.intervalMinutes);
+        }
+
+        const nextOrigin = input.originSpaceId ?? input.originThreadId;
+        if (nextOrigin !== undefined) {
+          monitor.originSpaceId = nextOrigin;
+          monitor.originThreadId = nextOrigin;
+        }
+
+        if (urlChanged || conditionChanged || valueChanged) {
+          monitor.lastFingerprint = undefined;
+          monitor.lastMatched = undefined;
+          monitor.pendingNotification = undefined;
+          monitor.error = undefined;
+        }
+        return { items, result: monitor };
+      }),
     markNotified: (id: string, notificationId: string) => repository.update((items) => {
       const monitor = items.find((item) => item.id === id);
       if (!monitor || monitor.pendingNotification?.id !== notificationId) return { result: false };
@@ -88,11 +144,26 @@ export const createMonitorService = (repository: MonitorRepository) => {
           ? { result: false }
           : { items: next, result: true };
       }),
-    removeByOriginThreadId: (originThreadId: string): Promise<number> =>
+    removeByOriginSpaceId: (originSpaceId: string): Promise<number> =>
       repository.update((items) => {
-        const next = items.filter((x) => x.originThreadId !== originThreadId);
+        const next = items.filter((x) => x.originSpaceId !== originSpaceId && x.originThreadId !== originSpaceId);
         const count = items.length - next.length;
         return { items: next, result: count };
+      }),
+    removeByOriginThreadId(originThreadId: string): Promise<number> {
+      return this.removeByOriginSpaceId(originThreadId);
+    },
+    /** 重置空间会话但保留监控时，清空尚未投递的旧通知，避免污染新会话。 */
+    clearPendingByOriginSpaceId: (originSpaceId: string): Promise<number> =>
+      repository.update((items) => {
+        let cleared = 0;
+        for (const item of items) {
+          if (item.originSpaceId === originSpaceId && item.pendingNotification) {
+            item.pendingNotification = undefined;
+            cleared++;
+          }
+        }
+        return cleared ? { items, result: cleared } : { result: 0 };
       }),
     /**
      * 执行一次检查并落盘。body 是抓取到的正文（由 scheduler 注入，复用 web

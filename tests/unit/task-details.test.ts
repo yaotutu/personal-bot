@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { createJobRepository } from "../../src/adapters/storage/job-repository.js";
 import { createJobService } from "../../src/features/jobs/job-service.js";
 import { presentJob, presentJobDetail } from "../../src/http/job-presenters.js";
-import { taskDetail } from "../../src/http/contracts/responses.js";
+import { jobDetail } from "../../src/http/contracts/responses.js";
 import { readJobsDocument } from "../../src/adapters/storage/document-schemas.js";
 import type { Job } from "../../src/features/jobs/types.js";
 
@@ -29,11 +29,11 @@ test("task detail contains only recorded facts, latest events and stable IDs wit
   const source = job({ lastRunAt: "2026-02-01T00:00:00.000Z", lastStatus: "completed", lastResult: "done", lastControl: { action: "pause", at: "2026-03-01T00:00:00.000Z" }, controlState: "paused", enabled: false });
   const before = structuredClone(source);
   const detail = presentJobDetail(source);
-  assert.equal(taskDetail.safeParse(detail).success, true);
-  assert.deepEqual(Object.keys(detail).sort(), ["events", "task"]);
-  assert.deepEqual(detail.task, presentJob(source));
-  assert.equal(detail.task.updatedAt, source.lastControl!.at);
-  assert.equal(detail.task.status, "paused");
+  assert.equal(jobDetail.safeParse(detail).success, true);
+  assert.deepEqual(Object.keys(detail).sort(), ["events", "job"]);
+  assert.deepEqual(detail.job, presentJob(source));
+  assert.equal(detail.job.updatedAt, source.lastControl!.at);
+  assert.equal(detail.job.status, "paused");
   assert.deepEqual(detail.events.map((event) => event.kind), ["status", "result", "status"]);
   assert.deepEqual(detail.events.map((event) => event.date), [source.createdAt, source.lastRunAt, source.lastControl!.at]);
   assert.equal(detail.events[1].detail, "done");
@@ -44,7 +44,7 @@ test("task detail contains only recorded facts, latest events and stable IDs wit
 
 test("task detail does not infer success from a legacy result with no lastStatus", () => {
   const detail = presentJobDetail(job({ enabled: false, lastRunAt: "2026-02-01T00:00:00.000Z", lastResult: "historical text" }));
-  assert.equal(detail.task.status, "cancelled");
+  assert.equal(detail.job.status, "cancelled");
   assert.equal(detail.events[1].kind, "observation");
   assert.equal(detail.events[1].title, "Latest recorded run");
 });

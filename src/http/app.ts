@@ -8,7 +8,7 @@ import { sessionRequestSchema } from "./contracts/rest.js";
 import { buildOpenApiDocument } from "./openapi.js";
 import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
 import { saveProfileSchema } from "./contracts/rest.js";
-import { createThreadRoutes } from "./routes/threads.js";
+import { createSpaceRoutes } from "./routes/spaces.js";
 import { createWorkspaceEventRoutes } from "./routes/events.js";
 import { serviceVersion } from "../bootstrap/service-version.js";
 
@@ -42,7 +42,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     }),
   );
   app.onError((error, c) => {
-    if (error instanceof ConversationError && error.code === "THREAD_DELETING")
+    if (error instanceof ConversationError && (error.code === "SPACE_DELETING" || error.code === "THREAD_DELETING"))
       return c.json({ error: error.message, code: error.code }, 409);
     return c.json({ error: "Internal server error" }, 500);
   });
@@ -84,7 +84,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   });
   // 先鉴权，再挂载业务/运行协议，最后处理未知 API；顺序是现有安全边界。
   app.route("/", createWorkspaceEventRoutes(dependencies.workspaceEvents));
-  app.route("/api/threads", createThreadRoutes(dependencies));
+  app.route("/api/spaces", createSpaceRoutes(dependencies));
   app.route("/", createWorkspaceRoutes(dependencies));
   app.route("/", runtimeRoutes);
   app.all("/api/*", (c) =>

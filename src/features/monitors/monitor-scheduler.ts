@@ -14,7 +14,7 @@ export const createMonitorScheduler = (
   config: { monitorScanIntervalMs: number; web?: Pick<WebService, "fetch"> },
   monitors: Pick<MonitorService, "list" | "check" | "markNotified">,
   mainConversation: Pick<Conversation, "notify">,
-  destination?: (threadId: string) => Promise<Pick<Conversation, "notify"> | undefined>,
+  destination?: (spaceId: string) => Promise<Pick<Conversation, "notify"> | undefined>,
 ): MonitorScheduler => {
   let timer: NodeJS.Timeout | undefined;
   let closed = false;
@@ -26,8 +26,8 @@ export const createMonitorScheduler = (
   const deliver = async (monitor: Monitor) => {
     const pending = monitor.pendingNotification;
     if (!pending || closed) return;
-    const conversation = monitor.originThreadId && destination
-      ? await destination(monitor.originThreadId) : mainConversation;
+    const conversation = monitor.originSpaceId && destination
+      ? await destination(monitor.originSpaceId) : mainConversation;
     if (closed || !conversation) return;
     // 目的地解析可能跨越删除/重建；旧扫描不能向新同名会话投递已删除的绑定物。
     const latest = (await monitors.list()).find((item) => item.id === monitor.id);

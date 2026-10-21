@@ -39,15 +39,16 @@ export const createActivitiesRoutes = (
     if (!raw) return c.json({ error: "Invalid activity query" }, 400);
     const parsed = activitiesQuerySchema.safeParse(raw);
     if (!parsed.success) return c.json({ error: "Invalid activity query" }, 400);
-    const { limit, cursor: encodedCursor, threadId, status } = parsed.data;
+    const { limit, cursor: encodedCursor, spaceId, status } = parsed.data;
+    const effectiveSpaceId = spaceId ?? (parsed.data as { threadId?: string }).threadId;
     const filter: ActivityFilter = {
-      ...(threadId !== undefined ? { threadId } : {}),
+      ...(effectiveSpaceId !== undefined ? { spaceId: effectiveSpaceId } : {}),
       ...(status !== undefined ? { status } : {}),
     };
     let cursor: ActivityCursor | undefined;
     if (encodedCursor !== undefined) {
       cursor = decodeActivityCursor(encodedCursor);
-      // 游标绑定过滤条件：解码失败、结构/时间非法或与本次 threadId/status 不一致都 400，
+      // 游标绑定过滤条件：解码失败、结构/时间非法或与本次 spaceId/status 不一致都 400，
       // 不尝试“纠正”成第一页，避免客户端在错误过滤条件下静默拿到不完整结果。
       if (!cursor || !activityCursorMatchesFilter(cursor, filter))
         return c.json({ error: "Invalid activity cursor" }, 400);

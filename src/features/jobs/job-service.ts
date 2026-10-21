@@ -83,11 +83,12 @@ export const createJobService = (repository: JobRepository) => ({
     };
   }),
 
-  add: (prompt: string, daily: boolean, at: string, originThreadId: string = "local-main"): Promise<Job> => repository.update((items) => {
+  add: (prompt: string, daily: boolean, at: string, originSpaceId: string = "local-main"): Promise<Job> => repository.update((items) => {
     const job: Job = {
       id: randomUUID(), prompt: prompt.trim(), daily, at, enabled: true,
       createdAt: new Date().toISOString(), nextRunAt: nextRunAfter(daily, at, new Date()),
-      originThreadId,
+      originSpaceId,
+      originThreadId: originSpaceId,
     };
     return { items: [...items, job], result: job };
   }),
@@ -99,11 +100,49 @@ export const createJobService = (repository: JobRepository) => ({
     return result.code === "conflict";
   },
 
-  /** 级联删除属于指定会话的全部定时任务 */
-  removeByOriginThreadId: (originThreadId: string): Promise<number> => repository.update((items) => {
-    const remaining = items.filter((item) => item.originThreadId !== originThreadId);
+  /** 级联删除属于指定空间的全部定时任务 */
+  removeByOriginSpaceId: (originSpaceId: string): Promise<number> => repository.update((items) => {
+    const remaining = items.filter((item) => item.originSpaceId !== originSpaceId && item.originThreadId !== originSpaceId);
     const count = items.length - remaining.length;
     return { items: remaining, result: count };
+  }),
+  removeByOriginThreadId(originThreadId: string): Promise<number> {
+    return this.removeByOriginSpaceId(originThreadId);
+  },
+
+  /** 彻底删除单项定时任务；成功返回 true，不存在返回 false。 */
+  remove: (id: string): Promise<boolean> => repository.update((items) => {
+    const exists = items.some((item) => item.id === id);
+    if (!exists) return { result: false };
+    return { items: items.filter((item) => item.id !== id), result: true };
+  }),
+
+  /**
+   * 修改定时任务的提示词、执行时刻（daily/at）或归属空间。
+   * 若设定时刻改变且任务处于调度中（enabled），基于当前时间重算 nextRunAt。
+   */
+  update: (
+    id: string,
+    updates: { prompt?: string; daily?: boolean; at?: string; originSpaceId?: string },
+  ): Promise<Job | undefined> => repository.update((items) => {
+    const job = items.find((item) => item.id === id);
+    if (!job) return { result: undefined };
+    const prompt = updates.prompt !== undefined ? updates.prompt.trim() : job.prompt;
+    const daily = updates.daily !== undefined ? updates.daily : job.daily;
+    const at = updates.at !== undefined ? updates.at.trim() : job.at;
+    const originSpaceId = updates.originSpaceId !== undefined ? updates.originSpaceId : (job.originSpaceId ?? job.originThreadId);
+    const timeChanged = daily !== job.daily || at !== job.at;
+    const nextRunAt = timeChanged && job.enabled ? nextRunAfter(daily, at, new Date()) : job.nextRunAt;
+    const updated: Job = {
+      ...job,
+      prompt,
+      daily,
+      at,
+      nextRunAt,
+      originSpaceId,
+      originThreadId: originSpaceId,
+    };
+    return { items: items.map((item) => item === job ? updated : item), result: updated };
   }),
 
   /**

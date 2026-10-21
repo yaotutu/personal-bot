@@ -1,5 +1,5 @@
 import type { StatusRun, AgentStatus } from "../workspace/agent-status.js";
-import type { ActivityRun } from "../activities/types.js";
+import type { ActivityOverview, ActivityRun } from "../activities/types.js";
 import type { ActivitySession } from "../activities/activity-session.js";
 import type {
   ConversationHistory,
@@ -15,6 +15,7 @@ import type {
  * checkpoint/restore 仅用于 prompt 未写入新 user 时保住待重试的旧历史。
  */
 export type ConversationHistoryPort = {
+  sessionId?: () => string;
   history: () => ConversationHistory;
   records: () => ConversationRecords;
   checkpoint: () => string | null;
@@ -37,10 +38,12 @@ export type ConversationExecution = {
   subscribe: (listener: (event: ExecutionEvent) => void) => () => void;
 };
 export type ConversationDependencies = {
-  threadId?: string;
+  spaceId?: string;
   history: ConversationHistoryPort;
   activities?: ActivitySession;
-  beginStatus?: (input: { threadId: string; runId: string; source: "chat" | "job"; jobId?: string; initialRevision: number }) => StatusRun;
-  cancelApprovals?: (threadId: string, runId: string) => Promise<void>;
+  beginStatus?: (input: { spaceId: string; runId: string; source: "chat" | "job"; jobId?: string; initialRevision: number }) => StatusRun;
+  /** 活动概览状态变化时的展示推送（SSE 直推通道）；不拥有活动持久化，权威记录仍是会话 JSONL。 */
+  publishActivity?: (overview: ActivityOverview) => void;
+  cancelApprovals?: (spaceId: string, runId: string) => Promise<void>;
   openSession: (context: { runId: string; activity?: ActivityRun; status?: StatusRun }) => Promise<ConversationExecution>;
 };

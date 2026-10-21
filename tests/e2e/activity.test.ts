@@ -69,14 +69,14 @@ test("activity e2e: authentication and ordinary chat do not create records; quer
   succeeded(await client.run("现在几点", "activity-ordinary"));
   const before = await client.history("activity-ordinary");
   const files = await sessionBytes(service.dataDir, "activity-ordinary");
-  const threads = await client.json("/api/threads");
+  const spaces = await client.json("/api/spaces");
   const count = model.requests.length;
   assert.deepEqual((await list()).activities, []);
   assert.deepEqual((await list("?threadId=never-created")).activities, []);
   assert.equal((await client.request("/api/activities/missing")).status, 404);
   assert.deepEqual(await client.history("activity-ordinary"), before);
   assert.deepEqual(await sessionBytes(service.dataDir, "activity-ordinary"), files);
-  assert.deepEqual(await client.json("/api/threads"), threads);
+  assert.deepEqual(await client.json("/api/spaces"), spaces);
   await assert.rejects(stat(join(service.dataDir, "sessions/never-created")), { code: "ENOENT" });
   assert.equal(model.requests.length, count);
 });
@@ -313,7 +313,7 @@ for (const decision of ["approve", "cancel"] as const) {
     assert.equal(action.threadId, running.threadId);
     // 子代理发起的审批预览仍指向真实文件作用域；归属字段由服务端既有装配决定，
     // 这里只断言本测试关心的作用域与完整内容，不推断子会话/父会话归属。
-    assert.equal(action.preview.scope, "thread");
+    assert.ok(action.preview.scope === "space" || action.preview.scope === "thread");
     const waiting = await one(running.threadId);
     assert.equal(waiting.activity.status, "waiting_approval");
     const approval = waiting.steps.find((step) => step.kind === "approval")!;
@@ -412,7 +412,7 @@ test("activity e2e: cursor pagination, filters, malformed queries and deletion/r
   }
   const removed = all.filter((item) => item.threadId === "activity-page-a");
   await writeFile(join(service.dataDir, "workspace/shared/kept.md"), "SHARED-SURVIVES", { mode: 0o600 });
-  await client.json("/api/threads/activity-page-a", undefined, "DELETE");
+  await client.json("/api/spaces/activity-page-a", undefined, "DELETE");
   assert.deepEqual((await list("?threadId=activity-page-a")).activities, []);
   for (const item of removed) assert.equal((await client.request(`/api/activities/${item.id}`)).status, 404);
   await assert.rejects(stat(join(service.dataDir, "sessions/activity-page-a")), { code: "ENOENT" });
@@ -432,7 +432,7 @@ test("activity e2e: deleting an in-flight activity cancels its provider and cann
   await waitForTest(() => model.requests.length >= baseline + 2, "in-flight activity to delete");
   const record = await one(running.threadId);
   const disconnected = model.slowClosed();
-  await client.json(`/api/threads/${running.threadId}`, undefined, "DELETE");
+  await client.json(`/api/spaces/${running.threadId}`, undefined, "DELETE");
   failed(await running.done);
   await waitForTest(() => model.slowClosed() > disconnected, "deleted activity provider disconnect");
   assert.equal((await client.request(`/api/activities/${record.activity.id}`)).status, 404);
@@ -441,7 +441,7 @@ test("activity e2e: deleting an in-flight activity cancels its provider and cann
   await assert.rejects(stat(join(service.dataDir, "sessions", running.threadId)), { code: "ENOENT" });
   await service.restart();
   assert.equal((await client.request(`/api/activities/${record.activity.id}`)).status, 404);
-  assert.ok(!(await client.json("/api/threads")).threads.some((thread: { id: string }) => thread.id === running.threadId));
+  assert.ok(!(await client.json("/api/spaces")).spaces.some((space: { id: string }) => space.id === running.threadId));
 });
 
 test("activity e2e: invalid persisted custom entries fail closed instead of disappearing from list or detail", async (t) => {

@@ -10,7 +10,7 @@ import { resolveWorkspacePath, safeWorkspacePath } from "./workspace-path.js";
 
 const MAX_BYTES = 100_000;
 const POLL_INTERVAL_MS = 2_000;
-type ApprovalContext = { threadId?: string; runId?: string; toolCallId?: string; subagentId?: string; workspaceThreadId?: string; activityId?: (() => string | null) | string };
+type ApprovalContext = { spaceId?: string; threadId?: string; runId?: string; toolCallId?: string; subagentId?: string; workspaceSpaceId?: string; workspaceThreadId?: string; activityId?: (() => string | null) | string };
 type Actions = Pick<ActionService, "submit" | "poll" | "cancel" | "markExecuting" | "finishExecution">;
 type Snapshot = { content: string; version: string };
 export type ActivityToolObservation = { observe: (event: ActivityObservation) => void; prefix: string; getActivityId?: () => string | undefined };

@@ -6,7 +6,8 @@ export type StepKind = "execution" | "model" | "tool" | "subagent" | "approval" 
 
 export type ActivityOverview = {
   id: string;
-  threadId: string;
+  spaceId?: string;
+  threadId?: string;
   title: string;
   goal: string;
   deliverable: string;
@@ -57,7 +58,8 @@ export type ActivityRun = {
   wait: (question: string) => ActivityOverview;
   complete: (result: string) => ActivityOverview;
   observe: (event: ActivityObservation) => void;
-  finish: (outcome: ActivityOutcome, delivered?: boolean) => void;
+  /** 运行收尾；返回收尾后的活动概览（未绑定活动或已关闭时为 undefined），供状态推送使用。 */
+  finish: (outcome: ActivityOutcome, delivered?: boolean) => ActivityOverview | undefined;
   close: () => void;
 };
 

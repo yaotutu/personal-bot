@@ -15,12 +15,14 @@ test("task presenter exposes only recorded business facts without mutating the j
   const before = structuredClone(job);
   assert.deepEqual(presentJob(job), {
     id: job.id, title: "x".repeat(80), prompt: job.prompt, kind: "job",
+    daily: job.daily, at: job.at, enabled: job.enabled,
     status: "scheduled",
     createdAt: job.createdAt, updatedAt: job.createdAt, nextRunAt: job.nextRunAt,
-    result: undefined, error: null,
+    lastRunAt: undefined, lastResult: undefined, error: null,
+    originSpaceId: "local-main", originThreadId: "local-main",
   });
   assert.deepEqual(job, before);
-  assert.ok(!Object.hasOwn(JSON.parse(JSON.stringify(presentJob(job))), "result"));
+  assert.ok(!Object.hasOwn(JSON.parse(JSON.stringify(presentJob(job))), "lastResult"));
 });
 
 test("one-shot task preserves failed status and result metadata after being disabled", () => {
@@ -29,7 +31,7 @@ test("one-shot task preserves failed status and result metadata after being disa
   const disabled = presentJob({ ...failed, enabled: false });
   assert.equal(disabled.status, "failed");
   assert.equal(disabled.error, "Last run failed");
-  assert.equal(disabled.result, "failed text");
+  assert.equal(disabled.lastResult, "failed text");
   assert.equal(disabled.updatedAt, failed.lastRunAt);
   assert.equal(disabled.nextRunAt, undefined);
   assert.equal(presentJob({ ...job, lastStatus: "completed" }).status, "scheduled");
@@ -70,7 +72,7 @@ test("cancelled daily tasks retain historical success and failure metadata", () 
     };
     const presented = presentJob(source);
     assert.equal(presented.status, "cancelled");
-    assert.equal(presented.result, source.lastResult);
+    assert.equal(presented.lastResult, source.lastResult);
     assert.equal(presented.updatedAt, source.lastRunAt);
     assert.equal(presented.error, lastStatus === "failed" ? "Last run failed" : null);
     assert.equal(presented.nextRunAt, undefined);
@@ -86,7 +88,7 @@ test("disabled tasks without lastStatus do not infer success from historical met
     };
     const presented = presentJob(source);
     assert.equal(presented.status, "cancelled");
-    assert.equal(presented.result, source.lastResult);
+    assert.equal(presented.lastResult, source.lastResult);
     assert.equal(presented.updatedAt, source.lastRunAt);
     assert.equal(presented.error, null);
   });

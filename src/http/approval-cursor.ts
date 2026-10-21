@@ -9,17 +9,19 @@ import {
 export const encodeApprovalCursor = (
   cursor: { resolvedAt: string; id: string },
   filter: ApprovalFilter,
-): string =>
-  Buffer.from(
+): string => {
+  const spaceId = filter.spaceId ?? (filter as { threadId?: string }).threadId;
+  return Buffer.from(
     JSON.stringify({
       resolvedAt: cursor.resolvedAt,
       id: cursor.id,
-      ...(filter.threadId !== undefined ? { threadId: filter.threadId } : {}),
+      ...(spaceId !== undefined ? { spaceId, threadId: spaceId } : {}),
       ...(filter.activityId !== undefined ? { activityId: filter.activityId } : {}),
       ...(filter.status !== undefined ? { status: filter.status } : {}),
     }),
     "utf8",
   ).toString("base64url");
+};
 
 /**
  * 解码并校验游标。失败返回 undefined，由路由统一映射为 400；这里不抛异常，
@@ -45,7 +47,12 @@ export const decodeApprovalCursor = (
 export const approvalCursorMatchesFilter = (
   cursor: ApprovalCursorPayloadDto,
   filter: ApprovalFilter,
-): boolean =>
-  cursor.threadId === filter.threadId &&
-  cursor.activityId === filter.activityId &&
-  cursor.status === filter.status;
+): boolean => {
+  const cSpace = cursor.spaceId ?? (cursor as { threadId?: string }).threadId;
+  const fSpace = filter.spaceId ?? (filter as { threadId?: string }).threadId;
+  return (
+    cSpace === fSpace &&
+    cursor.activityId === filter.activityId &&
+    cursor.status === filter.status
+  );
+};

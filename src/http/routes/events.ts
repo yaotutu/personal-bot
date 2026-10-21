@@ -50,10 +50,13 @@ export const createWorkspaceEventRoutes = (events: WorkspaceEvents) => {
         const notify = (event: WorkspaceUpdate) => {
           if (ended) return;
           const data = event.event === "agent_status_updated" ? event.status
+            : event.event === "activity_updated" ? event.activity
             : event.event === "approval_pending" ? presentApproval(event.approval) : presentApprovalResolution(event.approval);
           const bytes = frame(event.event, { instanceId: events.instanceId, ...data });
           if (bytes.byteLength > MAX_EVENT_BYTES) { disconnect(); return; }
-          const key = event.event === "agent_status_updated" ? `run:${event.status.threadId}:${event.status.runId}` : "";
+          // 同一活动的连续状态帧可合并为最新一条；活动状态单调推进，旧帧无保留价值。
+          const key = event.event === "agent_status_updated" ? `run:${event.status.spaceId}:${event.status.runId}`
+            : event.event === "activity_updated" ? `activity:${event.activity.id}` : "";
           const existing = key ? queue.find((item) => item.key === key) : undefined;
           if (existing) { queuedBytes -= existing.bytes.byteLength; existing.bytes = bytes; }
           else queue.push({ key, bytes });
@@ -68,6 +71,7 @@ export const createWorkspaceEventRoutes = (events: WorkspaceEvents) => {
         const ready = frame("ready", {
           instanceId: events.instanceId, serverTime: new Date().toISOString(),
           agentStatuses: events.current(), pendingApprovals: events.pending().map(presentApproval),
+          activities: events.activities().map((act) => ({ ...act, instanceId: events.instanceId })),
         });
         if (ready.byteLength > MAX_READY_BYTES) { disconnect(); return; }
         queue.unshift({ key: "ready", bytes: ready });

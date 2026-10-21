@@ -8,11 +8,13 @@ import {
   decideApproval,
   subscribeAuth,
   isLoggedIn,
-  listThreads,
+  listSpaces,
   login,
   subscribeWorkspaceEvents,
+  type ActivityUpdatedEventDto,
   type AgentStatusDto,
   type ApprovalViewDto,
+  type SpaceDto,
   type WorkspaceEvent,
 } from "../lib/api";
 
@@ -36,7 +38,7 @@ const ActionApproval = ({
   const expired = Date.parse(action.expiresAt) <= Date.now();
   const scopeText = preview.scope === "shared"
     ? "共享区 shared/..."
-    : `会话私有工作区 · 归属会话 ${preview.ownerThreadId ?? "未知"}`;
+    : `空间私有工作区 · 归属空间 ${preview.ownerSpaceId ?? "未知"}`;
   const beforeLabel = action.kind === "file_edit"
     ? "替换前内容"
     : preview.beforeExists ? "写入前内容" : "写入前内容（文件不存在）";
@@ -71,7 +73,7 @@ const ActionApproval = ({
       <div className="mt-1 space-y-0.5 break-all text-xs text-amber-800">
         <p>操作：{action.kind === "file_write" ? "写入文件" : "编辑文件"} · 审批 ID：{action.id} · 版本：r{action.revision}</p>
         <p>作用域：{scopeText}</p>
-        {action.threadId && <p>发起会话：{action.threadId}</p>}
+        {action.spaceId && <p>发起空间：{action.spaceId}</p>}
         {action.runId && <p>运行：{action.runId}</p>}
         <p>过期时间：{action.expiresAt}</p>
       </div>
@@ -133,11 +135,15 @@ type WorkspaceState = {
   approvalTombstones: Record<string, number>;
   statuses: AgentStatusDto[];
   statusRevisions: Record<string, number>;
+  // 进行中的活动概览（含 waiting_* / awaiting_continuation）；终态活动进入 notices 供通知展示。
+  activities: ActivityUpdatedEventDto[];
+  notices: ActivityUpdatedEventDto[];
 };
 
 type WorkspaceAction =
   | WorkspaceEvent
   | { type: "decided"; data: ApprovalViewDto }
+  | { type: "dismiss_notice"; id: string }
   | { type: "reset" };
 
 const initialWorkspaceState: WorkspaceState = {
@@ -147,22 +153,24 @@ const initialWorkspaceState: WorkspaceState = {
   approvalTombstones: {},
   statuses: [],
   statusRevisions: {},
+  activities: [],
+  notices: [],
 };
 
-const runKey = (threadId: string, runId: string) => JSON.stringify([threadId, runId]);
+const runKey = (spaceId: string, runId: string) => JSON.stringify([spaceId, runId]);
 
 const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): WorkspaceState => {
   switch (action.type) {
     case "reset":
       return initialWorkspaceState;
     case "ready": {
-      const { instanceId, agentStatuses, pendingApprovals } = action.data;
+      const { instanceId, agentStatuses, pendingApprovals, activities } = action.data;
       // ready 是进行中集合的完整替换值：运行版本缓存也随之重建，不保留已结束运行的旧版本。
       // 运行 revision 只在同一实例内有效；新实例本来就必须清空缓存。
       const statusRevisions: Record<string, number> = {};
       const statuses: AgentStatusDto[] = [];
       for (const status of agentStatuses) {
-        const key = runKey(status.threadId, status.runId);
+        const key = runKey(status.spaceId, status.runId);
         const known = statusRevisions[key] ?? 0;
         if (status.revision < known) continue;
         statusRevisions[key] = status.revision;
@@ -191,19 +199,20 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
           approvalRevisions[approval.id] ?? 0,
         );
       }
-      return { instanceId, approvals, approvalRevisions, approvalTombstones, statuses, statusRevisions };
+      // ready.activities 是进行中活动集合的完整替换值；终态活动的历史通知不随重连复活。
+      return { instanceId, approvals, approvalRevisions, approvalTombstones, statuses, statusRevisions, activities, notices: [] };
     }
     case "agent_status_updated": {
       const status = action.data;
       // ready 是每条连接唯一实例边界，且保证先于增量帧；其他实例的迟到帧直接忽略。
       if (state.instanceId !== status.instanceId) return state;
       const statusRevisions = { ...state.statusRevisions };
-      const key = runKey(status.threadId, status.runId);
+      const key = runKey(status.spaceId, status.runId);
       const known = statusRevisions[key] ?? 0;
       if (status.revision <= known) return state;
       statusRevisions[key] = status.revision;
       const rest = state.statuses.filter(
-        (item) => runKey(item.threadId, item.runId) !== key,
+        (item) => runKey(item.spaceId, item.runId) !== key,
       );
       return {
         ...state,
@@ -241,6 +250,22 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
         },
       };
     }
+    case "activity_updated": {
+      const activity = action.data;
+      if (state.instanceId !== activity.instanceId) return state;
+      const terminal = activity.status === "completed" || activity.status === "failed"
+        || activity.status === "stopped" || activity.status === "interrupted";
+      const activities = terminal
+        ? state.activities.filter((item) => item.id !== activity.id)
+        : [...state.activities.filter((item) => item.id !== activity.id), activity];
+      // 终态活动转成一条通知：用户在别的空间时也能看到“调研 X 已完成/失败”。
+      const notices = terminal
+        ? [...state.notices.filter((item) => item.id !== activity.id), activity].slice(-8)
+        : state.notices;
+      return { ...state, activities, notices };
+    }
+    case "dismiss_notice":
+      return { ...state, notices: state.notices.filter((item) => item.id !== action.id) };
     case "decided": {
       // 决定接口返回权威审批视图；只有服务端确认后才会走到这里。
       const approval = action.data;
@@ -259,15 +284,11 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
   }
 };
 
-/**
- * 应用骨架：左侧会话列表（threads），右侧聊天区。
- * 新 thread 通过侧栏输入创建（合法 id：字母数字开头，可含 _ -）。
- */
 export const App = () => {
   const authed = useSyncExternalStore(subscribeAuth, isLoggedIn);
-  const [threads, setThreads] = useState<{ id: string; updatedAt: string }[]>([]);
+  const [spaces, setSpaces] = useState<SpaceDto[]>([]);
   const [active, setActive] = useState("local-main");
-  const [newThread, setNewThread] = useState("");
+  const [newSpace, setNewSpace] = useState("");
   const [accessKey, setAccessKey] = useState("");
   const [error, setError] = useState("");
   type View = "chat" | "jobs" | "goals" | "settings";
@@ -315,15 +336,18 @@ export const App = () => {
     };
   }, [authed]);
 
-  useEffect(() => {
+  const refreshSpaces = () => {
     if (!authed) return;
-    void listThreads()
+    void listSpaces()
       .then((list) => {
-        setThreads(list);
+        setSpaces(list);
         if (list.length && !list.some((x) => x.id === active)) setActive(list[0]!.id);
       })
       .catch((e: Error) => setError(e.message));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  };
+
+  useEffect(() => {
+    refreshSpaces();
   }, [authed]);
 
   const signIn = async () => {
@@ -369,7 +393,7 @@ export const App = () => {
 
   // 只展示一行当前运行状态；优先当前会话，其次任意进行中的运行，不构造活动列表。
   const currentStatus =
-    workspace.statuses.find((status) => status.threadId === active) ?? workspace.statuses[0];
+    workspace.statuses.find((status) => status.spaceId === active) ?? workspace.statuses[0];
 
   return (
     <div className="flex h-screen bg-stone-100">
@@ -407,43 +431,43 @@ export const App = () => {
           ))}
         </div>
         <div className={`flex-1 space-y-0.5 overflow-y-auto px-2 ${view === "chat" ? "" : "hidden"}`}>
-          {threads.map((thread) => (
+          {spaces.map((space) => (
             <button
-              key={thread.id}
+              key={space.id}
               onClick={() => {
-                setActive(thread.id);
+                setActive(space.id);
                 setView("chat");
                 setDrawer(false);
               }}
               className={`w-full truncate rounded-lg px-3 py-2 text-left text-sm ${
-                thread.id === active
+                space.id === active
                   ? "bg-stone-800 text-white"
                   : "text-stone-600 hover:bg-stone-100"
               }`}
             >
-              {thread.id}
+              {space.id}
             </button>
           ))}
         </div>
         <div className={`border-t border-stone-200 p-2 ${view === "chat" ? "" : "hidden"}`}>
           <input
-            value={newThread}
-            onChange={(e) => setNewThread(e.target.value)}
+            value={newSpace}
+            onChange={(e) => setNewSpace(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key !== "Enter" || !newThread.trim()) return;
-              const id = newThread.trim();
+              if (e.key !== "Enter" || !newSpace.trim()) return;
+              const id = newSpace.trim();
               if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(id)) {
-                setError("会话名：字母或数字开头，可含 _ -");
+                setError("空间名：字母或数字开头，可含 _ -");
                 return;
               }
-              if (!threads.some((x) => x.id === id)) {
-                setThreads([...threads, { id, updatedAt: new Date().toISOString() }]);
+              if (!spaces.some((x) => x.id === id)) {
+                setSpaces([...spaces, { id, sessionId: "", updatedAt: new Date().toISOString() }]);
               }
               setActive(id);
-              setNewThread("");
+              setNewSpace("");
               setError("");
             }}
-            placeholder="新会话名称…"
+            placeholder="新空间名称…"
             className="w-full rounded-lg border border-stone-300 px-2.5 py-1.5 text-sm outline-none focus:border-stone-500"
           />
         </div>
@@ -470,8 +494,34 @@ export const App = () => {
               {currentStatus.title} · {currentStatus.label}
             </span>
             <span className="ml-auto shrink-0 text-stone-400">
-              {currentStatus.source === "job" ? "定时任务" : currentStatus.threadId}
+              {currentStatus.source === "job" ? "定时任务" : currentStatus.spaceId}
             </span>
+          </div>
+        )}
+        {workspace.notices.length > 0 && (
+          <div className="shrink-0 space-y-1 border-b border-stone-200 bg-emerald-50 px-4 py-2">
+            {workspace.notices.map((notice) => (
+              <div key={notice.id} className="flex items-start gap-2 text-xs">
+                <span aria-hidden>{notice.status === "completed" ? "✅" : "⚠️"}</span>
+                <div className="min-w-0 flex-1">
+                  <span className="font-medium text-stone-700">{notice.title}</span>
+                  <span className="ml-1.5 text-stone-500">
+                    {notice.status === "completed" ? "已完成" : notice.status === "failed" ? "失败" : notice.status === "stopped" ? "已停止" : "已中断"}
+                  </span>
+                  {notice.result && (
+                    <p className="mt-0.5 truncate text-stone-500">{notice.result}</p>
+                  )}
+                  <span className="ml-1.5 text-stone-400">{notice.spaceId}</span>
+                </div>
+                <button
+                  onClick={() => dispatch({ type: "dismiss_notice", id: notice.id })}
+                  aria-label="关闭通知"
+                  className="shrink-0 rounded px-1 text-stone-400 hover:bg-stone-200 hover:text-stone-600"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
           </div>
         )}
         <header className="flex items-center gap-3 border-b border-stone-200 bg-white px-4 py-2.5 md:hidden">
@@ -486,10 +536,17 @@ export const App = () => {
           <span className="ml-auto truncate text-xs text-stone-400">{active}</span>
         </header>
         <div className="min-h-0 flex-1">
-        {view === "chat" && <ChatView key={active} threadId={active} />}
+        {view === "chat" && (
+          <ChatView
+            key={active}
+            spaceId={active}
+            sessionId={spaces.find((s) => s.id === active)?.sessionId}
+            onReset={refreshSpaces}
+          />
+        )}
         {view === "jobs" && <JobsView />}
         {view === "goals" && <GoalsView />}
-        {view === "settings" && <SettingsView threadId={active} />}
+        {view === "settings" && <SettingsView spaceId={active} />}
         </div>
       </main>
     </div>

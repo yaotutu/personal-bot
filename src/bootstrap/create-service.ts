@@ -122,20 +122,21 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   }
 
   const conversationHub = createConversationHub(
-    async (threadId) => {
-      const { manager, history, activities } = await createSessionHistory(layout, threadId, presentation);
+    async (spaceId, initialSessionId) => {
+      const { manager, history, activities } = await createSessionHistory(layout, spaceId, presentation, initialSessionId);
       return createConversation(config, {
-        threadId,
+        spaceId,
         history,
         activities,
         beginStatus: (input) => workspaceEvents.beginRun(input),
-        cancelApprovals: async (ownerThreadId, runId) => {
-          for (const action of await actions.list()) if (action.threadId === ownerThreadId && action.runId === runId && action.status === "pending") await actions.cancel(action.id);
+        publishActivity: (overview) => workspaceEvents.activityChanged(overview),
+        cancelApprovals: async (ownerSpaceId, runId) => {
+          for (const action of await actions.list()) if (action.spaceId === ownerSpaceId && action.runId === runId && action.status === "pending") await actions.cancel(action.id);
         },
         openSession: async ({ runId, activity, status }) => createPiExecution(
           await openPi({
             config,
-            threadId,
+            spaceId,
             runId,
             activity,
             status,
@@ -165,8 +166,19 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
             const directory = threadSessionsDir(layout, entry.name);
             const files = (await readdir(directory)).filter((name) => name.endsWith(".jsonl"));
             // JSONL 的追加不会更新目录 mtime，必须读取会话文件的实际活动时间。
-            const times = await Promise.all(files.map(async (name) => (await stat(join(directory, name))).mtimeMs));
-            return [{ id: entry.name, updatedAt: new Date(Math.max(0, ...times)).toISOString() }];
+            const stats = await Promise.all(
+              files.map(async (name) => ({ name, mtimeMs: (await stat(join(directory, name))).mtimeMs })),
+            );
+            stats.sort((a, b) => b.mtimeMs - a.mtimeMs);
+            const latest = stats[0];
+            const sessionId = latest
+              ? latest.name.replace(/\.jsonl$/, "").split("_").slice(1).join("_") || undefined
+              : undefined;
+            return [{
+              id: entry.name,
+              ...(sessionId ? { sessionId } : {}),
+              updatedAt: new Date(latest ? latest.mtimeMs : 0).toISOString(),
+            }];
           } catch (error) {
             // 列表扫描与另一会话删除可以交错；只忽略已消失目录，其余 I/O 错误仍需暴露为失败。
             if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
@@ -189,11 +201,11 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     await conversationHub.closeAll();
     throw error;
   }
-  const mainConversation = await conversationHub.forThread("local-main");
-  const scheduler = createScheduler(config, jobs, mainConversation, (threadId) => conversationHub.findThread(threadId));
+  const mainConversation = await conversationHub.forSpace("local-main");
+  const scheduler = createScheduler(config, jobs, mainConversation, (spaceId) => conversationHub.findSpace(spaceId));
   const monitorScheduler = createMonitorScheduler(
     { monitorScanIntervalMs: config.monitorScanIntervalMs, web }, monitors,
-    mainConversation, (threadId) => conversationHub.findThread(threadId),
+    mainConversation, (spaceId) => conversationHub.findSpace(spaceId),
   );
   let closed = false;
   let approvalExpiry: Promise<unknown> | undefined;
@@ -224,21 +236,21 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       readSoul: () => readProfileFile(layout.soulFile),
       writeSoul: async (content) => { await identity.saveProfile({ soul: content }); },
       writeSoulIfUnchanged: (content, expected) => identity.writeIfUnchanged("soul", content, expected),
-      readInstructions: (threadId) => readThreadInstructions(threadInstructionsFile(layout, threadId)),
-      writeInstructions: async (threadId, content) => {
-        await writeThreadInstructions(threadInstructionsFile(layout, threadId), content);
+      readInstructions: (spaceId) => readThreadInstructions(threadInstructionsFile(layout, spaceId)),
+      writeInstructions: async (spaceId, content) => {
+        await writeThreadInstructions(threadInstructionsFile(layout, spaceId), content);
       },
-      writeInstructionsIfUnchanged: (threadId, content, expected) =>
-        writeThreadInstructions(threadInstructionsFile(layout, threadId), content, expected),
+      writeInstructionsIfUnchanged: (spaceId, content, expected) =>
+        writeThreadInstructions(threadInstructionsFile(layout, spaceId), content, expected),
     },
     memory,
     conversations: {
-      listThreadIds: async () => (await conversationHub.threads()).map((item) => item.id),
-      threadExists: async (threadId) =>
-        threadId === "local-main" || (await conversationHub.findThread(threadId)) !== undefined,
-      isThreadBusy: async (threadId) =>
-        (await conversationHub.findThread(threadId))?.isRunning() ?? false,
-      readTranscript: (threadId) => readDreamTranscript(layout, threadId),
+      listSpaceIds: async () => (await conversationHub.spaces()).map((item) => item.id),
+      spaceExists: async (spaceId) =>
+        spaceId === "local-main" || (await conversationHub.findSpace(spaceId)) !== undefined,
+      isSpaceBusy: async (spaceId) =>
+        (await conversationHub.findSpace(spaceId))?.isRunning() ?? false,
+      readTranscript: (spaceId) => readDreamTranscript(layout, spaceId),
     },
     propose: createDreamProposer({ config, layout, modelRuntime }),
   });

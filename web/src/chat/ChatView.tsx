@@ -3,6 +3,7 @@ import type { MessageView, ToolCallView } from "./chat-state";
 import { StreamAggregator, projectHistory } from "./chat-state";
 import {
   loadHistory,
+  resetSpace,
   runConversation,
   stopConversation,
   ApiError,
@@ -12,13 +13,13 @@ const randomRunId = () =>
   (globalThis.crypto?.randomUUID?.() ?? `run-${Date.now()}-${Math.random()}`);
 
 type ForegroundRun = {
-  threadId: string;
+  spaceId: string;
   runId: string;
   controller: AbortController;
 };
 
 type ChatSession = {
-  threadId: string;
+  spaceId: string;
   controller: AbortController;
   historyReady: boolean;
   revision: string;
@@ -110,21 +111,36 @@ const MessageBubble = ({ message }: { message: MessageView }) => {
   );
 };
 
-export const ChatView = ({ threadId }: { threadId: string }) => {
+export const ChatView = ({
+  spaceId,
+  threadId,
+  sessionId: initialSessionId,
+  onReset,
+}: {
+  spaceId?: string;
+  threadId?: string;
+  sessionId?: string;
+  onReset?: () => void;
+}) => {
+  const currentSpaceId = spaceId || threadId || "local-main";
   const [views, setViews] = useState<MessageView[]>([]);
   const [draft, setDraft] = useState("");
   const [running, setRunning] = useState<ForegroundRun | null>(null);
   const [loading, setLoading] = useState(true);
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState("");
+  const [activeSessionId, setActiveSessionId] = useState(initialSessionId || "");
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [clearSchedules, setClearSchedules] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<ChatSession | null>(null);
 
-  // 每次挂载/切换都创建独立归属对象，避免 A→B→A 时仅比较 threadId 误认旧请求。
+  // 每次挂载/切换都创建独立归属对象，避免 A→B→A 时仅比较 spaceId 误认旧请求。
   // layout cleanup 在新界面可交互前撤销归属；abort 只负责停 I/O，归属校验负责拦截已排队回调。
   useLayoutEffect(() => {
     const session: ChatSession = {
-      threadId,
+      spaceId: currentSpaceId,
       controller: new AbortController(),
       historyReady: false,
       revision: "empty",
@@ -137,7 +153,7 @@ export const ChatView = ({ threadId }: { threadId: string }) => {
     setRunning(null);
     setStopping(false);
     setLoading(true);
-    void loadHistory(threadId, session.controller.signal)
+    void loadHistory(currentSpaceId, session.controller.signal)
       .then(({ messages, revision }) => {
         if (!ownsSession()) return;
         session.revision = revision;
@@ -155,7 +171,7 @@ export const ChatView = ({ threadId }: { threadId: string }) => {
       session.controller.abort();
       session.run?.controller.abort();
     };
-  }, [threadId]);
+  }, [currentSpaceId]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
@@ -166,8 +182,8 @@ export const ChatView = ({ threadId }: { threadId: string }) => {
     const session = sessionRef.current;
     // ref 同步占有 run，防止 React 尚未提交 running 状态时连续 Enter 发出重复请求。
     // 首次历史未成功加载前不允许发送，否则空 历史版本会覆盖不了服务端已有历史。
-    if (!text || !session || session.threadId !== threadId || !session.historyReady || session.run) return;
-    const run: ForegroundRun = { threadId: session.threadId, runId: randomRunId(), controller: new AbortController() };
+    if (!text || !session || session.spaceId !== currentSpaceId || !session.historyReady || session.run) return;
+    const run: ForegroundRun = { spaceId: session.spaceId, runId: randomRunId(), controller: new AbortController() };
     session.run = run;
     const ownsRun = () =>
       sessionRef.current === session && !session.controller.signal.aborted && session.run === run;
@@ -194,7 +210,7 @@ export const ChatView = ({ threadId }: { threadId: string }) => {
     try {
       await runConversation(
         {
-          threadId: run.threadId,
+          spaceId: run.spaceId,
           runId: run.runId,
           expectedRevision: session.revision,
           message: { id: optimistic.id, content: text },
@@ -224,7 +240,7 @@ export const ChatView = ({ threadId }: { threadId: string }) => {
         // Stop 只取消本轮流，刷新使用会话级 signal；切换/卸载则两者都取消。
         // 直到刷新结束才释放 run，防止旧 finally 覆盖新一轮视图或 历史版本。
         try {
-          const { messages, revision } = await loadHistory(run.threadId, session.controller.signal);
+          const { messages, revision } = await loadHistory(run.spaceId, session.controller.signal);
           if (ownsRun()) {
             session.revision = revision;
             setViews(projectHistory(messages));
@@ -248,12 +264,12 @@ export const ChatView = ({ threadId }: { threadId: string }) => {
 
   const stop = async (run: ForegroundRun) => {
     const session = sessionRef.current;
-    if (!session || session.threadId !== run.threadId || session.run !== run) return;
+    if (!session || session.spaceId !== run.spaceId || session.run !== run) return;
     setStopping(true);
     try {
       // 等待服务端的 abort、结果落盘和通知队列释放；SSE 自然结束后才刷新并允许下一轮。
       // 离开页面仍直接取消本轮流；迟到的显式 Stop 因 runId 不匹配而不会影响新轮。
-      await stopConversation(run.threadId, run.runId, session.controller.signal);
+      await stopConversation(run.spaceId, run.runId, session.controller.signal);
     } catch (e) {
       if (sessionRef.current === session && session.run === run) {
         setError(e instanceof Error ? e.message : String(e));
@@ -262,8 +278,99 @@ export const ChatView = ({ threadId }: { threadId: string }) => {
     }
   };
 
+  const handleResetConfirm = async () => {
+    const session = sessionRef.current;
+    setResetting(true);
+    try {
+      const res = await resetSpace(currentSpaceId, clearSchedules);
+      setActiveSessionId(res.sessionId);
+      setViews([]);
+      if (session && session.spaceId === currentSpaceId) {
+        session.revision = "empty";
+        session.historyReady = true;
+        session.run = undefined;
+      }
+      setResetDialogOpen(false);
+      onReset?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setResetting(false);
+    }
+  };
+
   return (
     <div className="flex h-full flex-col">
+      {/* 空间与会话顶栏 */}
+      <div className="flex items-center justify-between border-b border-stone-200 bg-stone-50 px-4 py-2 text-xs text-stone-600">
+        <div className="flex items-center gap-2 truncate">
+          <span className="font-semibold text-stone-700">空间：{currentSpaceId}</span>
+          {activeSessionId && (
+            <span className="truncate text-stone-400 font-mono text-[11px]" title={`当前会话 ID: ${activeSessionId}`}>
+              · 会话: {activeSessionId.slice(0, 8)}…
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => setResetDialogOpen(true)}
+          className="rounded border border-stone-300 bg-white px-2.5 py-1 font-medium text-stone-700 hover:bg-stone-100 transition-colors"
+          title="重置当前会话（清空聊天历史，保留工作区与规则）"
+        >
+          重置会话
+        </button>
+      </div>
+
+      {/* 重置会话确认弹窗 */}
+      {resetDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <h2 className="text-base font-semibold text-stone-800">重置当前会话</h2>
+            <p className="mt-2 text-xs leading-relaxed text-stone-500">
+              重置将清空当前空间下的聊天历史，并生成全新的会话 ID。<br />
+              <strong>空间的私有工作区文件、INSTRUCTIONS.md 指令、技能开关与 Dream 配置均完整保留。</strong>
+            </p>
+
+            {running && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
+                ⚠️ 当前会话正在执行中，重置将立即终止正在进行的运行。
+              </div>
+            )}
+
+            <div className="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-3 text-xs">
+              <label className="flex items-start gap-2 cursor-pointer text-stone-700">
+                <input
+                  type="checkbox"
+                  checked={clearSchedules}
+                  onChange={(e) => setClearSchedules(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  同时清理该空间名下的定时任务与网页监控<br />
+                  <span className="text-stone-400">（默认不勾选：定时任务与监控自动保留并转绑到新会话）</span>
+                </span>
+              </label>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setResetDialogOpen(false)}
+                disabled={resetting}
+                className="rounded-lg border border-stone-300 px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-100 disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => void handleResetConfirm()}
+                disabled={resetting}
+                className="rounded-lg bg-red-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {resetting ? "重置中…" : "确认重置"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-5">
         {views.length === 0 && !error && (
           <div className="mt-16 text-center text-sm text-stone-400">

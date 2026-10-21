@@ -1,9 +1,11 @@
 import { Hono } from "hono";
 import type { HttpDependencies } from "../bootstrap/types.js";
 import { createSnapshotRoute } from "./routes/snapshot.js";
-import { createTasksRoutes } from "./routes/tasks.js";
+import { createJobsRoutes } from "./routes/jobs.js";
 import { createGoalsRoutes } from "./routes/goals.js";
-import { createMemoryRoutes } from "./routes/memory.js";
+import { createMemoriesRoutes } from "./routes/memories.js";
+import { createDreamRoutes } from "./routes/dream.js";
+import { createIdentityRoutes } from "./routes/identity.js";
 import { createMonitorsRoutes } from "./routes/monitors.js";
 import { createApprovalsRoutes } from "./routes/approvals.js";
 import { createActivitiesRoutes } from "./routes/activities.js";
@@ -18,9 +20,11 @@ export const createWorkspaceRoutes = (dependencies: HttpDependencies) => {
   const app = new Hono();
   app.route("/", createAgentStatusRoutes(dependencies));
   app.route("/", createSnapshotRoute(dependencies));
-  app.route("/", createTasksRoutes(dependencies));
+  app.route("/", createJobsRoutes(dependencies));
   app.route("/", createGoalsRoutes(dependencies));
-  app.route("/", createMemoryRoutes(dependencies));
+  app.route("/", createMemoriesRoutes(dependencies));
+  app.route("/", createDreamRoutes(dependencies));
+  app.route("/", createIdentityRoutes(dependencies));
   app.route("/", createMonitorsRoutes(dependencies));
   app.route("/", createApprovalsRoutes(dependencies));
   app.route("/", createActivitiesRoutes(dependencies));

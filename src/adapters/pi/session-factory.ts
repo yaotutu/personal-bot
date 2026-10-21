@@ -52,8 +52,8 @@ export type PiDeps = {
   memory: MemoryService;
   jobs: JobService;
   /** 仅子会话使用：父会话技能/工具快照作为权限上限，角色只可收窄。 */
-  child?: { role: SubagentRole; enabledSkills: readonly string[]; allowedTools: readonly string[]; ownerThreadId: string; ownerRunId?: string };
-  threadId: string;
+  child?: { role: SubagentRole; enabledSkills: readonly string[]; allowedTools: readonly string[]; ownerSpaceId: string; ownerRunId?: string };
+  spaceId: string;
   runId?: string;
   goals?: GoalService;
   actions?: ActionService;
@@ -77,14 +77,14 @@ export async function openPi(deps: PiDeps) {
   const { config, layout, sessionManager, memory, jobs, modelRuntime } = deps;
   const { goals, actions, actionTimeoutMs, monitors, web, weather, skills, child } = deps;
   if (!config.configured) throw new Error("MODEL_NOT_CONFIGURED");
-  const cwd = threadWorkspaceDir(layout, deps.threadId);
+  const cwd = threadWorkspaceDir(layout, deps.spaceId);
   const sharedDir = sharedWorkspaceDir(layout);
-  await ensureThreadWorkspace(layout, deps.threadId);
+  await ensureThreadWorkspace(layout, deps.spaceId);
   const agentDir = layout.agentDir;
 
   // 1. 加载技能并计算生效值
-  const effectiveSkills = !child && skills && deps.threadId
-    ? await skills.getEffectiveSkills(deps.threadId)
+  const effectiveSkills = !child && skills && deps.spaceId
+    ? await skills.getEffectiveSkills(deps.spaceId)
     : [];
   const enabledSkillNames = new Set(
     child?.enabledSkills ?? effectiveSkills.filter(s => s.enabled).map(s => s.name)
@@ -119,11 +119,11 @@ export async function openPi(deps: PiDeps) {
     root: cwd,
     sharedDir,
     readOnlyFiles: activeSkills.map((skill) => skill.filePath),
-    threadId: child?.ownerThreadId ?? deps.threadId,
+    spaceId: child?.ownerSpaceId ?? deps.spaceId,
     runId: child?.ownerRunId ?? deps.runId,
     isSubagent: Boolean(child),
     subagentId: deps.statusSubagentId,
-    workspaceThreadId: child?.ownerThreadId ?? deps.threadId,
+    workspaceSpaceId: child?.ownerSpaceId ?? deps.spaceId,
     currentActivityId: () => deps.status?.snapshot().activityId ?? null,
     activity: child ? undefined : deps.activity,
     activityObservation: deps.activity ? {
@@ -210,8 +210,8 @@ export async function openPi(deps: PiDeps) {
       signal?.throwIfAborted();
       const manager = SessionManager.inMemory(threadWorkspaceDir(layout, childId));
       const session = await openPi({
-        ...deps, sessionManager: manager, threadId: childId,
-        child: { role, enabledSkills: [...enabledSkillNames], allowedTools: [...allowedToolNames], ownerThreadId: deps.threadId, ownerRunId: deps.runId },
+        ...deps, sessionManager: manager, spaceId: childId,
+        child: { role, enabledSkills: [...enabledSkillNames], allowedTools: [...allowedToolNames], ownerSpaceId: deps.spaceId, ownerRunId: deps.runId },
         activity: deps.activity,
         activityPrefix: childId,
         activityParentId: childId,
@@ -278,7 +278,7 @@ export async function openPi(deps: PiDeps) {
   }
 
   // 4. 构建 System Prompt 并注入技能、专属会话指令与 Extension
-  const instructionsFile = !child && deps.threadId ? threadInstructionsFile(layout, deps.threadId) : undefined;
+  const instructionsFile = !child && deps.spaceId ? threadInstructionsFile(layout, deps.spaceId) : undefined;
   const threadInstructions = instructionsFile ? await readThreadInstructions(instructionsFile) : undefined;
   const systemPrompt = await buildSystemPrompt(layout, memory, web !== undefined, weather !== undefined, goals, threadInstructions) +
     (!child ? `\n\n## Work activity management\n${ACTIVITY_TOOL_INSTRUCTIONS}` : "") +

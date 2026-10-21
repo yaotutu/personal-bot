@@ -16,27 +16,40 @@ const turnIndex = (branch: readonly SessionEntry[], runId: string) =>
     (entry.data as ConversationTurn).runId === runId,
   );
 
+const hasSessionFile = async (dir: string): Promise<boolean> => {
+  try {
+    return (await readdir(dir)).some((name) => name.endsWith(".jsonl"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+};
+
 /**
  * pi entry tree 是历史唯一事实来源。
  * 展示读取完整 branch（不读压缩后的 model context）；重试只追加 context edit。
  */
 export const createSessionHistory = async (
   layout: DataLayout,
-  threadId: string,
+  spaceId: string,
   presentation?: ToolPresentation,
+  initialSessionId?: string,
 ) => {
-  const sessionsDir = threadSessionsDir(layout, threadId);
-  const cwd = threadWorkspaceDir(layout, threadId);
+  const sessionsDir = threadSessionsDir(layout, spaceId);
+  const cwd = threadWorkspaceDir(layout, spaceId);
   await ensureThreadLayout(layout);
-  await ensureThreadWorkspace(layout, threadId);
+  await ensureThreadWorkspace(layout, spaceId);
   await Promise.all(
     [sessionsDir, layout.agentDir].map((path) =>
       mkdir(path, { recursive: true, mode: 0o700 }),
     ),
   );
-  // continueRecent 按 cwd 选择 JSONL，必须与执行会话一致；不读取旧 cwd 或自动迁移历史。
-  const manager = SessionManager.continueRecent(cwd, sessionsDir);
+  // 已有 JSONL 时按 cwd 继续最近会话；无 JSONL 时使用给定 sessionId 初始化。
+  const manager = (await hasSessionFile(sessionsDir))
+    ? SessionManager.continueRecent(cwd, sessionsDir)
+    : SessionManager.create(cwd, sessionsDir, initialSessionId ? { id: initialSessionId } : undefined);
   const history: ConversationHistoryPort = {
+    sessionId: () => manager.getSessionId(),
     history: () => {
       const projected = projectConversationHistory(manager.getBranch());
       return presentation ? presentation.presentHistory(projected) : projected;
@@ -80,20 +93,20 @@ export const createSessionHistory = async (
     },
   };
   const activityHistory = createActivityHistory(manager);
-  const activities = createActivitySession(threadId, activityHistory);
+  const activities = createActivitySession(spaceId, activityHistory);
   // manager 只提供给同一 pi adapter 的执行装配，不暴露到 feature 或协议层。
   return { manager, history, activities };
 };
 
 /**
- * 只读读取指定会话的 pi 权威历史供 Dream 整理使用：
- * 若会话目录不存在或尚无 JSONL 文件，直接返回空结果，绝不创建目录或复活已删会话。
+ * 只读读取指定空间的 pi 权威历史供 Dream 整理使用：
+ * 若空间目录不存在或尚无 JSONL 文件，直接返回空结果，绝不创建目录或复活已删空间。
  */
 export const readDreamTranscript = async (
   layout: DataLayout,
-  threadId: string,
+  spaceId: string,
 ) => {
-  const sessionsDir = threadSessionsDir(layout, threadId);
+  const sessionsDir = threadSessionsDir(layout, spaceId);
   let files: string[];
   try {
     files = (await readdir(sessionsDir)).filter((name) => name.endsWith(".jsonl"));
@@ -105,7 +118,7 @@ export const readDreamTranscript = async (
   }
   if (!files.length) return { messages: [] };
   const manager = SessionManager.continueRecent(
-    threadWorkspaceDir(layout, threadId),
+    threadWorkspaceDir(layout, spaceId),
     sessionsDir,
   );
   return projectDreamTranscript(manager.getBranch());

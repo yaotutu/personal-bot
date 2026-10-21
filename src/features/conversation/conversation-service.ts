@@ -65,6 +65,9 @@ export function createConversation(
   };
   // 预检用于 HTTP 在开启 SSE 前返回 400/409；run 再检查一次，防止异步创建流期间争锁。
   const validate = (input: ConversationInput) => {
+    if (!input.spaceId && input.threadId) {
+      input.spaceId = input.threadId;
+    }
     if (closed) rejectConversation("SHUTDOWN", "Conversation is closed");
     if (active) rejectConversation("agent_thread_locked", "Wait for the current response to stop");
     const validated = validateConversationInput(input, history(), records(), historyPort.checkpoint() ?? "empty");
@@ -77,21 +80,44 @@ export function createConversation(
     const saved = historyPort.agentStatuses?.().findLast((status) => status.runId === runId);
     return saved ? structuredClone(saved) : undefined;
   };
-  const beginStatus = (threadId: string, runId: string, source: "chat" | "job", jobId?: string) => {
+  const beginStatus = (spaceId: string, runId: string, source: "chat" | "job", jobId?: string) => {
     const previous = executionStatus(runId);
-    return dependencies.beginStatus?.({ threadId, runId, source, jobId, initialRevision: (previous?.revision ?? 0) + 1 });
+    return dependencies.beginStatus?.({ spaceId, runId, source, jobId, initialRevision: (previous?.revision ?? 0) + 1 });
   };
   const statusActivity = (activity: ActivityRun | undefined, status: StatusRun | undefined): ActivityRun | undefined => {
     if (!activity || !status) return activity;
-    const sync = <T extends Parameters<StatusRun["activity"]>[0]>(overview: T) => { status.activity(overview); return overview; };
+    // 状态变化时同时刷新运行状态投影与全局活动推送。
+    // 方案定稿：只在活动状态变化时推送概览；progress 文本的过程性更新不单独推，
+    // 面板在用户查看时通过 GET /api/activities/:id 拉到最新进展，避免长时间任务推几十条。
+    // lastPushedStatus 初始化 undefined 而不是当前状态：resume 进现有活动时首轮不变更也要推一次，
+    // 让重连后的客户端拿到该活动的最新概览。
+    let lastPushedStatus: string | undefined;
+    const push = (overview: Parameters<StatusRun["activity"]>[0]) => {
+      if (!dependencies.publishActivity || overview.status === lastPushedStatus) return;
+      lastPushedStatus = overview.status;
+      try { dependencies.publishActivity(overview); } catch { /* 展示推送不拥有活动生命周期。 */ }
+    };
+    const sync = <T extends Parameters<StatusRun["activity"]>[0]>(overview: T) => {
+      status.activity(overview);
+      push(overview);
+      return overview;
+    };
     return { ...activity,
       start: (input) => sync(activity.start(input)), resume: (id) => sync(activity.resume(id)),
       update: (progress) => sync(activity.update(progress)), wait: (question) => sync(activity.wait(question)),
       complete: (result) => sync(activity.complete(result)),
+      // finish 是运行收尾，活动在这里进入 completed/failed/stopped/interrupted/awaiting_continuation 等
+      // 状态（见 activity-session.ts），也必须推送，否则完成事件永远到不了客户端。
+      finish: (outcome, delivered) => {
+        const overview = activity.finish(outcome, delivered);
+        // 终态或 awaiting_continuation 都是状态变化；走同一 push 去重，重复 finish 不会重复通知。
+        if (overview) push(overview);
+        return overview;
+      },
     };
   };
-  const finishStatus = async (running: ActiveRun, threadId: string, outcome: RunOutcome) => {
-    await dependencies.cancelApprovals?.(threadId, running.runId);
+  const finishStatus = async (running: ActiveRun, spaceId: string, outcome: RunOutcome) => {
+    await dependencies.cancelApprovals?.(spaceId, running.runId);
     if (running.status) historyPort.appendAgentStatus?.(running.status.finish(outcome));
   };
   const run = async (
@@ -99,6 +125,8 @@ export function createConversation(
     emit: (event: ConversationEvent) => void,
     signal?: AbortSignal,
   ) => {
+    const currentSpaceId = input.spaceId || input.threadId || dependencies.spaceId || "local-main";
+    input.spaceId = currentSpaceId;
     const { user, previous, replay } = validate(input);
     if (signal?.aborted)
       rejectConversation("DISCONNECTED", "Client disconnected before the run started");
@@ -139,7 +167,8 @@ export function createConversation(
       emit({
         type: "run_started",
         assistantId: turn.assistantId,
-        threadId: input.threadId,
+        spaceId: currentSpaceId,
+        threadId: input.spaceId,
         runId: input.runId,
       });
       if (replay) {
@@ -148,7 +177,7 @@ export function createConversation(
       } else {
         // 初始化或刚开始就停止时，不应先隐藏待重试的旧消息。先打开宿主，
         // 再提交 context edit，并同步宿主内存中的模型上下文。
-        running.status = beginStatus(input.threadId, running.runId, "chat");
+        running.status = beginStatus(currentSpaceId, running.runId, "chat");
         activity = statusActivity(dependencies.activities?.beginRun(running.runId), running.status);
         running.session = await openSession({ runId: running.runId, activity, status: running.status });
         if (running.reason)
@@ -191,11 +220,12 @@ export function createConversation(
           status,
         } satisfies ConversationResult);
         activity?.finish("completed", delivered);
-        await finishStatus(running, input.threadId, "succeeded");
+        await finishStatus(running, currentSpaceId, "succeeded");
       }
       emit({
         type: "run_finished",
-        threadId: input.threadId,
+        spaceId: currentSpaceId,
+        threadId: input.spaceId,
         runId: input.runId,
       });
     } catch (error) {
@@ -213,7 +243,7 @@ export function createConversation(
         status,
       } satisfies ConversationResult);
       activity?.finish(running.reason === "STOPPED" || running.reason === "DISCONNECTED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed");
-      await finishStatus(running, input.threadId, running.reason ? "cancelled" : "failed");
+      await finishStatus(running, currentSpaceId, running.reason ? "cancelled" : "failed");
       const code =
         running.reason ||
         (error instanceof ConversationError ? error.code : "MODEL_ERROR");
@@ -251,7 +281,7 @@ export function createConversation(
   const trigger = async (
     text: string,
     runId: string,
-    options: { signal?: AbortSignal; timeoutMs?: number; jobId?: string; threadId?: string } = {},
+    options: { signal?: AbortSignal; timeoutMs?: number; jobId?: string; spaceId?: string; threadId?: string } = {},
   ) => {
     if (closed || options.signal?.aborted) return { status: "failed" as const, text: "cancelled" };
     if (active) return { status: "failed" as const, text: "busy" };
@@ -279,9 +309,9 @@ export function createConversation(
       runId,
       assistantId: "assistant-" + runId,
     };
-    const sourceThreadId = dependencies.threadId ?? options.threadId ?? "local-main";
+    const sourceSpaceId = dependencies.spaceId ?? options.spaceId ?? "local-main";
     try {
-      running.status = beginStatus(sourceThreadId, running.runId, "job", options.jobId);
+      running.status = beginStatus(sourceSpaceId, running.runId, "job", options.jobId);
       activity = statusActivity(dependencies.activities?.beginRun(running.runId), running.status);
       running.session = await openSession({ runId: running.runId, activity, status: running.status });
       if (running.reason) throw new ConversationError(running.reason, "Response cancelled");
@@ -303,7 +333,7 @@ export function createConversation(
         status: ok ? "completed" : "failed",
       } satisfies ConversationResult);
       activity?.finish(ok ? "completed" : running.reason === "STOPPED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed", Boolean(finalText.trim()));
-      await finishStatus(running, sourceThreadId, ok ? "succeeded" : running.reason ? "cancelled" : "failed");
+      await finishStatus(running, sourceSpaceId, ok ? "succeeded" : running.reason ? "cancelled" : "failed");
       return { status: ok ? ("completed" as const) : ("failed" as const), text: finalText };
     } catch {
       if (running.session) {
@@ -315,7 +345,7 @@ export function createConversation(
         status: "failed",
       } satisfies ConversationResult);
       activity?.finish(running.reason === "STOPPED" ? "stopped" : running.reason === "SHUTDOWN" ? "interrupted" : "failed");
-      await finishStatus(running, sourceThreadId, running.reason ? "cancelled" : "failed");
+      await finishStatus(running, sourceSpaceId, running.reason ? "cancelled" : "failed");
       return { status: "failed" as const, text: "" };
     } finally {
       if (timeout) clearTimeout(timeout);
@@ -332,6 +362,7 @@ export function createConversation(
     }
   };
   return {
+    sessionId: () => historyPort.sessionId?.() ?? dependencies.spaceId ?? "local-main",
     executionStatus,
     activities: () => dependencies.activities?.details() ?? [],
     history,

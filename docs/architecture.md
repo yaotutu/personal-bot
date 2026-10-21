@@ -110,8 +110,8 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 | `sessions/<threadId>/DREAM.md` | 本会话补充 Dream 提示词，按需存在 |
 | `sessions/<threadId>/dream.json` | 本会话 Dream 开关、游标、最近结果与待确认项，按需存在 |
 | `sessions/<threadId>/skills.json` | 本会话技能开关覆盖，技能资产全局一份 |
-| `SOUL.md` / `USER.md` / `DREAM.md` | 全局自由文本身份与 Dream 提示词（`DREAM.md` 缺失时回退内置默认） |
-| `memory.json` | 长期记忆（按需检索）与 identity 设置 |
+| `profile/SOUL.md` / `profile/USER.md` / `profile/DREAM.md` | 全局自由文本身份与 Dream 提示词（`DREAM.md` 缺失时回退内置默认） |
+| `profile/memory.json` | 长期记忆（按需检索）与 identity 设置 |
 | `jobs.json` / `goals.json` / `actions.json` / `monitors.json` | 对应域持久状态 |
 | `workspace/threads/<threadId>/` | 会话私有文件工具根；主会话也在此布局内 |
 | `workspace/shared/` | 全局共享区，用 `shared/...` 显式访问 |

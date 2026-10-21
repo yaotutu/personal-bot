@@ -27,7 +27,7 @@ const resolvePending = (pending: PendingAction, status: "approved" | "denied" | 
 });
 
 const expectedPreview = {
-  scope: "thread", ownerThreadId: "local-main", path: "notes.md", before: "", after: "hello", beforeExists: true,
+  scope: "space", ownerSpaceId: "local-main", ownerThreadId: "local-main", path: "notes.md", before: "", after: "hello", beforeExists: true,
 };
 
 type Frame = { event: string | null; data: any; raw: string };

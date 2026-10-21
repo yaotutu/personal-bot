@@ -7,6 +7,7 @@ import type { ActivityDetail, ActivityOverview, ActivityStatus } from "./types.j
  */
 
 export type ActivityFilter = {
+  spaceId?: string;
   threadId?: string;
   status?: ActivityStatus;
 };
@@ -36,9 +37,12 @@ export type ActivityPage = {
 export const activityCursorMatchesFilter = (
   cursor: ActivityCursor,
   filter: ActivityFilter,
-): boolean =>
-  (cursor.threadId ?? undefined) === (filter.threadId ?? undefined) &&
-  (cursor.status ?? undefined) === (filter.status ?? undefined);
+): boolean => {
+  const cSpace = cursor.spaceId ?? cursor.threadId;
+  const fSpace = filter.spaceId ?? filter.threadId;
+  return (cSpace ?? undefined) === (fSpace ?? undefined) &&
+    (cursor.status ?? undefined) === (filter.status ?? undefined);
+};
 
 const timestamp = (value: string): number => {
   const parsed = Date.parse(value);
@@ -76,11 +80,12 @@ export const queryActivities = (
     timestamp(detail.activity.createdAt);
   }
   if (cursor) timestamp(cursor.createdAt);
+  const targetSpace = filter.spaceId ?? filter.threadId;
   const matches = details
     .map((detail) => detail.activity)
     .filter(
       (activity) =>
-        (filter.threadId === undefined || activity.threadId === filter.threadId) &&
+        (targetSpace === undefined || activity.spaceId === targetSpace || activity.threadId === targetSpace) &&
         (filter.status === undefined || activity.status === filter.status),
     )
     .sort(compareDescending)
@@ -91,12 +96,13 @@ export const queryActivities = (
   return {
     activities,
     hasMore,
-    // nextCursor 携带本次过滤条件，后续请求若改变 threadId/status 会被路由拒绝。
+    // nextCursor 携带本次过滤条件，后续请求若改变 spaceId/status 会被路由拒绝。
     nextCursor:
       hasMore && last
         ? {
             createdAt: last.createdAt,
             id: last.id,
+            ...(filter.spaceId !== undefined ? { spaceId: filter.spaceId } : {}),
             ...(filter.threadId !== undefined ? { threadId: filter.threadId } : {}),
             ...(filter.status !== undefined ? { status: filter.status } : {}),
           }

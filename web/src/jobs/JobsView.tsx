@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import {
-  controlTask,
+  controlJob,
+  deleteJob,
+  listJobs,
   createMonitor,
   controlMonitor,
-  getAgentSnapshot,
+  deleteMonitor,
   listMonitors,
   type MonitorDto,
-  type TaskDto,
+  type JobDto,
 } from "../lib/api";
 
 // retry_pending 定时任务仍投影 queued；不根据定时配置猜测模型当前正在执行。
@@ -30,7 +32,7 @@ const formatTime = (iso?: string) => {
 
 /** 任务页：仅展示定时任务（job）及其控制；新定时提醒请在聊天里说“X 点提醒我 Y”。 */
 export const JobsView = () => {
-  const [tasks, setTasks] = useState<TaskDto[]>([]);
+  const [tasks, setTasks] = useState<JobDto[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [monitors, setMonitors] = useState<MonitorDto[]>([]);
@@ -62,12 +64,20 @@ export const JobsView = () => {
     }
     void listMonitors().then(setMonitors).catch(() => undefined);
   };
+  const removeMonitor = async (id: string) => {
+    try {
+      await deleteMonitor(id);
+      setError("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "删除失败");
+    }
+    void listMonitors().then(setMonitors).catch(() => undefined);
+  };
 
   const reload = () => {
-    void getAgentSnapshot()
+    void listJobs()
       .then((data) => {
-        // 后台任务域已下线：服务端 taskView.kind 字面量始终是 "job"，无需分支判断。
-        setTasks(data.tasks);
+        setTasks(data);
       })
       .catch((e: Error) => setError(e.message));
     void listMonitors().then(setMonitors).catch(() => undefined);
@@ -75,12 +85,25 @@ export const JobsView = () => {
 
   useEffect(reload, []);
 
+  const remove = async (id: string) => {
+    setBusy(`${id}:delete`);
+    try {
+      await deleteJob(id);
+      setError("");
+      reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "删除失败");
+    } finally {
+      setBusy("");
+    }
+  };
+
   const act = async (
     id: string,
     action: "pause" | "resume" | "cancel" | "retry",
   ) => {
     setBusy(`${id}:${action}`);
-    const result = await controlTask(id, action);
+    const result = await controlJob(id, action);
     setBusy("");
     if (!result.ok) setError(result.error ?? "操作失败");
     else setError("");
@@ -147,9 +170,9 @@ export const JobsView = () => {
                   {badge.text}
                 </span>
               </div>
-              {task.result && (
+              {task.lastResult && (
                 <p className="mt-2 line-clamp-3 whitespace-pre-wrap rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600">
-                  {task.result}
+                  {task.lastResult}
                 </p>
               )}
               {task.error && (
@@ -173,6 +196,13 @@ export const JobsView = () => {
                 {task.status === "queued" && (
                   <Button id={task.id} action="cancel" label="取消" danger />
                 )}
+                <button
+                  disabled={busy.length > 0}
+                  onClick={() => void remove(task.id)}
+                  className="rounded-lg border border-stone-200 px-2.5 py-1 text-xs text-stone-400 hover:border-red-200 hover:text-red-600 disabled:opacity-40"
+                >
+                  删除
+                </button>
               </div>
             </div>
           );
@@ -246,32 +276,38 @@ export const JobsView = () => {
                 {monitor.status === "active" ? "监控中" : monitor.status === "paused" ? "已暂停" : "已停止"}
               </span>
             </div>
-            {monitor.status !== "stopped" && (
-              <div className="mt-3 flex gap-2">
-                {monitor.status === "active" && (
-                  <button
-                    onClick={() => void actMonitor(monitor.id, "pause")}
-                    className="rounded-lg border border-stone-300 px-2.5 py-1 text-xs text-stone-600 hover:bg-stone-50"
-                  >
-                    暂停
-                  </button>
-                )}
-                {monitor.status === "paused" && (
-                  <button
-                    onClick={() => void actMonitor(monitor.id, "resume")}
-                    className="rounded-lg border border-stone-300 px-2.5 py-1 text-xs text-stone-600 hover:bg-stone-50"
-                  >
-                    恢复
-                  </button>
-                )}
+            <div className="mt-3 flex gap-2">
+              {monitor.status === "active" && (
+                <button
+                  onClick={() => void actMonitor(monitor.id, "pause")}
+                  className="rounded-lg border border-stone-300 px-2.5 py-1 text-xs text-stone-600 hover:bg-stone-50"
+                >
+                  暂停
+                </button>
+              )}
+              {monitor.status === "paused" && (
+                <button
+                  onClick={() => void actMonitor(monitor.id, "resume")}
+                  className="rounded-lg border border-stone-300 px-2.5 py-1 text-xs text-stone-600 hover:bg-stone-50"
+                >
+                  恢复
+                </button>
+              )}
+              {monitor.status !== "stopped" && (
                 <button
                   onClick={() => void actMonitor(monitor.id, "stop")}
                   className="rounded-lg border border-red-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50"
                 >
                   停止
                 </button>
-              </div>
-            )}
+              )}
+              <button
+                onClick={() => void removeMonitor(monitor.id)}
+                className="rounded-lg border border-stone-200 px-2.5 py-1 text-xs text-stone-400 hover:border-red-200 hover:text-red-600"
+              >
+                删除
+              </button>
+            </div>
           </div>
         ))}
       </div>

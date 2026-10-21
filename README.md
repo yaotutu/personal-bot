@@ -128,8 +128,11 @@ pnpm start
 .pi-muse/
 ├── config.json                         # 启动配置与凭据
 ├── auth.key                            # token 签名密钥
-├── SOUL.md / USER.md / DREAM.md         # 全局身份文本与 Dream 整理提示词
-├── memory.json                         # 长期记忆与身份设置（按需检索）
+├── profile/                            # 全局用户画像、助手人设与记忆配置
+│   ├── SOUL.md                         # 助手人设自由文本
+│   ├── USER.md                         # 用户画像自由文本
+│   ├── DREAM.md                        # 全局 Dream 整理提示词
+│   └── memory.json                     # 长期记忆与身份设置（按需检索）
 ├── jobs.json / goals.json / actions.json / monitors.json
 ├── sessions/<threadId>/
 │   ├── *.jsonl                          # pi 权威历史

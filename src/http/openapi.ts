@@ -136,7 +136,7 @@ export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) =
         "dirty=true 时 commit 不代表完整代码，应比较 sourceHash；Git 信息不可用时明确为 null。" +
         "\n\n基于 pi 内核的单用户个人助手服务端。鉴权：POST /api/session 换取 token，" +
         "之后所有 /api/* 请求带 `Authorization: Bearer <token>`（health/session/docs 除外）。" +
-        "会话（threadId）相互隔离；聊天走 AG-UI SSE；写文件类操作经人工审批。" +
+        "空间（spaceId）相互隔离；聊天走 AG-UI SSE；写文件类操作经人工审批。" +
         "本文档由 src/http/contracts/ 的 zod schema 自动生成，修改接口请改 schema 而非此文件。",
     },
     "x-service-version": version,

@@ -212,6 +212,40 @@ test("model conversation run pushes agent_status_updated events and disconnectin
   assert.match(await frozenPromise, /RUN_ERROR/);
 });
 
+test("activity status changes push activity_updated with terminal result; ready carries in-flight activities", async (t) => {
+  const { service, headers } = await fixture(t, true);
+  const events = await connect(t, service, headers);
+  assert.deepEqual(events.ready.activities, []);
+
+  const run = post(service, headers, "/api/conversation/run", {
+    threadId: "local-main", runId: randomUUID(), expectedRevision: "empty",
+    message: { id: randomUUID(), content: "活动交办调研 Pi 生态圈并生成报告" },
+  }).then(drain);
+
+  // 登记开始时推一次 running；complete 只是声明（status 不变）不推；收尾 completed 推一次并带结果摘要。
+  const frames: Frame[] = [];
+  let completed: Frame | undefined;
+  while (!completed) {
+    const frame = await events.nextFrame();
+    if (frame.event === "activity_updated") frames.push(frame);
+    if (frame.event === "activity_updated" && frame.data.status === "completed") completed = frame;
+  }
+  const statuses = frames.map((frame) => frame.data.status);
+  assert.deepEqual(statuses, ["running", "completed"]);
+  assert.equal(frames[0]!.data.title, "调研 Pi 生态圈");
+  assert.equal(frames[0]!.data.threadId, "local-main");
+  assert.ok(frames[0]!.data.instanceId);
+  assert.equal(completed!.data.id, frames[0]!.data.id);
+  assert.equal(completed!.data.result, "交付成果：已完成调研总结报告");
+  assert.ok(completed!.data.finishedAt);
+
+  assert.match(await run, /已为您完成交办工作/);
+
+  // 终态活动不进入 ready：新连接的 ready.activities 应为空集合，历史走 GET /api/activities。
+  const second = await connect(t, service, headers);
+  assert.deepEqual(second.ready.activities, []);
+});
+
 test("live HTTP event connections end on service close and reject new subscriptions", async (t) => {
   const { service, headers } = await fixture(t);
   const server = serve({ fetch: service.app.fetch, hostname: "127.0.0.1", port: 0 });

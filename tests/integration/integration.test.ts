@@ -596,7 +596,7 @@ for (const tool of ["memory", "schedule"] as const) {
     false,
   );
     assert.equal(h.model.requests.length, 2, "one tool round and one failed final reply, without retries");
-    const file = join(h.dataDir, tool === "memory" ? "memory.json" : "jobs.json");
+    const file = join(h.dataDir, tool === "memory" ? join("profile", "memory.json") : "jobs.json");
     const stored = JSON.parse(await readFile(file, "utf8"));
     const items = tool === "memory" ? stored.memories : stored;
     assert.equal(items.length, 1);
@@ -803,7 +803,7 @@ for (const scenario of ["工具后失败", "工具后挂起", "工具后慢流"]
     const events = await running;
     assert.equal(events.at(-1)?.type, "RUN_ERROR");
     assert.equal(events.some((event) => event.type.startsWith("TOOL_CALL_")), false);
-    assert.equal(JSON.parse(await readFile(join(h.dataDir, "memory.json"), "utf8")).memories.length, 1);
+    assert.equal(JSON.parse(await readFile(join(h.dataDir, "profile", "memory.json"), "utf8")).memories.length, 1);
     const history = await h.getHistory();
     assert.ok(history.every((message) => message.role !== "tool"));
     await h.restart();
@@ -819,10 +819,10 @@ test("task details remain consistent through pause/resume, automatic completion 
   const h = await harness(5000, { runtime: { schedulerIntervalMs: 20 } });
   t.after(h.close);
   const job = await h.service().jobs.add("task details completion", false, new Date(Date.now() + 1500).toISOString());
-  const path = `/api/agent/tasks/${job.id}`;
+  const path = `/api/jobs/${job.id}`;
   const post = async (action: string) => {
     for (let attempt = 0; attempt < 100; attempt++) {
-      const response = await h.request(path + "/control", { action, target: "job" });
+      const response = await h.request(path + "/control", { action });
       const body = await response.json();
       if (response.status !== 409 || !String(body.error).startsWith("Wait for")) return { response, body };
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -834,21 +834,21 @@ test("task details remain consistent through pause/resume, automatic completion 
   assert.equal(h.model.requests.length, 0);
   assert.equal((await post("resume")).body.status, "scheduled");
   const cancelled = await h.service().jobs.add("task cancelled before due", false, new Date(Date.now() + 100).toISOString());
-  assert.equal((await h.request(`/api/agent/tasks/${cancelled.id}/control`, { action: "cancel", target: "job" })).status, 200);
+  assert.equal((await h.request(`/api/jobs/${cancelled.id}/control`, { action: "cancel" })).status, 200);
   let detail;
   const deadline = Date.now() + 7000;
   do {
     detail = await h.request(path).then((response) => response.json());
-    if (detail.task.status === "succeeded") break;
+    if (detail.job.status === "succeeded") break;
     assert.ok(Date.now() < deadline, "Scheduled task must complete");
     await new Promise((resolve) => setTimeout(resolve, 30));
   } while (true);
-  assert.match(detail.task.result, /JOB-RAN/);
+  assert.match(detail.job.lastResult, /JOB-RAN/);
   assert.equal(detail.events.at(-1).kind, "result");
-  assert.equal(detail.events.at(-1).detail, detail.task.result);
+  assert.equal(detail.events.at(-1).detail, detail.job.lastResult);
   assert.equal(h.model.requests.length, 1);
-  const list = await h.request("/api/agent").then((response) => response.json());
-  assert.deepEqual(list.tasks.find((task: { id: string }) => task.id === job.id), detail.task);
+  const list = await h.request("/api/jobs").then((response) => response.json());
+  assert.deepEqual(list.jobs.find((j: { id: string }) => j.id === job.id), detail.job);
   await h.restart();
   assert.deepEqual(await h.request(path).then((response) => response.json()), detail);
 });
@@ -863,19 +863,19 @@ test("task retry is a single explicit scheduler run, not an automatic model retr
   await h.service().jobs.markRun(job.id, "failed", "Stored prior failure");
   await new Promise((resolve) => setTimeout(resolve, 120));
   assert.equal(h.model.requests.length, 0);
-  const path = `/api/agent/tasks/${job.id}`;
+  const path = `/api/jobs/${job.id}`;
   const failure = await h.request(path).then((response) => response.json());
-  assert.equal(failure.task.status, "failed");
+  assert.equal(failure.job.status, "failed");
   assert.equal(failure.events.at(-1).kind, "error");
   let admitted = false;
   for (let attempt = 0; attempt < 100; attempt++) {
-    const response = await h.request(path + "/control", { action: "retry", target: "job" });
+    const response = await h.request(path + "/control", { action: "retry" });
     if (response.status === 200) { assert.equal((await response.json()).status, "queued"); admitted = true; break; }
     assert.equal(response.status, 409);
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   assert.ok(admitted);
-  assert.equal((await h.request(path + "/control", { action: "retry", target: "job" })).status, 409);
+  assert.equal((await h.request(path + "/control", { action: "retry" })).status, 409);
   const deadline = Date.now() + 5000;
   while ((await h.service().jobs.get(job.id))!.lastStatus !== "completed") {
     assert.ok(Date.now() < deadline);
@@ -883,7 +883,7 @@ test("task retry is a single explicit scheduler run, not an automatic model retr
   }
   await new Promise((resolve) => setTimeout(resolve, 120));
   assert.equal(h.model.requests.length, 1);
-  assert.equal((await h.request(path).then((response) => response.json())).task.status, "succeeded");
+  assert.equal((await h.request(path).then((response) => response.json())).job.status, "succeeded");
 });
 
 test("Web task detail and controls close the scheduled-job Activity loop", {
@@ -893,25 +893,83 @@ test("Web task detail and controls close the scheduled-job Activity loop", {
   t.after(h.close);
   const created = await h.events(input([user("提醒我喝水，测试 Activity 详情")], "task-detail-create"));
   assert.equal(created.at(-1)?.type, "RUN_FINISHED");
-  const snapshot = await h.request("/api/agent").then((response) => response.json());
-  const task = snapshot.tasks[0] as { id: string; status: string };
+  const jobsList = await h.request("/api/jobs").then((response) => response.json());
+  const task = jobsList.jobs[0] as { id: string; status: string };
   assert.ok(task?.id);
   assert.equal(task.status, "scheduled");
-  const detailResponse = await h.request(`/api/agent/tasks/${task.id}`);
+  const detailResponse = await h.request(`/api/jobs/${task.id}`);
   assert.equal(detailResponse.status, 200);
   const detail = await detailResponse.json();
-  assert.equal(detail.task.id, task.id);
-  assert.equal(detail.task.status, "scheduled");
+  assert.equal(detail.job.id, task.id);
+  assert.equal(detail.job.status, "scheduled");
   assert.ok(Array.isArray(detail.events));
-  assert.deepEqual(Object.keys(detail).sort(), ["events", "task"]);
-  assert.equal((await h.request("/api/agent/tasks/missing")).status, 404);
-  assert.equal((await h.request(`/api/agent/tasks/${task.id}/control`, { action: "invalid" })).status, 400);
-  const cancelled = await h.request(`/api/agent/tasks/${task.id}/control`, { action: "cancel", target: "job" });
+  assert.deepEqual(Object.keys(detail).sort(), ["events", "job"]);
+  assert.equal((await h.request("/api/jobs/missing")).status, 404);
+  assert.equal((await h.request(`/api/jobs/${task.id}/control`, { action: "invalid" })).status, 400);
+  const cancelled = await h.request(`/api/jobs/${task.id}/control`, { action: "cancel" });
   assert.equal(cancelled.status, 200);
-  const after = await h.request(`/api/agent/tasks/${task.id}`).then((response) => response.json());
-  assert.equal(after.task.status, "cancelled");
+  const after = await h.request(`/api/jobs/${task.id}`).then((response) => response.json());
+  assert.equal(after.job.status, "cancelled");
   assert.equal(after.events.at(-1).title, "Task cancelled");
-  assert.equal((await h.request(`/api/agent/tasks/${task.id}/control`, { action: "resume", target: "job" })).status, 409);
+  assert.equal((await h.request(`/api/jobs/${task.id}/control`, { action: "resume" })).status, 409);
+});
+
+test("Jobs REST API: list filtering, sorting, patch update and delete lifecycle", {
+  timeout: 30000,
+}, async (t) => {
+  const h = await harness();
+  t.after(h.close);
+
+  const job1 = await h.service().jobs.add("Task 1 for main", true, "08:00", "local-main");
+  const job2 = await h.service().jobs.add("Task 2 for project", true, "10:00", "project-a");
+
+  // 1. 查询全部
+  const allRes = await h.request("/api/jobs").then((r) => r.json());
+  assert.equal(allRes.jobs.length, 2);
+
+  // 2. 按空间过滤
+  const spaceFiltered = await h.request("/api/jobs?spaceId=project-a").then((r) => r.json());
+  assert.equal(spaceFiltered.jobs.length, 1);
+  assert.equal(spaceFiltered.jobs[0].id, job2.id);
+
+  // 3. 排序 (按 nextRunAt asc / desc)
+  const sortedAsc = await h.request("/api/jobs?sort=nextRunAt&order=asc").then((r) => r.json());
+  assert.equal(sortedAsc.jobs[0].id, job1.id);
+  assert.equal(sortedAsc.jobs[1].id, job2.id);
+
+  const sortedDesc = await h.request("/api/jobs?sort=nextRunAt&order=desc").then((r) => r.json());
+  assert.equal(sortedDesc.jobs[0].id, job2.id);
+  assert.equal(sortedDesc.jobs[1].id, job1.id);
+
+  // 4. PATCH 更新任务
+  const patchRes = await h.request(`/api/jobs/${job1.id}`, { prompt: "Task 1 updated", at: "12:00" }, "PATCH");
+  assert.equal(patchRes.status, 200);
+  const patchedJob = await patchRes.json();
+  assert.equal(patchedJob.prompt, "Task 1 updated");
+  assert.equal(patchedJob.at, "12:00");
+
+  // 5. 校验非法 PATCH 格式 (daily 为 true 时 at 必须为 HH:mm)
+  const badPatch = await h.request(`/api/jobs/${job1.id}`, { at: "not-a-time" }, "PATCH");
+  assert.equal(badPatch.status, 400);
+
+  // 6. DELETE 删除任务
+  const delRes = await h.request(`/api/jobs/${job1.id}`, undefined, "DELETE");
+  assert.equal(delRes.status, 200);
+  const delBody = await delRes.json();
+  assert.deepEqual(delBody, { ok: true, id: job1.id });
+
+  // 7. 再次获取已删除任务应 404
+  const getDeleted = await h.request(`/api/jobs/${job1.id}`);
+  assert.equal(getDeleted.status, 404);
+
+  // 8. 再次 DELETE 应 404
+  const delAgain = await h.request(`/api/jobs/${job1.id}`, undefined, "DELETE");
+  assert.equal(delAgain.status, 404);
+
+  // 9. 列表仅剩 job2
+  const remaining = await h.request("/api/jobs").then((r) => r.json());
+  assert.equal(remaining.jobs.length, 1);
+  assert.equal(remaining.jobs[0].id, job2.id);
 });
 
 test("file tools: read documents, deny outside paths, keep tool events and history stable", {
@@ -976,10 +1034,10 @@ test("identity files SOUL.md and USER.md are injected into the system prompt onl
   const h = await harness();
   t.after(h.close);
   await writeFile(
-    join(h.dataDir, "SOUL.md"),
+    join(h.dataDir, "profile", "SOUL.md"),
     "SOUL-MARKER 你是水豚博士，说话温和带一点幽默。\n",
   );
-  await writeFile(join(h.dataDir, "USER.md"), "USER-MARKER 用户偏好简洁中文回答。\n");
+  await writeFile(join(h.dataDir, "profile", "USER.md"), "USER-MARKER 用户偏好简洁中文回答。\n");
   const ev = await h.events(input([user("hello")], "identity-run"));
   assert.equal(ev.at(-1)?.type, "RUN_FINISHED");
   const system = String(h.model.requests.at(-1)!.messages[0]?.content);
@@ -990,7 +1048,7 @@ test("identity files SOUL.md and USER.md are injected into the system prompt onl
   assert.ok(!JSON.stringify(ev).includes("SOUL-MARKER"));
   assert.ok(!JSON.stringify(await h.getHistory()).includes("SOUL-MARKER"));
   // 修改文件后下一轮即生效（每轮重读）。
-  await writeFile(join(h.dataDir, "USER.md"), "USER-MARKER-2 改用英文回答。\n");
+  await writeFile(join(h.dataDir, "profile", "USER.md"), "USER-MARKER-2 改用英文回答。\n");
   await h.events(input([...(await h.getHistory()), user("again")], "identity-2"));
   assert.ok(
     String(h.model.requests.at(-1)!.messages[0]?.content).includes(
@@ -1037,25 +1095,29 @@ test("P3 memory: REST CRUD, chat tool write, prompt injection and identity setti
   t.after(h.close);
   // REST：新增 → 列表 → 编辑 → 忘记。
   const created = await h
-    .request("/api/agent/memories", {
+    .request("/api/memories", {
       text: "MEMORY-REST 用户每天早上跑步",
       source: "User added in Apps",
     })
     .then((x) => x.json());
   assert.ok(created.id);
   let agent = await h.request("/api/agent").then((x) => x.json());
-  assert.equal(agent.memories.length, 1);
-  assert.equal(agent.memories[0].text, "MEMORY-REST 用户每天早上跑步");
+  assert.equal(Object.hasOwn(agent, "memories"), false);
   assert.equal(agent.identity.name, "pi-muse");
+  let memoriesRes = await h.request("/api/memories").then((x) => x.json());
+  assert.equal(memoriesRes.memories.length, 1);
+  assert.equal(memoriesRes.memories[0].text, "MEMORY-REST 用户每天早上跑步");
+  const single = await h.request(`/api/memories/${created.id}`).then((x) => x.json());
+  assert.equal(single.text, "MEMORY-REST 用户每天早上跑步");
   const edited = await h
-    .request(`/api/agent/memories/${created.id}`, { text: "MEMORY-REST 用户改为晚上跑步" })
+    .request(`/api/memories/${created.id}`, { text: "MEMORY-REST 用户改为晚上跑步" }, "PATCH")
     .then((x) => x.json());
   assert.equal(edited.text, "MEMORY-REST 用户改为晚上跑步");
   assert.equal(
-    (await h.request(`/api/agent/memories/${created.id}/forget`, {})).status,
+    (await h.request(`/api/memories/${created.id}`, undefined, "DELETE")).status,
     200,
   );
-  assert.equal((await h.request("/api/agent/memories/missing/forget", {})).status, 404);
+  assert.equal((await h.request("/api/memories/missing", undefined, "DELETE")).status, 404);
   // 对话式：说"记住 X"→ memory 工具真实写入 memory.json。
   const ev = await h.events(input([user("记住我每周三健身")], "mem-run"));
   assert.equal(ev.at(-1)?.type, "RUN_FINISHED");
@@ -1063,9 +1125,9 @@ test("P3 memory: REST CRUD, chat tool write, prompt injection and identity setti
     toolCallName: string;
   };
   assert.equal(memStart.toolCallName, "memory");
-  agent = await h.request("/api/agent").then((x) => x.json());
-  assert.equal(agent.memories.length, 1);
-  assert.match(agent.memories[0].text, /每周三健身/);
+  memoriesRes = await h.request("/api/memories").then((x) => x.json());
+  assert.equal(memoriesRes.memories.length, 1);
+  assert.match(memoriesRes.memories[0].text, /每周三健身/);
   // 记忆是沉淀库：system prompt 只提示保存条数与 memory_search，不把正文塞进每轮上下文。
   await h.events(input([...(await h.getHistory()), user("检索记忆 健身")], "mem-inject"));
   const system = String(h.model.requests.at(-1)!.messages[0]?.content);
@@ -1073,9 +1135,9 @@ test("P3 memory: REST CRUD, chat tool write, prompt injection and identity setti
   assert.doesNotMatch(system, /每周三健身/);
   assert.ok(!JSON.stringify(await h.getHistory()).includes("Long-term memory"));
   // 按 id 精确忘掉后下一轮不再提示有记忆。
-  await h.events(input([...(await h.getHistory()), user(`忘掉 ${agent.memories[0].id}`)], "mem-forget"));
-  agent = await h.request("/api/agent").then((x) => x.json());
-  assert.equal(agent.memories.length, 0);
+  await h.events(input([...(await h.getHistory()), user(`忘掉 ${memoriesRes.memories[0].id}`)], "mem-forget"));
+  memoriesRes = await h.request("/api/memories").then((x) => x.json());
+  assert.equal(memoriesRes.memories.length, 0);
   await h.events(input([...(await h.getHistory()), user("again")], "mem-after"));
   assert.doesNotMatch(
     String(h.model.requests.at(-1)!.messages[0]?.content),
@@ -1099,7 +1161,9 @@ test("P3 memory: REST CRUD, chat tool write, prompt injection and identity setti
   await h.restart();
   agent = await h.request("/api/agent").then((x) => x.json());
   assert.equal(agent.identity.name, "小水豚");
-  assert.equal(agent.memories.length, 0);
+  assert.equal(Object.hasOwn(agent, "memories"), false);
+  memoriesRes = await h.request("/api/memories").then((x) => x.json());
+  assert.equal(memoriesRes.memories.length, 0);
 });
 
 test("P4 scheduled jobs: chat-created reminder fires into history; missed one-shot does not rerun after restart", {
@@ -1114,7 +1178,7 @@ test("P4 scheduled jobs: chat-created reminder fires into history; missed one-sh
     toolCallName: string;
   };
   assert.equal(schedStart.toolCallName, "schedule");
-  let tasks = (await h.request("/api/agent").then((x) => x.json())).tasks as {
+  let tasks = (await h.request("/api/jobs").then((x) => x.json())).jobs as {
     id: string;
     status: string;
     nextRunAt?: string;
@@ -1129,7 +1193,7 @@ test("P4 scheduled jobs: chat-created reminder fires into history; missed one-sh
   for (let i = 0; i < 22; i++) {
     await sleep(2000);
     history = await h.getHistory();
-    tasks = (await h.request("/api/agent").then((x) => x.json())).tasks as typeof tasks;
+    tasks = (await h.request("/api/jobs").then((x) => x.json())).jobs as typeof tasks;
     if (
       history.some((x) => x.role === "user" && String(x.content).includes("⏰")) &&
       history.some(
@@ -1148,7 +1212,7 @@ test("P4 scheduled jobs: chat-created reminder fires into history; missed one-sh
     ),
     "assistant result should land in history",
   );
-  tasks = (await h.request("/api/agent").then((x) => x.json())).tasks as typeof tasks;
+  tasks = (await h.request("/api/jobs").then((x) => x.json())).jobs as typeof tasks;
   assert.equal(tasks[0].status, "succeeded", "one-shot job completed and is no longer scheduled");
   // nanobot 启动时会重算任务：已过期的一次性任务不会在重启后补跑。
   await writeFile(
@@ -1198,9 +1262,9 @@ test("multi-thread: independent histories, thread listing and stop scoped per th
   assert.equal((await h.events(follow)).at(-1)?.type, "RUN_FINISHED");
   // thread 列表包含两个 id；非法 id 的请求被拒绝。
   const threads = await h
-    .request("/api/threads")
+    .request("/api/spaces")
     .then((x) => x.json())
-    .then((x) => (x.threads as { id: string }[]).map((y) => y.id).sort());
+    .then((x) => (x.spaces as { id: string }[]).map((y) => y.id).sort());
   assert.deepEqual(threads, ["local-main", "trip-2026"]);
   // 非法 threadId 现在在宿主预校验被 HTTP 400 拒绝（不进 SSE 流）。
   const evil = input([user("x")], "t-evil");
@@ -1211,9 +1275,9 @@ test("multi-thread: independent histories, thread listing and stop scoped per th
   );
   // 重启后两个 thread 历史仍独立。
   await h.restart();
-  const after = await h.request("/api/threads")
+  const after = await h.request("/api/spaces")
     .then((x) => x.json())
-    .then((x) => (x.threads as { id: string }[]).map((y) => y.id).sort());
+    .then((x) => (x.spaces as { id: string }[]).map((y) => y.id).sort());
   assert.deepEqual(after, ["local-main", "trip-2026"]);
   const mainAfter = await h.getHistory();
   assert.ok(!mainAfter.some((x) => String(x.content).includes("trip")));
@@ -1226,11 +1290,11 @@ test("thread lifecycle: protected local-main, DELETE cascades jobs/monitors and 
   t.after(h.close);
 
   // 1. DELETE local-main 返回 409
-  const deleteMain = await h.request("/api/threads/local-main", undefined, "DELETE");
+  const deleteMain = await h.request("/api/spaces/local-main", undefined, "DELETE");
   assert.equal(deleteMain.status, 409);
 
   // 2. DELETE 未存在的 thread 返回 404
-  const deleteNonExistent = await h.request("/api/threads/ghost-thread", undefined, "DELETE");
+  const deleteNonExistent = await h.request("/api/spaces/ghost-thread", undefined, "DELETE");
   assert.equal(deleteNonExistent.status, 404);
 
   // 3. 创建一个 thread 并关联 job、monitor
@@ -1250,8 +1314,8 @@ test("thread lifecycle: protected local-main, DELETE cascades jobs/monitors and 
   assert.ok((await h.service().jobs.list()).some((j) => j.originThreadId === threadId));
   assert.ok((await h.service().monitors.list()).some((m) => m.originThreadId === threadId));
 
-  // 4. 调用 DELETE /api/threads/:threadId
-  const res = await h.request(`/api/threads/${threadId}`, undefined, "DELETE");
+  // 4. 调用 DELETE /api/spaces/:spaceId
+  const res = await h.request(`/api/spaces/${threadId}`, undefined, "DELETE");
   assert.equal(res.status, 200);
   const body = (await res.json()) as { ok: boolean; removed: { jobs: number; monitors: number } };
   assert.deepEqual(body, { ok: true, removed: { jobs: 1, monitors: 1 } });
@@ -1261,12 +1325,12 @@ test("thread lifecycle: protected local-main, DELETE cascades jobs/monitors and 
   assert.ok(!(await h.service().monitors.list()).some((m) => m.originThreadId === threadId));
 
   // 6. 校验 thread 目录和列表
-  const threads = await h.request("/api/threads").then((x) => x.json()).then((x) => (x.threads as { id: string }[]).map((y) => y.id));
+  const threads = await h.request("/api/spaces").then((x) => x.json()).then((x) => (x.spaces as { id: string }[]).map((y) => y.id));
   assert.ok(!threads.includes(threadId));
   assert.ok(threads.includes("local-main"));
 
   // 再次 DELETE 返回 404
-  const res2 = await h.request(`/api/threads/${threadId}`, undefined, "DELETE");
+  const res2 = await h.request(`/api/spaces/${threadId}`, undefined, "DELETE");
   assert.equal(res2.status, 404);
 });
 
@@ -1277,7 +1341,7 @@ test("session skills: GET/PUT overrides, validation and thread isolation", {
   t.after(h.close);
 
   // 1. GET 默认技能列表（所有内置技能默认开启）
-  const res1 = await h.request("/api/threads/thread-skills-test/skills");
+  const res1 = await h.request("/api/spaces/thread-skills-test/skills");
   assert.equal(res1.status, 200);
   const data1 = (await res1.json()) as { skills: { name: string; defaultEnabled: boolean; enabled: boolean }[] };
   const cronSkill = data1.skills.find((s) => s.name === "cron");
@@ -1286,7 +1350,7 @@ test("session skills: GET/PUT overrides, validation and thread isolation", {
   assert.equal(cronSkill.enabled, true);
 
   // 2. PUT 覆盖：关闭 cron 和 web
-  const res2 = await h.request("/api/threads/thread-skills-test/skills", {
+  const res2 = await h.request("/api/spaces/thread-skills-test/skills", {
     overrides: { cron: false, web: false },
   }, "PUT");
   assert.equal(res2.status, 200);
@@ -1296,18 +1360,18 @@ test("session skills: GET/PUT overrides, validation and thread isolation", {
   assert.equal(data2.skills.find((s) => s.name === "memory")?.enabled, true);
 
   // 3. 验证另外一个 thread-other 不受影响
-  const res3 = await h.request("/api/threads/thread-other/skills");
+  const res3 = await h.request("/api/spaces/thread-other/skills");
   const data3 = (await res3.json()) as { skills: { name: string; enabled: boolean }[] };
   assert.equal(data3.skills.find((s) => s.name === "cron")?.enabled, true);
 
   // 4. PUT 未知技能名返回 400
-  const res4 = await h.request("/api/threads/thread-skills-test/skills", {
+  const res4 = await h.request("/api/spaces/thread-skills-test/skills", {
     overrides: { non_existent_skill: true },
   }, "PUT");
   assert.equal(res4.status, 400);
 
   // 5. 非法 threadId 返回 400
-  const res5 = await h.request("/api/threads/@invalid/skills");
+  const res5 = await h.request("/api/spaces/@invalid/skills");
   assert.equal(res5.status, 400);
 
 });
@@ -1319,7 +1383,7 @@ test("session skills: tool trimming in model call", {
   t.after(h.close);
 
   // 1. 在 thread-no-cron 中关闭 cron 和 web
-  await h.request("/api/threads/thread-no-cron/skills", {
+  await h.request("/api/spaces/thread-no-cron/skills", {
     overrides: { cron: false, web: false },
   }, "PUT");
 
@@ -1408,7 +1472,7 @@ export default function (api) {
   assert.notEqual(readTool.description, "Fake read tool", "Builtin read must not be overwritten by extension");
 
   // 2. 关闭 custom-ping 技能后，ping_custom 工具应该消失
-  await h.request("/api/threads/custom-ext-thread/skills", {
+  await h.request("/api/spaces/custom-ext-thread/skills", {
     overrides: { "custom-ping": false },
   }, "PUT");
 
@@ -1430,12 +1494,12 @@ test("thread instructions: GET/PUT REST endpoints and prompt injection per threa
   t.after(h.close);
 
   // 1. GET 初始为空
-  const res1 = await h.request("/api/threads/email-thread/instructions");
+  const res1 = await h.request("/api/spaces/email-thread/instructions");
   assert.equal(res1.status, 200);
   assert.deepEqual(await res1.json(), { instructions: "" });
 
   // 2. PUT 设置会话专属规则
-  const res2 = await h.request("/api/threads/email-thread/instructions", {
+  const res2 = await h.request("/api/spaces/email-thread/instructions", {
     instructions: "RULE: Every email reply must sign as Chief Assistant.",
   }, "PUT");
   assert.equal(res2.status, 200);
@@ -1478,7 +1542,7 @@ test("thread instructions: conversation can modify its own instructions via inst
   assert.equal(toolCall?.toolCallName, "instructions");
 
   // 2. 检查会话 INSTRUCTIONS.md 文件与 GET 接口
-  const res = await h.request("/api/threads/chat-inst-thread/instructions");
+  const res = await h.request("/api/spaces/chat-inst-thread/instructions");
   assert.equal(res.status, 200);
   const data = (await res.json()) as { instructions: string };
   assert.ok(data.instructions.includes("RULE-FROM-CHAT: Always be polite."));
@@ -1533,7 +1597,7 @@ test("thread workspace: physical isolation per thread, shared workspace access a
   assert.ok(!existsSync(join(codeDir, "private-note.txt")));
 
   // 4. 删除 emailThread 会话，其专属工作目录被销毁，而 shared 保持
-  const delRes = await h.request(`/api/threads/${emailThread}`, undefined, "DELETE");
+  const delRes = await h.request(`/api/spaces/${emailThread}`, undefined, "DELETE");
   assert.equal(delRes.status, 200);
   assert.ok(!existsSync(emailDir), "email workspace dir must be removed on thread deletion");
   assert.ok(existsSync(sharedDir), "shared workspace dir must remain after thread deletion");
@@ -1601,7 +1665,9 @@ test("subagent: parent delegates to an isolated child and receives its result wi
   assert.ok(ev.some((event) => event.type === "TOOL_CALL_START" && event.toolCallName === "subagent"));
   const snapshot = await h.request("/api/agent").then((response) => response.json());
   assert.equal(Object.hasOwn(snapshot, "worker"), false);
-  assert.ok(snapshot.tasks.every((task: { kind: string }) => task.kind === "job"));
+  assert.equal(Object.hasOwn(snapshot, "tasks"), false);
+  const jobsRes = await h.request("/api/jobs").then((response) => response.json());
+  assert.ok(jobsRes.jobs.every((j: { kind: string }) => j.kind === "job"));
   const children = h.model.requests.filter((request) => request.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("Task: Reply SUBAGENT-MARKER")));
   assert.equal(children.length, 1);
   const childTools = (children[0].tools as { function: { name: string } }[]).map((tool) => tool.function.name);
@@ -1621,7 +1687,7 @@ test("subagent: permissions inherit parent ceilings and shared reads preserve pr
   t.after(h.close);
   await mkdir(join(h.dataDir, "workspace", "shared"), { recursive: true });
   await writeFile(join(h.dataDir, "workspace", "shared", "subagent-test.md"), "SUBAGENT-SHARED-CONTENT");
-  await h.request("/api/threads/local-main/skills", { overrides: { memory: false, write: false, web: false } }, "PUT");
+  await h.request("/api/spaces/local-main/skills", { overrides: { memory: false, write: false, web: false } }, "PUT");
   const events = await h.events(input([user("请让只读子代理读取共享文件")], "child-read"));
   assert.equal(events.at(-1)?.type, "RUN_FINISHED");
   const children = h.model.requests.filter((request) => request.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("Task: ")));
@@ -1693,8 +1759,10 @@ test("goal domain: chat tool create, REST CRUD, milestone toggle and prompt inje
   };
   assert.equal(goalStart.toolCallName, "goal");
   let agent = await h.request("/api/agent").then((x) => x.json());
-  assert.equal(agent.goals.length, 1);
-  const goal = agent.goals[0] as {
+  assert.equal(Object.hasOwn(agent, "goals"), false);
+  let goalsList = await h.request("/api/goals").then((x) => x.json());
+  assert.equal(goalsList.goals.length, 1);
+  const goal = goalsList.goals[0] as {
     id: string;
     status: string;
     milestones: { id: string; title: string; done: boolean }[];
@@ -1708,32 +1776,32 @@ test("goal domain: chat tool create, REST CRUD, milestone toggle and prompt inje
   assert.ok(system.includes("半马"));
   assert.ok(system.includes("跑量到 30km/周"));
   // REST：勾选里程碑 → 进度变化；completed 勾掉全部且不再注入。
-  await h.request(`/api/agent/goals/${goal.id}/milestones/${goal.milestones[0]!.id}/toggle`, {});
-  agent = await h.request("/api/agent").then((x) => x.json());
-  assert.equal(agent.goals[0].milestones[0].done, true);
-  await h.request(`/api/agent/goals/${goal.id}/status`, { status: "completed" });
-  agent = await h.request("/api/agent").then((x) => x.json());
-  assert.equal(agent.goals[0].status, "completed");
-  assert.ok(agent.goals[0].milestones.every((m: { done: boolean }) => m.done));
+  await h.request(`/api/goals/${goal.id}/milestones/${goal.milestones[0]!.id}/toggle`, {});
+  let currentGoal = await h.request(`/api/goals/${goal.id}`).then((x) => x.json());
+  assert.equal(currentGoal.milestones[0].done, true);
+  await h.request(`/api/goals/${goal.id}`, { status: "completed" }, "PATCH");
+  currentGoal = await h.request(`/api/goals/${goal.id}`).then((x) => x.json());
+  assert.equal(currentGoal.status, "completed");
+  assert.ok(currentGoal.milestones.every((m: { done: boolean }) => m.done));
   await h.events(input([...(await h.getHistory()), user("again")], "goal-after"));
   assert.ok(!String(h.model.requests.at(-1)!.messages[0]?.content).includes("active goals"));
   // 编辑 + 删除。
-  const edited = await h.request(`/api/agent/goals/${goal.id}`, { title: "GOAL-TEST 改为全马" });
+  const edited = await h.request(`/api/goals/${goal.id}`, { title: "GOAL-TEST 改为全马" }, "PATCH");
   assert.equal(edited.status, 200);
   assert.equal(
-    (await h.request("/api/agent/goals/missing/remove", {})).status,
+    (await h.request("/api/goals/missing", undefined, "DELETE")).status,
     404,
   );
   assert.equal(
-    (await h.request(`/api/agent/goals/${goal.id}/remove`, {})).status,
+    (await h.request(`/api/goals/${goal.id}`, undefined, "DELETE")).status,
     200,
   );
-  agent = await h.request("/api/agent").then((x) => x.json());
-  assert.equal(agent.goals.length, 0);
+  goalsList = await h.request("/api/goals").then((x) => x.json());
+  assert.equal(goalsList.goals.length, 0);
   // 重启后 goals 持久。
   await h.restart();
-  agent = await h.request("/api/agent").then((x) => x.json());
-  assert.equal(agent.goals.length, 0);
+  goalsList = await h.request("/api/goals").then((x) => x.json());
+  assert.equal(goalsList.goals.length, 0);
 });
 
 test("write approval gate: approve writes the file, deny and boundary paths behave honestly", {
@@ -1831,7 +1899,7 @@ test("monitors: full loop with real fetch — baseline, change notify, keyword h
 
   // change：首检建基线（真实抓取本地页）→ 内容变化 → 📡 通知主会话。
   const change = await h
-    .request("/api/agent/monitors", { url: pageUrl, condition: "change", title: "页面变化" })
+    .request("/api/monitors", { url: pageUrl, condition: "change", title: "页面变化" })
     .then((x) => x.json());
   let notified = false;
   for (let i = 0; i < 12 && !notified; i++) {
@@ -1841,9 +1909,7 @@ test("monitors: full loop with real fetch — baseline, change notify, keyword h
     );
   }
   assert.ok(!notified, "baseline check must not notify");
-  const baseline = (await h.request("/api/agent").then((x) => x.json())).monitors.find(
-    (m: { id: string }) => m.id === change.id,
-  ) as { checks: number; error?: string };
+  const baseline = (await h.request(`/api/monitors/${change.id}`).then((x) => x.json())) as { checks: number; error?: string };
   assert.ok(baseline.checks >= 1);
   assert.ok(!baseline.error, "local fetch should succeed");
   pageBody = "MONITOR-PAGE version-2 CHANGED";
@@ -1858,9 +1924,9 @@ test("monitors: full loop with real fetch — baseline, change notify, keyword h
   assert.ok(notified, "change should notify main thread with 📡");
 
   // contains：首查未命中建状态 → 命中 → 通知一次；持续命中不重复。
-  await h.request("/api/agent/monitors", {
+  const containsRes = await h.request("/api/monitors", {
     url: pageUrl, condition: "contains", value: "CHANGED", title: "关键词监控",
-  });
+  }).then((x) => x.json());
   let keywordHit = false;
   for (let i = 0; i < 14 && !keywordHit; i++) {
     await sleep(1000);
@@ -1880,13 +1946,33 @@ test("monitors: full loop with real fetch — baseline, change notify, keyword h
 
   // 控制状态机。
   assert.equal(
-    (await h.request(`/api/agent/monitors/${change.id}/control`, { action: "pause" })).status,
+    (await h.request(`/api/monitors/${change.id}/control`, { action: "pause" })).status,
     200,
   );
   assert.equal(
-    (await h.request(`/api/agent/monitors/${change.id}/control`, { action: "pause" })).status,
+    (await h.request(`/api/monitors/${change.id}/control`, { action: "pause" })).status,
     409,
   );
+
+  // 独立列表查询与快照解耦验证
+  const snapshotRes = await h.request("/api/agent").then((x) => x.json());
+  assert.equal(Object.hasOwn(snapshotRes, "monitors"), false);
+
+  const listRes = await h.request("/api/monitors").then((x) => x.json());
+  assert.ok(Array.isArray(listRes.monitors));
+  assert.ok(listRes.monitors.length >= 2);
+
+  // PATCH 修改配置并重置基线
+  const patched = await h.request(`/api/monitors/${change.id}`, { title: "修改后的标题", url: pageUrl + "/changed" }, "PATCH").then((x) => x.json());
+  assert.equal(patched.title, "修改后的标题");
+  assert.equal(patched.lastFingerprint, undefined);
+
+  // DELETE 删除监控项与 404
+  const deleteRes = await h.request(`/api/monitors/${containsRes.id}`, undefined, "DELETE");
+  assert.equal(deleteRes.status, 200);
+  assert.deepEqual(await deleteRes.json(), { ok: true, id: containsRes.id });
+  assert.equal((await h.request(`/api/monitors/${containsRes.id}`)).status, 404);
+  assert.equal((await h.request(`/api/monitors/${containsRes.id}`, undefined, "DELETE")).status, 404);
 });
 
 

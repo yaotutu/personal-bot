@@ -1,37 +1,23 @@
 import { Hono } from "hono";
 import type { HttpDependencies } from "../../bootstrap/types.js";
-import { presentJob } from "../job-presenters.js";
 import type { AgentSnapshotDto } from "../contracts/responses.js";
 
 /**
- * GET /api/agent：工作台业务事实快照；完整审批载荷由专用查询提供。
+ * GET /api/agent：工作台首屏身份快照。
  *
- * 后台任务域已下线：tasks 字段仅展示定时任务；不再提供 worker 忙闲状态。
+ * 定时任务已迁移至独立 /api/jobs 接口，网页监控已迁移至独立 /api/monitors 接口，
+ * 长期记忆已迁移至独立 /api/memories 接口，长期目标已迁移至独立 /api/goals 接口，
+ * 快照中不再包含 tasks、monitors、memories 与 goals 字段。
  */
 export const createSnapshotRoute = (
-  dependencies: Pick<HttpDependencies, "memory" | "identity" | "jobs" | "goals" | "monitors">,
+  dependencies: Pick<HttpDependencies, "identity">,
 ) => {
-  const { memory, identity, jobs, goals, monitors } = dependencies;
+  const { identity } = dependencies;
   const app = new Hono();
   app.get("/api/agent", async (c) => {
-    // 只投影定时任务，按 updatedAt 倒序；后台任务数据保留文件但不读取。
-    const [memories, identityState, scheduledJobs, goalList, monitorList] =
-      await Promise.all([
-        memory.list(),
-        identity.get(),
-        jobs.list(),
-        goals.list(),
-        monitors.list(),
-      ]);
+    const identityState = await identity.get();
     const snapshot: AgentSnapshotDto = {
-      tasks: scheduledJobs.map(presentJob).sort((a, b) =>
-        b.updatedAt.localeCompare(a.updatedAt),
-      ),
-      memories,
       identity: identityState,
-      goals: goalList,
-      // 待投递记录属于调度器内部生命周期；响应只展示监控事实，不暴露内部补通知状态。
-      monitors: monitorList.map(({ pendingNotification: _pendingNotification, ...monitor }) => monitor),
     };
     return c.json(snapshot);
   });

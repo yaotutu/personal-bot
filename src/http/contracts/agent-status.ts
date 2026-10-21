@@ -6,7 +6,7 @@ import { z } from "zod";
  * 边界：
  * - 这是服务端对真实执行事件的展示投影，不拥有执行锁，不写 Activity 历史，也不允许
  *   客户端写入；运行状态只用于展示当前/最终执行进度。
- * - 同一 (threadId, runId) 的每次变化推进 revision；客户端只能按 revision 合并，
+ * - 同一 (spaceId, runId) 的每次变化推进 revision；客户端只能按 revision 合并，
  *   不能按到达时间或 serverTime 排序。
  * - 普通 chat 可能没有登记 Activity，此时 activityId 为 null；这不是错误。
  * - 工具名属于敏感展示信息，受控/隐藏工具必须输出 null，由 label 承担展示文案。
@@ -59,12 +59,12 @@ type _SubagentPhasesCovered = AssertNever<
 
 const isoTime = z.iso.datetime().describe("ISO 8601 UTC 时间（服务端写入，固定 Z 后缀）");
 
-const threadIdSchema = z
+const spaceIdSchema = z
   .string()
   .min(1)
   .max(64)
   .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/)
-  .describe("会话标识：字母或数字开头，可含 _ -，最长 64；与聊天接口的 threadId 同一字符集");
+  .describe("空间标识：字母或数字开头，可含 _ -，最长 64；与聊天接口的 spaceId 同一字符集");
 
 const runIdSchema = z.string().min(1).max(200).describe("运行标识；同一会话内唯一，最长 200");
 
@@ -127,7 +127,8 @@ export const agentStatus = z
       .min(1)
       .nullable()
       .describe("关联的 Activity ID；普通 chat 未登记活动时为 null，不要求每轮都有活动"),
-    threadId: threadIdSchema.describe("所属会话"),
+    spaceId: spaceIdSchema.describe("所属空间"),
+    threadId: spaceIdSchema.optional().describe("兼容字段：等同于 spaceId"),
     runId: runIdSchema,
     revision: z
       .number()
@@ -184,7 +185,7 @@ export const agentStatus = z
   })
   .describe(
     "单个运行的展示状态快照。由真实执行事件投影得到，不代表 Activity 的完成状态，" +
-      "也不作为执行锁或历史存储。同一 (threadId, runId) 按 revision 合并。",
+      "也不作为执行锁或历史存储。同一 (spaceId, runId) 按 revision 合并。",
   );
 
 // ---------------------------------------------------------------------------
@@ -192,9 +193,11 @@ export const agentStatus = z
 // ---------------------------------------------------------------------------
 export const agentStatusQuery = z
   .strictObject({
-    threadId: threadIdSchema.describe("要查询的运行所属会话；必填"),
+    spaceId: spaceIdSchema.optional().describe("要查询的运行所属空间"),
+    threadId: spaceIdSchema.optional().describe("兼容字段：等同于 spaceId"),
     runId: runIdSchema.describe("要查询的运行 ID；必填"),
   })
+  .refine((data) => Boolean(data.spaceId || data.threadId), "spaceId or threadId required")
   .describe("GET /api/agent/status 查询参数；两个字段都必填，不接受未声明参数。");
 
 /**

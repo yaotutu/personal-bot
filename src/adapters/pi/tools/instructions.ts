@@ -7,7 +7,7 @@ import { readThreadInstructions, writeThreadInstructions } from "../../storage/t
  * 会话专属指令工具：允许助手在对话中读取或修改当前会话的指令/规则（INSTRUCTIONS.md）。
  * 修改后在下一轮对话开始时自动注入 System Prompt 生效。
  */
-export const instructionsTool = (layout: DataLayout, threadId = "local-main") =>
+export const instructionsTool = (layout: DataLayout, spaceId = "local-main") =>
   defineTool({
     name: "instructions",
     label: "Conversation instructions",
@@ -22,7 +22,7 @@ export const instructionsTool = (layout: DataLayout, threadId = "local-main") =>
       ),
     }, { additionalProperties: false }),
     async execute(_id, params) {
-      const file = threadInstructionsFile(layout, threadId);
+      const file = threadInstructionsFile(layout, spaceId);
       if (params.action === "get") {
         const text = await readThreadInstructions(file);
         return {

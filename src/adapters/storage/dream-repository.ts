@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { isThreadId } from "../../features/conversation/validate-input.js";
+import { isSpaceId } from "../../features/conversation/validate-input.js";
 import {
   defaultDreamState,
   type DreamRepository,
@@ -18,13 +18,13 @@ import { writeJsonDocument } from "./json-document.js";
 import { readProfileFile, writeProfileFile } from "./profile-files.js";
 import { readThreadInstructions, writeThreadInstructions } from "./thread-instructions.js";
 
-const readState = async (file: string, threadId: string): Promise<DreamState> => {
+const readState = async (file: string, spaceId: string): Promise<DreamState> => {
   let source: string;
   try {
     source = await readFile(file, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return defaultDreamState(threadId);
+      return defaultDreamState(spaceId);
     }
     throw error;
   }
@@ -40,36 +40,36 @@ const readState = async (file: string, threadId: string): Promise<DreamState> =>
 export type DreamStorage = DreamRepository & {
   readGlobalPrompt: () => Promise<string>;
   writeGlobalPrompt: (content: string) => Promise<void>;
-  readThreadPrompt: (threadId: string) => Promise<string>;
-  writeThreadPrompt: (threadId: string, content: string) => Promise<void>;
+  readSpacePrompt: (spaceId: string) => Promise<string>;
+  writeSpacePrompt: (spaceId: string, content: string) => Promise<void>;
   /** 启动时校验所有已有会话的 dream.json，并把崩溃遗留的 running 改为 failed。 */
   reconcileOnStart: () => Promise<void>;
 };
 
 export const createDreamRepository = (layout: DataLayout): DreamStorage => {
   const serialized = createSerializedWriter();
-  const fileFor = (threadId: string) => {
-    if (!isThreadId(threadId)) throw new Error("Invalid threadId");
-    return threadDreamFile(layout, threadId);
+  const fileFor = (spaceId: string) => {
+    if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId");
+    return threadDreamFile(layout, spaceId);
   };
-  const promptFor = (threadId: string) => {
-    if (!isThreadId(threadId)) throw new Error("Invalid threadId");
-    return threadDreamPromptFile(layout, threadId);
+  const promptFor = (spaceId: string) => {
+    if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId");
+    return threadDreamPromptFile(layout, spaceId);
   };
 
-  const read = (threadId: string) => serialized(() => readState(fileFor(threadId), threadId));
+  const read = (spaceId: string) => serialized(() => readState(fileFor(spaceId), spaceId));
   const update = <T>(
-    threadId: string,
+    spaceId: string,
     change: (state: DreamState) => { state?: DreamState; result: T },
     options?: { allowCreate?: boolean },
   ): Promise<T> =>
     serialized(async () => {
-      const file = fileFor(threadId);
+      const file = fileFor(spaceId);
       const dir = dirname(file);
-      if (options?.allowCreate === false && threadId !== "local-main" && !existsSync(dir)) {
-        return change(defaultDreamState(threadId)).result;
+      if (options?.allowCreate === false && spaceId !== "local-main" && !existsSync(dir)) {
+        return change(defaultDreamState(spaceId)).result;
       }
-      const state = await readState(file, threadId);
+      const state = await readState(file, spaceId);
       const changed = change(state);
       if (changed.state) {
         const validated = readDreamDocument(changed.state);
@@ -86,9 +86,9 @@ export const createDreamRepository = (layout: DataLayout): DreamStorage => {
     writeGlobalPrompt: async (content) => {
       await writeProfileFile(layout.dreamFile, content);
     },
-    readThreadPrompt: (threadId) => readThreadInstructions(promptFor(threadId)),
-    writeThreadPrompt: async (threadId, content) => {
-      await writeThreadInstructions(promptFor(threadId), content);
+    readSpacePrompt: (spaceId) => readThreadInstructions(promptFor(spaceId)),
+    writeSpacePrompt: async (spaceId, content) => {
+      await writeThreadInstructions(promptFor(spaceId), content);
     },
     reconcileOnStart: async () => {
       let entries;
@@ -99,7 +99,7 @@ export const createDreamRepository = (layout: DataLayout): DreamStorage => {
         throw error;
       }
       for (const entry of entries) {
-        if (!entry.isDirectory() || entry.name.startsWith("task-") || !isThreadId(entry.name)) {
+        if (!entry.isDirectory() || entry.name.startsWith("task-") || !isSpaceId(entry.name)) {
           continue;
         }
         await update(entry.name, (state) => {

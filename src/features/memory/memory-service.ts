@@ -23,6 +23,8 @@ export const createMemoryService = (repository: MemoryRepository) => {
 
   return {
     list: async () => (await repository.read()).memories,
+    get: async (id: string): Promise<MemoryItem | undefined> =>
+      (await repository.read()).memories.find((item) => item.id === id),
     /** 按关键词子串（忽略大小写）检索，最近更新优先；记忆不再全量进入每轮上下文，靠它按需取用。 */
     search: async (query: string, limit = MEMORY_SEARCH_MAX): Promise<MemoryItem[]> => {
       const needle = query.trim().toLowerCase();

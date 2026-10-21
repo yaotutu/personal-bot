@@ -263,16 +263,24 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
         const response = await authorized("/api/agent");
         assert.equal(response.status, 200);
         const agent = await response.json();
-        [
-          "tasks",
-          "goals",
-          "monitors",
-          "memories",
-        ].forEach((name) => {
-          assert.deepEqual(agent[name], []);
-        });
         assert.equal(agent.identity.name, "pi-muse");
+        assert.equal(Object.hasOwn(agent, "goals"), false);
         assert.equal(Object.hasOwn(agent, "worker"), false);
+        assert.equal(Object.hasOwn(agent, "tasks"), false);
+        assert.equal(Object.hasOwn(agent, "monitors"), false);
+        assert.equal(Object.hasOwn(agent, "memories"), false);
+        const goalsResponse = await authorized("/api/goals");
+        assert.equal(goalsResponse.status, 200);
+        assert.deepEqual(await goalsResponse.json(), { goals: [] });
+        const memoriesResponse = await authorized("/api/memories");
+        assert.equal(memoriesResponse.status, 200);
+        assert.deepEqual(await memoriesResponse.json(), { memories: [] });
+        const monitorsResponse = await authorized("/api/monitors");
+        assert.equal(monitorsResponse.status, 200);
+        assert.deepEqual(await monitorsResponse.json(), { monitors: [] });
+        const jobsResponse = await authorized("/api/jobs");
+        assert.equal(jobsResponse.status, 200);
+        assert.deepEqual(await jobsResponse.json(), { jobs: [] });
         const history = await authorized("/api/conversation");
         assert.equal(history.status, 200);
         assert.deepEqual(await history.json(), { messages: [], revision: "empty" });
@@ -285,7 +293,10 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
         for (const [path, method] of [
           ["/api/files", "GET"],
           ["/api/notifications", "GET"],
-          ["/api/monitors", "GET"],
+          ["/api/agent/monitors", "POST"],
+          ["/api/agent/memories", "GET"],
+          ["/api/agent/memories", "POST"],
+          ["/api/agent/goals", "POST"],
           ["/api/copilotkit/threads", "GET"],
           ["/api/copilotkit/agent/default/connect", "POST"],
         ] as const) {

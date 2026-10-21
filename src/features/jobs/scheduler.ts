@@ -19,7 +19,7 @@ export const createScheduler = (
   config: { schedulerIntervalMs: number },
   jobs: Pick<JobService, "list" | "markRun">,
   conversation: Pick<Conversation, "isRunning" | "trigger">,
-  forThread?: (threadId: string) => Promise<Pick<Conversation, "isRunning" | "trigger"> | undefined>,
+  forSpace?: (spaceId: string) => Promise<Pick<Conversation, "isRunning" | "trigger"> | undefined>,
 ): Scheduler => {
   let timer: NodeJS.Timeout | undefined;
   let closed = false;
@@ -56,7 +56,7 @@ export const createScheduler = (
         await savePendingOutcome();
         return;
       }
-      if (!forThread && conversation.isRunning()) return;
+      if (!forSpace && conversation.isRunning()) return;
       const due = (await jobs.list()).filter(
         (job) => job.enabled && Date.now() >= Date.parse(job.nextRunAt),
       );
@@ -75,14 +75,16 @@ export const createScheduler = (
         )
           continue;
 
-        const targetConversation = current.originThreadId && forThread
-          ? await forThread(current.originThreadId)
+        const targetSpaceId = current.originSpaceId ?? current.originThreadId;
+        const targetConversation = targetSpaceId && forSpace
+          ? await forSpace(targetSpaceId)
           : conversation;
 
         if (!targetConversation || closed) continue;
-        if (forThread) {
+        if (forSpace) {
           const latest = (await jobs.list()).find((item) => item.id === current.id);
-          if (closed || !latest?.enabled || latest.originThreadId !== current.originThreadId ||
+          const latestSpace = latest?.originSpaceId ?? latest?.originThreadId;
+          if (closed || !latest?.enabled || latestSpace !== targetSpaceId ||
             latest.nextRunAt !== current.nextRunAt) continue;
         }
         if (targetConversation.isRunning()) continue;
@@ -90,7 +92,7 @@ export const createScheduler = (
         const outcome = await targetConversation.trigger(
           `⏰ [定时任务] ${current.prompt}`,
           `job-${current.id}-${Date.now()}`,
-          { jobId: current.id, threadId: current.originThreadId },
+          { jobId: current.id, spaceId: targetSpaceId, threadId: targetSpaceId },
         );
         // busy 表示尚未开始执行，不是模型失败；不消耗一次性任务，留到
         // 下次普通扫描。真正已执行的失败仍按原规则 markRun，不自动重跑。

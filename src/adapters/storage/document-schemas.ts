@@ -126,11 +126,11 @@ export const readActionsDocument = (
       item.revision >= 1 &&
       actionTime(item.createdAt) &&
       actionTime(item.expiresAt) &&
-      nullableContext(item.threadId) &&
+      (Object.hasOwn(item, "spaceId") ? nullableContext(item.spaceId) : (Object.hasOwn(item, "threadId") && nullableContext(item.threadId))) &&
       nullableContext(item.runId) &&
       nullableContext(item.toolCallId) &&
       nullableContext(item.subagentId) &&
-      nullableContext(item.workspaceThreadId) &&
+      (Object.hasOwn(item, "workspaceSpaceId") ? nullableContext(item.workspaceSpaceId) : (Object.hasOwn(item, "workspaceThreadId") && nullableContext(item.workspaceThreadId))) &&
       nullableContext(item.activityId) &&
       isStateConsistent(item) && validExecution(item),
   );

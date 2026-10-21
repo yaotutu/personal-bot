@@ -5,12 +5,19 @@ export const presentApproval = (action: PendingAction) => {
   const path = action.payload.path;
   const shared = path === "shared" || path.startsWith("shared/");
   const { payload: _payload, ...summary } = action;
+  const spaceId = action.spaceId ?? action.threadId ?? null;
+  const workspaceSpaceId = action.workspaceSpaceId ?? action.workspaceThreadId ?? null;
   return {
     ...summary,
+    spaceId,
+    threadId: spaceId,
+    workspaceSpaceId,
+    workspaceThreadId: workspaceSpaceId,
     execution: action.execution ?? null,
     preview: {
-      scope: shared ? "shared" as const : "thread" as const,
-      ownerThreadId: shared ? null : action.workspaceThreadId,
+      scope: shared ? ("shared" as const) : ("space" as const),
+      ownerSpaceId: shared ? null : workspaceSpaceId,
+      ownerThreadId: shared ? null : workspaceSpaceId,
       path,
       before: action.payload.originalContent,
       after: action.payload.content,
@@ -18,11 +25,26 @@ export const presentApproval = (action: PendingAction) => {
     },
   };
 };
-export const presentApprovalResolution = (action: PendingAction) => ({
-  id: action.id, revision: action.revision, threadId: action.threadId, runId: action.runId,
-  toolCallId: action.toolCallId, subagentId: action.subagentId,
-  workspaceThreadId: action.workspaceThreadId, activityId: action.activityId,
-  status: action.status, createdAt: action.createdAt, expiresAt: action.expiresAt,
-  resolvedAt: action.resolvedAt, decidedAt: action.decidedAt,
-  execution: action.execution ?? null,
-});
+
+export const presentApprovalResolution = (action: PendingAction) => {
+  const spaceId = action.spaceId ?? action.threadId ?? null;
+  const workspaceSpaceId = action.workspaceSpaceId ?? action.workspaceThreadId ?? null;
+  return {
+    id: action.id,
+    revision: action.revision,
+    spaceId,
+    threadId: spaceId,
+    runId: action.runId,
+    toolCallId: action.toolCallId,
+    subagentId: action.subagentId,
+    workspaceSpaceId,
+    workspaceThreadId: workspaceSpaceId,
+    activityId: action.activityId,
+    status: action.status,
+    createdAt: action.createdAt,
+    expiresAt: action.expiresAt,
+    resolvedAt: action.resolvedAt,
+    decidedAt: action.decidedAt,
+    execution: action.execution ?? null,
+  };
+};

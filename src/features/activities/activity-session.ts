@@ -17,6 +17,11 @@ export const projectActivities = (entries: readonly ActivityEntry[], isRunning: 
     }
   }
   return [...records.values()].map((record) => {
+    const sId = record.activity.spaceId ?? record.activity.threadId;
+    if (sId) {
+      record.activity.spaceId = sId;
+      record.activity.threadId = sId;
+    }
     const { activity } = record;
     if (activity.currentRunId && !isRunning(activity.currentRunId)) {
       activity.status = "interrupted";
@@ -33,7 +38,7 @@ export const projectActivities = (entries: readonly ActivityEntry[], isRunning: 
   });
 };
 
-export const createActivitySession = (threadId: string, history: ActivityHistory) => {
+export const createActivitySession = (spaceId: string, history: ActivityHistory) => {
   const activeRuns = new Set<string>();
   const details = () => projectActivities(history.read(), (id) => activeRuns.has(id));
   return {
@@ -88,7 +93,7 @@ export const createActivitySession = (threadId: string, history: ActivityHistory
           writable();
           if (boundId) return record().activity;
           const now = new Date().toISOString();
-          return bind({ id: randomUUID(), threadId, ...input, status: "running", progress: "Work started", result: null, runIds: [], currentRunId: null, createdAt: now, updatedAt: now, finishedAt: null });
+          return bind({ id: randomUUID(), spaceId, threadId: spaceId, ...input, status: "running", progress: "Work started", result: null, runIds: [], currentRunId: null, createdAt: now, updatedAt: now, finishedAt: null });
         },
         resume: (id) => {
           writable();
@@ -97,7 +102,8 @@ export const createActivitySession = (threadId: string, history: ActivityHistory
             return record().activity;
           }
           const existing = details().find((detail) => detail.activity.id === id)?.activity;
-          if (!existing || existing.threadId !== threadId) throw new ActivityError("Activity not found in this conversation");
+          const target = existing ? (existing.spaceId ?? existing.threadId) : undefined;
+          if (!existing || target !== spaceId) throw new ActivityError("Activity not found in this conversation");
           if (existing.status === "completed" || existing.currentRunId) throw new ActivityError("Activity cannot be resumed in its current state");
           return bind(existing);
         },
@@ -118,7 +124,7 @@ export const createActivitySession = (threadId: string, history: ActivityHistory
         },
         observe: step,
         finish: (outcome, delivered = false) => {
-          if (!boundId || closed) return;
+          if (!boundId || closed) return undefined;
           const current = record();
           const now = new Date().toISOString();
           for (const existing of current.steps.filter((step) => step.runId === runId && step.status === "running")) {
@@ -127,7 +133,7 @@ export const createActivitySession = (threadId: string, history: ActivityHistory
           }
           const complete = outcome === "completed" && completion !== undefined && delivered;
           const status = outcome === "completed" ? complete ? "completed" : waiting ? "waiting_user" : "awaiting_continuation" : outcome;
-          save({ ...current.activity, status, currentRunId: null, result: complete ? completion! : null,
+          return save({ ...current.activity, status, currentRunId: null, result: complete ? completion! : null,
             progress: complete ? "Work completed" : outcome === "completed" ? waiting ?? "Waiting for explicit continuation" : `Execution ${outcome}`,
             finishedAt: ["completed", "failed", "stopped", "interrupted"].includes(status) ? now : null });
         },

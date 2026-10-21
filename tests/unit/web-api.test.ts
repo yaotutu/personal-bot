@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decideApproval, getAgentSnapshot, getToken, listPendingApprovals, login, runConversation, subscribeAuth } from "../../web/src/lib/api.js";
+import { addMemory, createGoal, decideApproval, editMemory, forgetMemory, getAgentSnapshot, getGoal, getMemory, getToken, listGoals, listMemories, listPendingApprovals, login, removeGoal, runConversation, setGoalStatus, subscribeAuth, toggleGoalMilestone, updateGoal } from "../../web/src/lib/api.js";
 
 /** 只替换浏览器边界，复用真实 API 客户端；认证失效必须发布到 React 订阅而非只删缓存。 */
 test("login rejects wrong keys normally and API 401 immediately invalidates the shared authentication state", async (t) => {
@@ -42,8 +42,10 @@ test("approval client uses the new routes and validates the pending envelope ins
   });
   const approval = {
     id: "approval-1", kind: "file_write", title: "Write draft",
-    preview: { scope: "thread", ownerThreadId: "local-main", path: "draft.md", before: "", after: "complete preview", beforeExists: false }, status: "pending",
-    revision: 1, threadId: "local-main", runId: null, activityId: null, toolCallId: null, subagentId: null, workspaceThreadId: "local-main", resolvedAt: null, decidedAt: null,
+    spaceId: "local-main", threadId: "local-main",
+    workspaceSpaceId: "local-main", workspaceThreadId: "local-main",
+    preview: { scope: "space", ownerSpaceId: "local-main", ownerThreadId: "local-main", path: "draft.md", before: "", after: "complete preview", beforeExists: false }, status: "pending",
+    revision: 1, runId: null, activityId: null, toolCallId: null, subagentId: null, resolvedAt: null, decidedAt: null,
     createdAt: "2026-10-19T00:00:00.000Z", expiresAt: "2026-10-19T00:05:00.000Z", execution: null,
   };
   const requests: Array<{ path: string; init?: RequestInit }> = [];
@@ -85,4 +87,125 @@ test("chat client rejects malformed protocol events and streams that omit a term
   const events: string[] = [];
   await runConversation(input, (event) => events.push(event.type));
   assert.deepEqual(events, ["RUN_STARTED", "RUN_FINISHED"]);
+});
+
+test("memory client uses dedicated /api/memories routes with query params, patch and delete", async (t) => {
+  const oldStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: () => "test-token" } });
+  t.after(() => {
+    if (oldStorage) Object.defineProperty(globalThis, "localStorage", oldStorage); else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  const memory = {
+    id: "mem-1", text: "User likes coffee", source: "Web UI",
+    createdAt: "2026-10-20T00:00:00.000Z", updatedAt: "2026-10-20T00:00:00.000Z",
+  };
+  const requests: Array<{ path: string; init?: RequestInit }> = [];
+  let body: unknown = { memories: [memory] };
+  let status = 200;
+  t.mock.method(globalThis, "fetch", async (path: string | URL | Request, init?: RequestInit) => {
+    requests.push({ path: String(path), init });
+    return new Response(JSON.stringify(body), { status });
+  });
+
+  // 1. listMemories with query
+  const list = await listMemories("coffee", 5);
+  assert.deepEqual(list, [memory]);
+  assert.equal(requests[0].path, "/api/memories?q=coffee&limit=5");
+
+  // 2. getMemory
+  body = memory;
+  const item = await getMemory("mem-1");
+  assert.deepEqual(item, memory);
+  assert.equal(requests[1].path, "/api/memories/mem-1");
+
+  // 3. addMemory
+  body = memory;
+  const created = await addMemory("User likes coffee");
+  assert.deepEqual(created, memory);
+  assert.equal(requests[2].path, "/api/memories");
+  assert.equal(requests[2].init?.method, "POST");
+  assert.deepEqual(JSON.parse(String(requests[2].init?.body)), { text: "User likes coffee", source: "Web UI" });
+
+  // 4. editMemory
+  const editedMem = { ...memory, text: "User likes tea" };
+  body = editedMem;
+  const edited = await editMemory("mem-1", "User likes tea");
+  assert.deepEqual(edited, editedMem);
+  assert.equal(requests[3].path, "/api/memories/mem-1");
+  assert.equal(requests[3].init?.method, "PATCH");
+  assert.deepEqual(JSON.parse(String(requests[3].init?.body)), { text: "User likes tea" });
+
+  // 5. forgetMemory
+  body = { ok: true, id: "mem-1" };
+  await forgetMemory("mem-1");
+  assert.equal(requests[4].path, "/api/memories/mem-1");
+  assert.equal(requests[4].init?.method, "DELETE");
+
+  // 6. 错误处理
+  status = 404;
+  await assert.rejects(getMemory("missing"), /无法加载记忆详情/);
+});
+
+test("goals client uses dedicated /api/goals routes with filtering, patch, toggle and delete", async (t) => {
+  const oldStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: () => "test-token" } });
+  t.after(() => {
+    if (oldStorage) Object.defineProperty(globalThis, "localStorage", oldStorage); else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  const goal = {
+    id: "g-1", title: "Run 10km", description: "Training", category: "fitness", status: "active" as const,
+    milestones: [{ id: "m-1", title: "Run 5km", done: false }],
+    createdAt: "2026-10-20T00:00:00.000Z", updatedAt: "2026-10-20T00:00:00.000Z",
+  };
+  const requests: Array<{ path: string; init?: RequestInit }> = [];
+  let body: unknown = { goals: [goal] };
+  let status = 200;
+  t.mock.method(globalThis, "fetch", async (path: string | URL | Request, init?: RequestInit) => {
+    requests.push({ path: String(path), init });
+    return new Response(JSON.stringify(body), { status });
+  });
+
+  // 1. listGoals with query
+  const list = await listGoals({ status: "active", category: "fitness" });
+  assert.deepEqual(list, [goal]);
+  assert.equal(requests[0].path, "/api/goals?status=active&category=fitness");
+
+  // 2. getGoal
+  body = goal;
+  const item = await getGoal("g-1");
+  assert.deepEqual(item, goal);
+  assert.equal(requests[1].path, "/api/goals/g-1");
+
+  // 3. createGoal
+  body = goal;
+  const created = await createGoal({ title: "Run 10km", milestones: ["Run 5km"] });
+  assert.deepEqual(created, goal);
+  assert.equal(requests[2].path, "/api/goals");
+  assert.equal(requests[2].init?.method, "POST");
+
+  // 4. updateGoal & setGoalStatus
+  const updatedGoal = { ...goal, status: "completed" as const };
+  body = updatedGoal;
+  const updated = await updateGoal("g-1", { status: "completed" });
+  assert.deepEqual(updated, updatedGoal);
+  assert.equal(requests[3].path, "/api/goals/g-1");
+  assert.equal(requests[3].init?.method, "PATCH");
+
+  // 5. toggleGoalMilestone
+  const toggledGoal = { ...goal, milestones: [{ ...goal.milestones[0], done: true }] };
+  body = toggledGoal;
+  const toggled = await toggleGoalMilestone("g-1", "m-1");
+  assert.deepEqual(toggled, toggledGoal);
+  assert.equal(requests[4].path, "/api/goals/g-1/milestones/m-1/toggle");
+  assert.equal(requests[4].init?.method, "POST");
+
+  // 6. removeGoal
+  body = { ok: true, id: "g-1" };
+  await removeGoal("g-1");
+  assert.equal(requests[5].path, "/api/goals/g-1");
+  assert.equal(requests[5].init?.method, "DELETE");
+
+  // 7. 错误处理
+  status = 404;
+  await assert.rejects(getGoal("missing"), /无法加载目标详情/);
 });

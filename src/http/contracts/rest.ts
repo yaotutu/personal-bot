@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isThreadId } from "../../features/conversation/validate-input.js";
+import { isSpaceId } from "../../features/conversation/validate-input.js";
 
 /**
  * REST 请求校验契约（zod v4）：路由实际使用的请求 schema 集中地，同时作为
@@ -20,20 +20,23 @@ export const memoriesQuerySchema = z.strictObject({
     .optional()
     .describe("按关键词子串检索（忽略大小写）；省略时返回全部记忆"),
   limit: z
-    .string()
-    .regex(/^[1-9]\d*$/)
-    .transform((value) => Number.parseInt(value, 10))
-    .pipe(z.number().int().min(1).max(10))
+    .preprocess(
+      (value) => (typeof value === "string" && /^[1-9]\d*$/.test(value) ? Number.parseInt(value, 10) : value),
+      z.number().int().min(1).max(10),
+    )
     .optional()
     .describe("传入 q 时的最大返回条数（1–10，默认 10）"),
+  sort: z.enum(["updatedAt", "createdAt"]).optional().describe("排序字段，默认 updatedAt"),
+  order: z.enum(["asc", "desc"]).optional().describe("排序方向，默认 desc"),
 });
 export const createMemorySchema = z.object({
   text: z.string().trim().min(1).max(2000).describe("要记住的事实，用户语言，简明"),
   source: z.string().max(200).optional().describe("来源标记，默认 Apps UI"),
 });
-export const editMemorySchema = z.object({
+export const updateMemorySchema = z.object({
   text: z.string().trim().min(1).max(2000).describe("修改后的记忆文本"),
 });
+export const editMemorySchema = updateMemorySchema;
 export const identitySchema = z.object({
   name: z.string().trim().min(1).max(80).optional().describe("助手名字，注入每轮对话"),
   tone: z.enum(["warm", "concise", "thoughtful"]).optional().describe("语气"),
@@ -48,34 +51,55 @@ export const saveProfileSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// 任务：仅保留定时任务的控制（详情路由复用本端点的 action 语义）
+// 定时任务（Jobs）：查询、控制、更新与过滤
 // ---------------------------------------------------------------------------
-// 来源会话会被用于通知投递，必须复用会话域的目录安全校验；未指定来源时投递主会话。
-const originThreadIdSchema = z.string().refine(isThreadId, "Invalid originThreadId")
-  .optional().describe("接收结果通知的来源会话：字母数字开头，可含 _ -，最长 64；仅省略时默认 local-main。显式新 ID 在接纳前建立会话；显式来源不存在或被删除时绝不改投主会话。删除进行中返回 409，客户端刷新会话列表后由用户重新选择，不自动重试旧 ID。");
+// 来源空间会被用于通知投递，必须复用空间域的目录安全校验；未指定来源时投递主空间。
+const originSpaceIdSchema = z.string().refine(isSpaceId, "Invalid originSpaceId")
+  .optional().describe("接收结果通知的来源空间：字母数字开头，可含 _ -，最长 64；仅省略时默认 local-main。显式新 ID 在接纳前建立空间；显式来源不存在或被删除时绝不改投主空间。删除进行中返回 409，客户端刷新空间列表后由用户重新选择，不自动重试旧 ID。");
 
-// 定时任务沿用现有 control 载荷，target 只接受 job，不保留后台任务 reader 或执行兼容。
-export const taskControlSchema = z.object({
-  action: z.enum(["pause", "resume", "cancel", "retry"]).describe("控制动作"),
-  target: z
-    .enum(["job"])
-    .describe("控制目标：固定为 job（定时任务）；后台任务 API 已下线，target=task 返回 400。"),
+export const jobsQuerySchema = z.strictObject({
+  spaceId: z.string().refine(isSpaceId, "Invalid spaceId").optional().describe("按归属空间过滤；省略表示不按空间过滤"),
+  threadId: z.string().refine(isSpaceId, "Invalid threadId").optional().describe("兼容字段：等同于 spaceId"),
+  sort: z.enum(["nextRunAt", "updatedAt", "createdAt"]).default("nextRunAt").describe("排序字段，默认 nextRunAt"),
+  order: z.enum(["asc", "desc"]).optional().describe("排序方向：按 nextRunAt 默认 asc，按 updatedAt/createdAt 默认 desc"),
+});
+
+export const jobControlSchema = z.strictObject({
+  action: z.enum(["pause", "resume", "cancel", "retry"]).describe("控制动作：pause=暂停调度，resume=恢复调度，cancel=取消任务，retry=失败任务立即重试"),
+});
+
+export const updateJobSchema = z.strictObject({
+  prompt: z.string().trim().min(1).max(2000).optional().describe("修改后的提醒/任务内容"),
+  daily: z.boolean().optional().describe("是否每天重复"),
+  at: z.string().trim().min(1).max(64).optional().describe("设定时刻（daily 为 HH:mm，如 '09:00'；一次性为 ISO 8601 时间戳）"),
+  originSpaceId: originSpaceIdSchema,
+  originThreadId: originSpaceIdSchema,
 });
 
 // ---------------------------------------------------------------------------
-// 目标：CRUD、状态迁移与里程碑勾选
+// 长期目标（Goals）：列表过滤、创建、修改与状态迁移
 // ---------------------------------------------------------------------------
+export const goalsQuerySchema = z.strictObject({
+  status: z.enum(["active", "paused", "completed", "archived"]).optional().describe("按状态过滤"),
+  category: z.string().trim().min(1).max(40).optional().describe("按分类过滤"),
+  sort: z.enum(["updatedAt", "createdAt"]).optional().describe("排序字段，默认 updatedAt"),
+  order: z.enum(["asc", "desc"]).optional().describe("排序方向，默认 desc"),
+});
 export const createGoalSchema = z.object({
   title: z.string().trim().min(1).max(160).describe("目标标题"),
   description: z.string().max(2000).optional(),
   category: z.string().max(40).optional().describe("分类如 fitness/study，默认 general"),
   milestones: z.array(z.string().trim().min(1).max(160)).max(30).optional().describe("里程碑标题列表"),
 });
-export const editGoalSchema = z.object({
+export const updateGoalSchema = z.object({
   title: z.string().trim().min(1).max(160).optional(),
   description: z.string().max(2000).optional(),
   category: z.string().max(40).optional(),
+  status: z.enum(["active", "paused", "completed", "archived"]).optional().describe(
+    "completed 会自动勾掉全部里程碑；重新激活不回退勾选记录",
+  ),
 });
+export const editGoalSchema = updateGoalSchema;
 export const goalStatusSchema = z.object({
   status: z.enum(["active", "paused", "completed", "archived"]).describe(
     "completed 会自动勾掉全部里程碑；重新激活不回退勾选记录",
@@ -85,10 +109,18 @@ export const goalStatusSchema = z.object({
 // ---------------------------------------------------------------------------
 // 监控：网页周期监控（change=指纹变化，contains=关键词命中）
 // ---------------------------------------------------------------------------
-export const monitorControlSchema = z.object({
+export const monitorsQuerySchema = z.strictObject({
+  spaceId: z.string().refine(isSpaceId, "Invalid spaceId").optional().describe("按归属空间过滤；省略表示不按空间过滤"),
+  threadId: z.string().refine(isSpaceId, "Invalid threadId").optional().describe("兼容字段：等同于 spaceId"),
+  sort: z.enum(["createdAt", "lastCheckedAt", "status"]).optional().describe("排序字段，默认 createdAt"),
+  order: z.enum(["asc", "desc"]).optional().describe("排序方向，默认 desc"),
+});
+
+export const monitorControlSchema = z.strictObject({
   action: z.enum(["pause", "resume", "stop"]).describe("stop 为终态"),
 });
-export const createMonitorSchema = z.object({
+
+export const createMonitorSchema = z.strictObject({
   url: z.url().max(2048).regex(/^https?:\/\//, "http(s) only").describe("要监控的公网网页地址"),
   condition: z.enum(["change", "contains"]).describe(
     "change=内容指纹变化时通知（首检只建基线不通知）；contains=关键词从未命中到命中时通知（持续命中不重复）",
@@ -96,7 +128,20 @@ export const createMonitorSchema = z.object({
   value: z.string().max(200).optional().describe("contains 条件的关键词"),
   title: z.string().trim().min(1).max(120).optional().describe("展示标题，默认用 URL"),
   intervalMinutes: z.number().int().min(5).max(1440).optional().describe("检查间隔（分钟），默认 30，最小 5"),
-  originThreadId: originThreadIdSchema,
+  originSpaceId: originSpaceIdSchema,
+  originThreadId: originSpaceIdSchema,
+});
+
+export const updateMonitorSchema = z.strictObject({
+  title: z.string().trim().min(1).max(120).optional().describe("展示标题"),
+  url: z.url().max(2048).regex(/^https?:\/\//, "http(s) only").optional().describe("要监控的公网网页地址"),
+  condition: z.enum(["change", "contains"]).optional().describe(
+    "change=内容指纹变化时通知（首检只建基线不通知）；contains=关键词从未命中到命中时通知（持续命中不重复）",
+  ),
+  value: z.string().max(200).optional().describe("contains 条件的关键词"),
+  intervalMinutes: z.number().int().min(5).max(1440).optional().describe("检查间隔（分钟），最小 5"),
+  originSpaceId: originSpaceIdSchema,
+  originThreadId: originSpaceIdSchema,
 });
 
 // ---------------------------------------------------------------------------
@@ -111,20 +156,27 @@ export const createMonitorSchema = z.object({
 export const sessionRequestSchema = z.object({
   accessKey: z.string().max(512).optional().describe("服务端配置了访问密钥时必填；回环默认部署可不填"),
 });
-const threadIdSchema = z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
+const spaceIdSchema = z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
+export const resetSpaceSchema = z.object({
+  clearSchedules: z.boolean().optional().describe("是否同时清理该空间绑定的定时任务与监控；默认 false 保留并转绑新会话"),
+});
+export type ResetSpaceRequestDto = z.infer<typeof resetSpaceSchema>;
 export const runRequestSchema = z.strictObject({
-  threadId: threadIdSchema.describe("会话标识；首次出现即创建独立会话"),
+  spaceId: spaceIdSchema.optional().describe("空间标识；首次出现即创建独立空间"),
+  threadId: spaceIdSchema.optional().describe("兼容字段：等同于 spaceId"),
   runId: z.string().min(1).max(200).describe("本轮唯一 ID；同一成功请求可幂等重放"),
   expectedRevision: z.string().min(1).max(200).describe("GET /api/conversation 返回的版本；新空会话为 empty，冲突返回 409"),
   message: z.strictObject({
     id: z.string().trim().min(1).max(200),
     content: z.string().min(1).max(32000).refine((value) => !!value.trim(), "Message cannot be blank"),
   }).describe("唯一的新用户消息；失败重试使用原消息 ID 和内容"),
-}).describe("增量聊天请求，响应为 AG-UI SSE；客户端不回传历史");
+}).refine((data) => Boolean(data.spaceId || data.threadId), "spaceId or threadId required")
+.describe("增量聊天请求，响应为 AG-UI SSE；客户端不回传历史");
 export const stopRequestSchema = z.strictObject({
-  threadId: threadIdSchema,
+  spaceId: spaceIdSchema.optional(),
+  threadId: spaceIdSchema.optional(),
   runId: z.string().min(1).max(200).describe("只停止该 run；迟到请求不会影响后续运行"),
-});
+}).refine((data) => Boolean(data.spaceId || data.threadId), "spaceId or threadId required");
 
 // ---------------------------------------------------------------------------
 // 技能：会话级开关覆盖
@@ -135,13 +187,13 @@ export const updateSkillsSchema = z.object({
 
 // 会话专属规则/指令：下一轮对话注入生效；空串等于清空。
 export const saveInstructionsSchema = z.object({
-  instructions: z.string().max(20000).describe("会话专属规则/提示词自由文本；空串等于清空"),
+  instructions: z.string().max(20000).describe("空间专属规则/提示词自由文本；空串等于清空"),
   purpose: z
     .string()
     .max(1000)
     .optional()
     .describe(
-      "可选会话用途；传入时自动在 INSTRUCTIONS.md 开头生成 `## 会话用途` 段落，供 Dream 后台整理判定本会话专属规则归属",
+      "可选空间用途；传入时自动在 INSTRUCTIONS.md 开头生成 `## 空间用途` 段落，供 Dream 后台整理判定本空间专属规则归属",
     ),
 });
 
@@ -151,30 +203,30 @@ export const saveInstructionsSchema = z.object({
 export const dreamTargetSchema = z
   .enum(["user", "soul", "instructions", "memory"])
   .describe(
-    "笔记归属目标：user=全局 USER.md，soul=全局 SOUL.md，instructions=本会话 INSTRUCTIONS.md，memory=按需检索的 memory.json",
+    "笔记归属目标：user=全局 USER.md，soul=全局 SOUL.md，instructions=本空间 INSTRUCTIONS.md，memory=按需检索的 memory.json",
   );
 export const saveGlobalDreamSchema = z.object({
   globalPrompt: z
     .string()
     .max(20000)
-    .describe("全局 Dream 整理提示词（DATA_DIR/DREAM.md）；传空串清空覆盖，回退为内置默认提示词"),
+    .describe("全局 Dream 整理提示词（profile/DREAM.md）；传空串清空覆盖，回退为内置默认提示词"),
 });
-export const updateThreadDreamSchema = z.object({
+export const updateSpaceDreamSchema = z.object({
   enabled: z
     .boolean()
     .optional()
-    .describe("是否开启该会话的每 2 小时周期后台整理；local-main 默认开启，其余会话默认关闭"),
+    .describe("是否开启该空间的每 2 小时周期后台整理；local-main 默认开启，其余空间默认关闭"),
   inheritGlobalPrompt: z
     .boolean()
     .optional()
     .describe(
-      "true=全局提示词与会话补充叠加；false=仅使用本会话补充提示词（服务端固定安全规则始终生效）",
+      "true=全局提示词与空间补充叠加；false=仅使用本空间补充提示词（服务端固定安全规则始终生效）",
     ),
   prompt: z
     .string()
     .max(20000)
     .optional()
-    .describe("本会话的 Dream 补充提示词（sessions/<threadId>/DREAM.md）；传空串清空"),
+    .describe("本空间的 Dream 补充提示词（sessions/<spaceId>/DREAM.md）；传空串清空"),
 });
 export const resolveDreamPendingSchema = z.object({
   action: z

@@ -36,22 +36,34 @@ export const errorResponse = z.object({
   error: z.string().describe("人类可读错误；敏感细节（密钥/供应商响应）一律不透出"),
 });
 
-// 会话 -----------------------------------------------------------------
-export const threadSnapshot = z.object({
-  id: z.string().describe("threadId"),
-  updatedAt: z.string().describe("该会话 JSONL 最近修改时间（ISO 8601）"),
+// 空间 -----------------------------------------------------------------
+export const spaceSnapshot = z.object({
+  id: z.string().describe("spaceId"),
+  sessionId: z.string().describe("当前活跃绑定的 sessionId"),
+  updatedAt: z.string().describe("该空间当前会话 JSONL 最近修改时间（ISO 8601）"),
 });
-export const threadsResponse = z.object({
-  threads: z.array(threadSnapshot).describe("按最近活跃倒序"),
+export const spacesResponse = z.object({
+  spaces: z.array(spaceSnapshot).describe("按最近活跃倒序"),
 });
-export const deleteThreadResponse = z.object({
+export const resetSpaceResponse = z.object({
+  ok: z.literal(true),
+  spaceId: z.string().describe("重置的空间 ID"),
+  sessionId: z.string().describe("重置后绑定的全新 session ID"),
+  cancelledApprovals: z.number().int().nonnegative().describe("重置时作废的待审批写操作数"),
+  removed: z.object({
+    jobs: z.number().int().nonnegative().describe("级联清理的定时任务数（当 clearSchedules=true）"),
+    monitors: z.number().int().nonnegative().describe("级联清理的网页监控数（当 clearSchedules=true）"),
+  }),
+});
+export type ResetSpaceDto = z.infer<typeof resetSpaceResponse>;
+export const deleteSpaceResponse = z.object({
   ok: z.literal(true),
   removed: z.object({
     jobs: z.number().int().nonnegative().describe("级联删除的定时任务数"),
     monitors: z.number().int().nonnegative().describe("级联删除的网页监控数"),
   }),
 });
-export type DeleteThreadDto = z.infer<typeof deleteThreadResponse>;
+export type DeleteSpaceDto = z.infer<typeof deleteSpaceResponse>;
 export const chatMessage = z.object({
   id: z.string(),
   role: z.enum(["user", "assistant", "tool"]),
@@ -79,25 +91,37 @@ export const profileResponse = z.object({
   user: z.string().describe("USER.md 内容；空串表示未设置"),
 });
 export const instructionsResponse = z.object({
-  instructions: z.string().describe("该会话当前生效的专属指令文本（INSTRUCTIONS.md）"),
+  instructions: z.string().describe("该空间当前生效的专属指令文本（INSTRUCTIONS.md）"),
 });
 export type InstructionsDto = z.infer<typeof instructionsResponse>;
 
-// 工作区快照 -----------------------------------------------------------
-export const taskView = z.object({
-  id: z.string(),
-  title: z.string(),
-  prompt: z.string(),
-  // 工作台任务仅剩定时任务（job）；保留字段与描点兼容未来扩展但当前只输出 job。
-  kind: z.enum(["job"]).describe("job=定时任务；后台任务 API 已下线"),
-  // 状态枚举未顺手收紧 queued/running，避免连带改动定时 job 的现有语义（如 retry_pending）。
-  status: z.enum(["queued", "running", "scheduled", "paused", "succeeded", "failed", "cancelled"]),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  nextRunAt: z.string().optional().describe("定时任务下次触发时间"),
-  result: z.string().optional().describe("最近一次执行的输出文本（截断存储）"),
-  error: z.string().nullable(),
+// 定时任务（Jobs） --------------------------------------------------------
+export const jobItem = z.object({
+  id: z.string().describe("定时任务唯一 ID"),
+  title: z.string().describe("任务简短标题（由 prompt 截断）"),
+  prompt: z.string().describe("到点后作为用户消息发给模型的内容"),
+  kind: z.literal("job").describe("固定为 job"),
+  daily: z.boolean().describe("是否每天重复"),
+  at: z.string().describe("定时设定时刻（daily 为 HH:mm，一次性为 ISO 8601 时间戳）"),
+  enabled: z.boolean().describe("是否处于启用/调度状态"),
+  status: z.enum(["scheduled", "running", "paused", "succeeded", "failed", "cancelled", "queued"]).describe(
+    "任务状态：scheduled=已排期；running=执行中；paused=已暂停；succeeded=上次成功；failed=上次失败；cancelled=已取消；queued=排队中",
+  ),
+  createdAt: z.string().describe("创建时间（ISO 8601）"),
+  updatedAt: z.string().describe("更新时间（ISO 8601）"),
+  nextRunAt: z.string().optional().describe("下次计划触发时间（ISO 8601）"),
+  lastRunAt: z.string().optional().describe("最近一次触发时间（ISO 8601）"),
+  lastResult: z.string().optional().describe("最近一次执行结果文本摘要"),
+  error: z.string().nullable().describe("错误信息（上次执行失败时非 null）"),
+  originSpaceId: z.string().optional().describe("所属空间 ID"),
+  originThreadId: z.string().optional().describe("兼容字段：等同于 originSpaceId"),
 });
+
+export const jobsResponse = z.object({
+  jobs: z.array(jobItem).describe("定时任务列表"),
+});
+
+export const taskView = jobItem;
 export const runEvent = z.object({
   id: z.string(),
   taskId: z.string(),
@@ -106,12 +130,22 @@ export const runEvent = z.object({
   title: z.string(),
   detail: z.string(),
 });
-// 详情路由返回包装对象而不是扁平 TaskView；两个任务来源共用这一契约。
-export const taskDetail = z.object({
-  task: taskView,
-  events: z.array(runEvent).describe("最近一次运行与控制操作的时间线"),
 
+export const jobDetail = z.object({
+  job: jobItem,
+  events: z.array(runEvent).describe("最近一次运行与控制操作的时间线"),
 });
+
+export const deleteJobResponse = z.object({
+  ok: z.literal(true),
+  id: z.string().describe("被删除的定时任务 ID"),
+});
+
+export const taskDetail = z.object({
+  task: jobItem,
+  events: z.array(runEvent).describe("最近一次运行与控制操作的时间线"),
+});
+
 export const goalView = z.object({
   id: z.string(),
   title: z.string(),
@@ -129,7 +163,17 @@ export const goalView = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
-export const monitorView = z.object({
+export const goalItem = goalView;
+export const goalsResponse = z.object({
+  goals: z.array(goalItem).describe("长期目标列表"),
+});
+export type GoalsResponseDto = z.infer<typeof goalsResponse>;
+export const deleteGoalResponse = z.object({
+  ok: z.literal(true),
+  id: z.string().describe("已删除的目标 ID"),
+});
+export type DeleteGoalResponseDto = z.infer<typeof deleteGoalResponse>;
+export const monitorItem = z.object({
   id: z.string(),
   title: z.string(),
   url: z.string(),
@@ -138,7 +182,8 @@ export const monitorView = z.object({
   intervalMinutes: z.number(),
   status: z.enum(["active", "paused", "stopped"]),
   createdAt: z.string(),
-  originThreadId: z.string().optional().describe("接收监控通知的来源会话；未指定时投递主会话"),
+  originSpaceId: z.string().optional().describe("接收监控通知的来源空间；未指定时投递主空间"),
+  originThreadId: z.string().optional().describe("兼容字段：等同于 originSpaceId"),
   lastCheckedAt: z.string().optional(),
   lastFingerprint: z.string().optional().describe("change 条件的内容指纹（内部）"),
   lastMatched: z.boolean().optional().describe("contains 条件上次是否命中"),
@@ -146,6 +191,16 @@ export const monitorView = z.object({
   checks: z.number().describe("累计检查次数"),
   error: z.string().optional().describe("上次抓取失败标记"),
 });
+export const monitorView = monitorItem;
+export const monitorsResponse = z.object({
+  monitors: z.array(monitorItem).describe("网页监控列表"),
+});
+export type MonitorsResponseDto = z.infer<typeof monitorsResponse>;
+export const deleteMonitorResponse = z.object({
+  ok: z.literal(true),
+  id: z.string().describe("已删除的监控项 ID"),
+});
+export type DeleteMonitorResponseDto = z.infer<typeof deleteMonitorResponse>;
 export const memoryItem = z.object({
   id: z.string(),
   text: z.string(),
@@ -157,6 +212,11 @@ export const memoriesResponse = z.object({
   memories: z.array(memoryItem).describe("长期记忆条目列表；传入 q 时按更新时间倒序返回匹配项"),
 });
 export type MemoriesResponseDto = z.infer<typeof memoriesResponse>;
+export const deleteMemoryResponse = z.object({
+  ok: z.literal(true),
+  id: z.string().describe("已删除的记忆条目 ID"),
+});
+export type DeleteMemoryResponseDto = z.infer<typeof deleteMemoryResponse>;
 export const dreamTargetView = z.enum(["user", "soul", "instructions", "memory"]);
 export const dreamPendingItem = z.object({
   id: z.string().describe("待决建议 ID"),
@@ -180,25 +240,29 @@ export const dreamRunView = z.object({
   processed: z.number().int().nonnegative().describe("本次待整理段的新消息条数"),
   error: z.string().optional().describe("受控错误说明；不含原始模型/文件载荷"),
 });
-export const dreamThreadResponse = z.object({
-  threadId: z.string().describe("会话 ID"),
-  enabled: z.boolean().describe("该会话是否开启周期 Dream 整理"),
+export const dreamSpaceResponse = z.object({
+  spaceId: z.string().describe("空间 ID"),
+  threadId: z.string().optional().describe("兼容字段：等同于 spaceId"),
+  enabled: z.boolean().describe("该空间是否开启周期 Dream 整理"),
   inheritGlobalPrompt: z.boolean().describe("是否继承全局 DREAM.md 提示词"),
   cursor: z.string().optional().describe("已整理到的消息 ID；整轮成功后才推进"),
   lastRun: dreamRunView.optional().describe("最近一次整理结果"),
   pending: z.array(dreamPendingItem).describe("等待人工确认归属的建议列表"),
-  prompt: z.string().describe("该会话专属补充提示词（DREAM.md）；未设置为空串"),
-  purpose: z.string().describe("从 INSTRUCTIONS.md 提取的 `## 会话用途` 正文；未设置为空串"),
+  prompt: z.string().describe("该空间专属补充提示词（DREAM.md）；未设置为空串"),
+  purpose: z.string().describe("从 INSTRUCTIONS.md 提取的 `## 空间用途` 正文；未设置为空串"),
 });
+export const dreamThreadResponse = dreamSpaceResponse;
 export const dreamOverviewResponse = z.object({
   globalPrompt: z.string().describe("全局 DREAM.md 内容；空串表示使用 defaultPrompt"),
   defaultPrompt: z.string().describe("内置默认整理提示词（只读参考）"),
   intervalHours: z.number().int().positive().describe("后台周期检查间隔（小时，固定为 2）"),
   running: z.boolean().describe("当前进程内是否有 Dream 整理轮正在执行"),
-  threads: z.array(dreamThreadResponse).describe("所有已知会话的 Dream 状态与待决项"),
+  spaces: z.array(dreamSpaceResponse).describe("所有已知空间的 Dream 状态与待决项"),
+  threads: z.array(dreamSpaceResponse).describe("兼容字段：等同于 spaces"),
 });
 export type DreamPendingDto = z.infer<typeof dreamPendingItem>;
-export type DreamThreadDto = z.infer<typeof dreamThreadResponse>;
+export type DreamSpaceDto = z.infer<typeof dreamSpaceResponse>;
+export type DreamThreadDto = DreamSpaceDto;
 export type DreamOverviewDto = z.infer<typeof dreamOverviewResponse>;
 export const identityView = z.object({
   name: z.string(),
@@ -207,20 +271,21 @@ export const identityView = z.object({
   showChatUpdates: z.boolean().optional(),
 });
 export const agentSnapshot = z.object({
-  tasks: z.array(taskView).describe("定时任务列表（按更新时间倒序）"),
-  goals: z.array(goalView),
-  monitors: z.array(monitorView),
-  memories: z.array(memoryItem),
   identity: identityView,
 });
 
 /** 响应 schema 是服务端与自有 Web 共享 DTO 的唯一事实源。 */
+export type JobDto = z.infer<typeof jobItem>;
+export type JobDetailDto = z.infer<typeof jobDetail>;
+export type JobsResponseDto = z.infer<typeof jobsResponse>;
+export type DeleteJobResponseDto = z.infer<typeof deleteJobResponse>;
 export type TaskDto = z.infer<typeof taskView>;
 export type TaskDetailDto = z.infer<typeof taskDetail>;
 export type RunEventDto = z.infer<typeof runEvent>;
 export type MemoryDto = z.infer<typeof memoryItem>;
 export type GoalDto = z.infer<typeof goalView>;
-export type MonitorDto = z.infer<typeof monitorView>;
+export type MonitorItemDto = z.infer<typeof monitorItem>;
+export type MonitorDto = MonitorItemDto;
 /**
  * 兼容别名：自有 Web 在迁移到 GET /api/approvals 与审批 View 前仍按 ActionDto 引用。
  * 它现在就是审批完整视图类型，不再包含旧 payload/actions 列表结构；
@@ -228,14 +293,15 @@ export type MonitorDto = z.infer<typeof monitorView>;
  */
 export type ActionDto = ApprovalViewDto;
 export type AgentSnapshotDto = z.infer<typeof agentSnapshot>;
-export type ThreadDto = z.infer<typeof threadSnapshot>;
+export type SpaceDto = z.infer<typeof spaceSnapshot>;
+export type ThreadDto = SpaceDto;
 
 // 技能 -----------------------------------------------------------------
 export const skillItem = z.object({
   name: z.string().describe("技能名称（目录名）"),
   description: z.string().describe("技能描述"),
   defaultEnabled: z.boolean().describe("技能默认开关状态"),
-  enabled: z.boolean().describe("当前会话的生效开关状态"),
+  enabled: z.boolean().describe("当前空间的生效开关状态"),
 });
 export const skillsResponse = z.object({
   skills: z.array(skillItem),

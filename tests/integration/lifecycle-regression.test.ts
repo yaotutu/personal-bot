@@ -129,7 +129,7 @@ test("Stop cancels a pending write approval without changing the existing file",
 test("closed service rejects task creation and memory writes through its original app with 503", async (t) => {
   const h = await createFixture(t);
   const service = await h.startService();
-  const seed = await post(service, "/api/agent/memories", { text: "LIFECYCLE-ORIGINAL-MEMORY" });
+  const seed = await post(service, "/api/memories", { text: "LIFECYCLE-ORIGINAL-MEMORY" });
   assert.equal(seed.status, 200);
   const memoryId: string = (await seed.json()).id;
   const before = await readOptional(h.layout.memoryFile);
@@ -137,8 +137,8 @@ test("closed service rejects task creation and memory writes through its origina
   const requestCount = h.model.requests.length;
   for (const [path, body] of [
     ["/api/agent/tasks", { prompt: "MUST-NOT-RUN", title: "MUST-NOT-BE-PERSISTED" }],
-    ["/api/agent/memories", { text: "MUST-NOT-BE-ADDED" }],
-    [`/api/agent/memories/${memoryId}`, { text: "MUST-NOT-REPLACE-SEED" }],
+    ["/api/memories", { text: "MUST-NOT-BE-ADDED" }],
+    [`/api/memories/${memoryId}`, { text: "MUST-NOT-REPLACE-SEED" }],
   ] as const) {
     const response = await post(service, path, body);
     assert.equal(response.status, 503, path);
