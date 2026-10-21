@@ -32,6 +32,10 @@
   - `GET /api/activities/:id`：读取单项活动详情（包含概览与脱敏后的 `steps` 逐步真实执行明细）。
   - `POST /api/activities/:id/cancel`：安全取消正在推进中的执行活动。
 - **定时任务（Jobs）**：`GET /api/jobs`（支持 `spaceId` 过滤，`sort: nextRunAt|updatedAt|createdAt` 与 `order: asc|desc` 排序，全量返回不分页）；`GET /api/jobs/:id` 获取详情；`POST /api/jobs` 创建；`PATCH /api/jobs/:id` 更新 prompt/周期；`POST /api/jobs/:id/control` 控制 `pause|resume|cancel|retry`；`DELETE /api/jobs/:id` 删除。
+  - **时区与时刻设定说明**：
+    1. **每日任务（`daily: true`）**：设定时刻 `at` 格式为 `HH:mm`（例如 `"09:00"`）。服务端直接按自身系统本地时区（可由 `GET /api/health` 的 `timeZone` 字段读取，如 `"Asia/Shanghai"`）解释该时间；在个人同地区使用场景下，前端直接透传用户选择的时分，**无需进行任何 UTC 时区转换**。
+    2. **一次性任务（`daily: false`）**：设定时刻 `at` 必须为带时区偏移的完整 ISO 8601 时间戳（例如 `"2026-10-22T09:00:00+08:00"`），表示全局唯一绝对时刻。
+    3. **下次运行时间（`nextRunAt`）**：无论每日任务还是一次性任务，服务端计算并返回的 `nextRunAt` 统一为标准 ISO 8601 UTC 字符串（带 `Z` 后缀，如 `"2026-10-22T01:00:00.000Z"`）。前端如需在界面展示下次执行时间，直接调用 `new Date(job.nextRunAt)` 即可自动转换为用户设备当前时区显示。
 - **网页监控（Monitors）**：`GET /api/monitors`（支持 `spaceId` 过滤，`sort: createdAt|lastCheckedAt|status` 与 `order: asc|desc` 排序，全量返回不分页）；`GET /api/monitors/:id` 获取详情；`POST /api/monitors` 创建；`PATCH /api/monitors/:id` 更新属性与条件（条件变更自动重置内容基线）；`POST /api/monitors/:id/control` 控制 `pause|resume|stop`；`DELETE /api/monitors/:id` 删除。
 - **长期记忆（Memories）**：`GET /api/memories`（支持关键词 `q` 忽略大小写子串搜索、`limit` 限制条数、`sort: updatedAt|createdAt` 与 `order: asc|desc` 排序，全量返回不分页，受 500 条上限保护）；`GET /api/memories/:id` 获取单条；`POST /api/memories` 创建；`PATCH /api/memories/:id` 更新内容；`DELETE /api/memories/:id` 删除。
 - **目标管理（Goals）**：`GET /api/goals`（支持 `status` 与 `category` 过滤，`sort: updatedAt|createdAt` 与 `order: asc|desc` 排序，全量返回不分页）；`GET /api/goals/:id` 获取单条；`POST /api/goals` 创建；`PATCH /api/goals/:id` 更新属性与状态（设为 completed 时自动勾选所有里程碑）；`POST /api/goals/:id/milestones/:mid/toggle` 切换里程碑状态；`DELETE /api/goals/:id` 删除。
@@ -41,6 +45,7 @@
 
 ## 部署版本与错误诊断
 
+- `GET /api/health` 提供服务存活探测、模型配置状态、部署版本（`serviceVersion`）及服务端权威本地时区（`timeZone`，如 `"Asia/Shanghai"`）。每日任务（`daily: true`）以此时区为基准解析。
 - `GET /api/health.serviceVersion` 与 `/openapi.json` 的 `x-service-version` 使用同一快照，Scalar 首页显示包版本、commit、dirty、sourceHash、mode、builtAt。`info.version` 为包版本加指纹前12位。
 - `source` 模式进程启动时快照，`build` 模式使用构建时写入 `dist/service-version.json` 的快照；请求不执行 git。commit/dirty 无法取得时为 null，dirty=true 时不能把 commit 当作完整部署身份，须比较完整 sourceHash。
 - sourceHash 仅覆盖源码、内置资源、脚本、包/锁文件及 TypeScript 配置，不读取实例配置、凭据或会话数据。构建产物脱离仓库后仍保留原身份。

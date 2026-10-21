@@ -56,7 +56,13 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   });
 
   app.get("/api/health", (c) =>
-    c.json({ ok: true, backend: "pi", configured: config.configured, serviceVersion: version }),
+    c.json({
+      ok: true,
+      backend: "pi",
+      configured: config.configured,
+      serviceVersion: version,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }),
   );
   app.post("/api/session", async (c) => {
     const input = sessionRequestSchema.safeParse(await c.req.json().catch(() => undefined));

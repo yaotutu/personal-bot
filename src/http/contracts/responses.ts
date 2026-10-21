@@ -24,6 +24,7 @@ export const healthResponse = z.object({
   backend: z.literal("pi"),
   configured: z.boolean().describe("模型是否已配置（决定聊天能否运行）"),
   serviceVersion: serviceVersionSchema,
+  timeZone: z.string().describe("服务端本地时区（IANA 标识，如 Asia/Shanghai），每日任务（daily at: HH:mm）以此为基准解释"),
 });
 export const sessionResponse = z.object({
   token: z.string().describe(
@@ -103,7 +104,7 @@ export const jobItem = z.object({
   prompt: z.string().describe("到点后作为用户消息发给模型的内容"),
   kind: z.literal("job").describe("固定为 job"),
   daily: z.boolean().describe("是否每天重复"),
-  at: z.string().describe("定时设定时刻（daily 为 HH:mm，一次性为 ISO 8601 时间戳）"),
+  at: z.string().describe("定时设定时刻（daily 为 HH:mm，按服务端本地时区解释，前端无需转换；一次性为 ISO 8601 时间戳）"),
   enabled: z.boolean().describe("是否处于启用/调度状态"),
   status: z.enum(["scheduled", "running", "paused", "succeeded", "failed", "cancelled", "queued"]).describe(
     "任务状态：scheduled=已排期；running=执行中；paused=已暂停；succeeded=上次成功；failed=上次失败；cancelled=已取消；queued=排队中",

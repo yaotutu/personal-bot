@@ -193,6 +193,7 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
         backend: "pi",
         configured: false,
         serviceVersion: await serviceVersion,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
     });
 

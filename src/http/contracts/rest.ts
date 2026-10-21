@@ -70,7 +70,7 @@ export const jobControlSchema = z.strictObject({
 export const updateJobSchema = z.strictObject({
   prompt: z.string().trim().min(1).max(2000).optional().describe("修改后的提醒/任务内容"),
   daily: z.boolean().optional().describe("是否每天重复"),
-  at: z.string().trim().min(1).max(64).optional().describe("设定时刻（daily 为 HH:mm，如 '09:00'；一次性为 ISO 8601 时间戳）"),
+  at: z.string().trim().min(1).max(64).optional().describe("设定时刻：daily=true 时为 'HH:mm'（如 '09:00'，按服务端本地时区解释，前端无需转换）；daily=false 时为带时区偏移的 ISO 8601 时间戳（如 '2026-10-22T09:00:00+08:00'）"),
   originSpaceId: originSpaceIdSchema,
 });
 

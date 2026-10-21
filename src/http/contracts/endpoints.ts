@@ -60,7 +60,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getHealth",
     method: "get", path: "/api/health", tag: "基础", summary: "健康检查",
-    hint: "无需鉴权；探测服务是否存活与模型配置状态。serviceVersion 为启动/构建时固定快照：version、commit、dirty、sourceHash、mode、builtAt；与 /openapi.json 的 x-service-version 及 /docs 一致。dirty=true 时不能只比较 commit，须核对 sourceHash；commit/dirty 无法核验时为 null。",
+    hint: "无需鉴权；探测服务存活状态、模型配置及权威本地时区（timeZone，如 Asia/Shanghai）。每日定时任务（daily at: HH:mm）以此时区为基准解释，客户端在同地区个人使用场景下无需做 UTC 转换。serviceVersion 为启动/构建时固定快照：version、commit、dirty、sourceHash、mode、builtAt；与 /openapi.json 的 x-service-version 及 /docs 一致。dirty=true 时不能只比较 commit，须核对 sourceHash；commit/dirty 无法核验时为 null。",
     auth: false, request: undefined, response: resp.healthResponse,
   },
   {
@@ -217,7 +217,7 @@ export const endpoints: EndpointSpec[] = [
     operationId: "listJobs",
     method: "get", path: "/api/jobs", tag: "任务", summary: "查询定时任务列表",
     hint:
-      "按条件查询定时任务列表。支持按 spaceId 过滤，支持按 nextRunAt、updatedAt、createdAt 排序（默认按 nextRunAt 升序），全量返回，不分页。",
+      "按条件查询定时任务列表。支持按 spaceId 过滤与排序，全量返回不分页。时区规则：每日任务（daily=true）设定时刻 at 为 HH:mm，按服务端本地时区（GET /api/health.timeZone）解释；下一次运行时刻 nextRunAt 统一以带 Z 的 ISO 8601 UTC 字符串返回，前端通过 new Date(nextRunAt) 即可自动转为本地时间展示。",
     auth: true, query: req.jobsQuerySchema, response: resp.jobsResponse,
   },
   {
@@ -238,7 +238,7 @@ export const endpoints: EndpointSpec[] = [
     operationId: "updateJob",
     method: "patch", path: "/api/jobs/:id", tag: "任务", summary: "修改定时任务",
     hint:
-      "修改定时任务的提示词（prompt）、执行周期与时刻（daily、at）或归属空间（originSpaceId）。修改设定时刻且任务处于调度中时，将自动重算下次触发时间 nextRunAt。任务不存在返回 404。",
+      "修改定时任务的提示词（prompt）、执行周期与时刻（daily、at）或归属空间（originSpaceId）。时刻设定规则：daily=true 时 at 为 HH:mm（按服务端本地时区解释，前端无需换算）；daily=false 时 at 必须为带时区偏移的完整 ISO 8601 时间戳。修改时刻且任务处于调度中时，将自动重算下次触发时刻 nextRunAt（ISO 8601 UTC）。任务不存在返回 404。",
     auth: true, request: req.updateJobSchema, response: resp.jobItem,
   },
   {
