@@ -14,6 +14,23 @@
 
 - **空间管理（Spaces）**：`GET /api/spaces` 列出所有空间信息（含 `spaceId`、`sessionId`、`title`、`createdAt` 等）；`DELETE /api/spaces/:spaceId` 级联删除空间历史、私有工作区、定时任务与监控；`POST /api/spaces/:spaceId/reset` 提供空间重置功能（清空当前会话历史、分配全新 `sessionId`、作废在途待审批，保留空间工作区、指令、技能与 Dream 配置，支持可选 `clearSchedules`）。前端迁移细节见 `docs/frontend-space-session-migration.md`。
 - **工作台快照**：`GET /api/agent` 已彻底解耦，不再包含 jobs、monitors、memories 或 goals，仅返回助手身份信息 `{ identity }`。旧的 `/api/agent/tasks*`、`/api/agent/monitors*`、`/api/agent/memories*`、`/api/agent/goals*` 均已下线并返回 501。各业务领域通过独立顶级资源访问。
+- **人设与身份（Profile & Identity）**：
+  - `GET /api/profile`：读取全局 `profile/SOUL.md`（助手灵魂定位）与 `profile/USER.md`（用户偏好画像）自由文本内容；未设置时返回空串。
+  - `PUT /api/profile`：保存全局人设文本，下一轮 prompt 注入生效；传空串清空。
+  - `POST /api/agent/identity`：保存助手全局展示身份设置，包括名字（`name`，注入每轮对话）、语气（`tone: "warm" | "concise" | "thoughtful"`）、头像（`avatar`）及是否在聊天中显示状态更新（`showChatUpdates`）；保存后即时生效于快照。
+- **空间规则与技能（Instructions & Skills）**：
+  - `GET /api/spaces/:spaceId/instructions`：读取该空间专属规则 `INSTRUCTIONS.md`。
+  - `PUT /api/spaces/:spaceId/instructions`：保存专属规则，可选传入 `purpose` 声明空间用途（自动维护 `## 空间用途` 段落供 Dream 自动归属识别）。
+  - `GET /api/spaces/:spaceId/skills`：读取全部技能默认状态与当前空间生效状态。
+  - `PUT /api/spaces/:spaceId/skills`：整份替换并保存该空间的技能覆盖表。
+- **Dream 后台记忆整理（Dream Memory Consolidation）**：
+  - 全局管理：`GET /api/agent/dream` 读取全局 Dream 配置、默认提示词及全空间整理状态概览；`PUT /api/agent/dream` 保存全局 `profile/DREAM.md` 提示词。
+  - 空间配置：`GET /api/spaces/:spaceId/dream` 读取该空间整理开关、是否继承全局提示词、已处理游标、最近运行记录及待决建议；`PUT /api/spaces/:spaceId/dream` 保存该空间开关与专属提示词。
+  - 即时触发与建议处理：`POST /api/spaces/:spaceId/dream/run` 立即启动受限整理轮（带 4k token 重叠上下文）；`POST /api/spaces/:spaceId/dream/pending/:pendingId` 处理待决建议（`action: "apply" | "dismiss"`，可选 `target: "user" | "soul" | "instructions" | "memory"`）。
+- **执行活动（Activities）**：
+  - `GET /api/activities`：查询执行活动列表（支持 `spaceId` 与 `status` 过滤，默认按 `createdAt` 降序分页，游标绑定过滤条件）。
+  - `GET /api/activities/:id`：读取单项活动详情（包含概览与脱敏后的 `steps` 逐步真实执行明细）。
+  - `POST /api/activities/:id/cancel`：安全取消正在推进中的执行活动。
 - **定时任务（Jobs）**：`GET /api/jobs`（支持 `spaceId` 过滤，`sort: nextRunAt|updatedAt|createdAt` 与 `order: asc|desc` 排序，全量返回不分页）；`GET /api/jobs/:id` 获取详情；`POST /api/jobs` 创建；`PATCH /api/jobs/:id` 更新 prompt/周期；`POST /api/jobs/:id/control` 控制 `pause|resume|cancel|retry`；`DELETE /api/jobs/:id` 删除。
 - **网页监控（Monitors）**：`GET /api/monitors`（支持 `spaceId` 过滤，`sort: createdAt|lastCheckedAt|status` 与 `order: asc|desc` 排序，全量返回不分页）；`GET /api/monitors/:id` 获取详情；`POST /api/monitors` 创建；`PATCH /api/monitors/:id` 更新属性与条件（条件变更自动重置内容基线）；`POST /api/monitors/:id/control` 控制 `pause|resume|stop`；`DELETE /api/monitors/:id` 删除。
 - **长期记忆（Memories）**：`GET /api/memories`（支持关键词 `q` 忽略大小写子串搜索、`limit` 限制条数、`sort: updatedAt|createdAt` 与 `order: asc|desc` 排序，全量返回不分页，受 500 条上限保护）；`GET /api/memories/:id` 获取单条；`POST /api/memories` 创建；`PATCH /api/memories/:id` 更新内容；`DELETE /api/memories/:id` 删除。

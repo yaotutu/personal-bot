@@ -142,10 +142,28 @@ test("docs: generated OpenAPI document is structurally complete", () => {
   assert.equal(doc.info.title, "pi-muse API");
   for (const endpoint of endpoints) {
     const path = endpoint.path.replace(/:([a-zA-Z]+)/g, "{$1}");
-    const operation = (doc.paths as Record<string, Record<string, { summary?: string; operationId?: string; responses?: Record<string, unknown> }>>)[path]?.[endpoint.method];
+    const operation = (doc.paths as Record<string, Record<string, {
+      summary?: string;
+      operationId?: string;
+      description?: string;
+      parameters?: { name: string; in: string; description?: string }[];
+      responses?: Record<string, unknown>;
+    }>>)[path]?.[endpoint.method];
     assert.ok(operation, `${endpoint.method} ${path} missing in generated doc`);
     assert.ok(operation.summary, `${path} has no summary`);
     assert.ok(operation.operationId, `${path} has no operationId`);
+    assert.ok(
+      typeof operation.description === "string" && operation.description.trim().length > 0,
+      `${endpoint.method} ${path} has no description (hint is required for frontend clarity)`,
+    );
+    if (operation.parameters) {
+      for (const param of operation.parameters as { name: string; in: string; description?: string }[]) {
+        assert.ok(
+          typeof param.description === "string" && param.description.trim().length > 0,
+          `${endpoint.method} ${path} parameter "${param.name}" (in: ${param.in}) has no description`,
+        );
+      }
+    }
     const ok = operation.responses?.["200"];
     assert.ok(ok, `${path} has no 200 response`);
     if (!endpoint.sse) {

@@ -14,24 +14,60 @@ const defaultVersion = await serviceVersion;
 const toSchema = (schema: z.ZodType, io: "input" | "output") =>
   z.toJSONSchema(schema, { io }) as Record<string, unknown>;
 
+const describePathParam = (path: string, name: string): string => {
+  if (name === "spaceId") {
+    return "空间唯一标识；主空间固定为 local-main，其他空间由英文字母、数字、短横线与下划线组成";
+  }
+  if (name === "pendingId") {
+    if (path.includes("/dream/")) {
+      return "Dream 待决建议唯一标识（如 pd_...）";
+    }
+    return "待处理审批项唯一标识（如 apv_...）";
+  }
+  if (name === "mid") {
+    if (path.includes("/milestones/")) {
+      return "目标里程碑唯一标识（如 ms_1）";
+    }
+    return "记忆条目唯一标识（如 m_001）";
+  }
+  if (name === "id") {
+    if (path.includes("/activities/")) return "执行活动唯一标识（如 act_...）";
+    if (path.includes("/jobs/")) return "定时任务唯一标识（如 job_...）";
+    if (path.includes("/monitors/")) return "网页监控唯一标识（如 mon_...）";
+    if (path.includes("/memories/")) return "记忆条目唯一标识（如 m_...）";
+    if (path.includes("/goals/")) return "长期目标唯一标识（如 goal_...）";
+    if (path.includes("/approvals/")) return "审批项唯一标识（如 apv_...）";
+    return "目标资源唯一标识";
+  }
+  return `${name} 路径参数`;
+};
+
 const pathParams = (path: string) => {
   const names = [...path.matchAll(/:([a-zA-Z]+)/g)].map((m) => m[1]!);
-  return names.map((name) => ({
-    name,
-    in: "path" as const,
-    required: true,
-    schema: { type: "string" as const },
-  }));
+  return names.map((name) => {
+    const description = describePathParam(path, name);
+    return {
+      name,
+      in: "path" as const,
+      description,
+      required: true,
+      schema: { type: "string" as const, description },
+    };
+  });
 };
 
 const queryParams = (query: z.ZodType) => {
   const json = toSchema(query, "input");
-  return Object.entries((json.properties as Record<string, never>) ?? {}).map(([name, def]) => ({
-    name,
-    in: "query" as const,
-    required: ((json.required as string[]) ?? []).includes(name),
-    schema: def,
-  }));
+  return Object.entries((json.properties as Record<string, Record<string, unknown>>) ?? {}).map(([name, def]) => {
+    const description = typeof def?.description === "string" ? def.description : undefined;
+    return {
+      name,
+      in: "query" as const,
+      ...(description ? { description } : {}),
+      required: ((json.required as string[]) ?? []).includes(name),
+      schema: def,
+    };
+  });
 };
 
 /**

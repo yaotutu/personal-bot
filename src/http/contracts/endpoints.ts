@@ -166,6 +166,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getProfile",
     method: "get", path: "/api/profile", tag: "人设", summary: "读取 SOUL/USER 人设文本",
+    hint: "读取全局 profile/SOUL.md（助手灵魂与人设定位）与 profile/USER.md（用户画像与背景偏好）的自由文本内容；未设置或文件不存在时对应字段返回空串，不创建任何文件。如需编辑人设，通过 PUT /api/profile 保存。",
     auth: true, response: resp.profileResponse,
   },
   {
@@ -292,7 +293,8 @@ export const endpoints: EndpointSpec[] = [
   },
   {
     operationId: "saveIdentity",
-    method: "post", path: "/api/agent/identity", tag: "记忆", summary: "保存身份设置（名字/语气）",
+    method: "post", path: "/api/agent/identity", tag: "人设", summary: "保存身份设置（名字/语气）",
+    hint: "保存助手的全局展示身份设置，包括名字（name，注入每轮对话 prompt）、语气风格（tone: warm/concise/thoughtful）、头像标识（avatar）及是否在聊天中显示状态更新（showChatUpdates）。保存后立即生效并同步更新 GET /api/agent 快照。",
     auth: true, request: req.identitySchema, response: resp.identityView,
   },
   // ---- 目标 ----
