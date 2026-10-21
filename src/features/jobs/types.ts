@@ -18,6 +18,8 @@ export type Job = {
   at: string;
   enabled: boolean;
   createdAt: string;
+  /** 任务最后修改时刻（ISO 8601 UTC），创建、PATCH 修改、控制或执行完成后更新。 */
+  updatedAt?: string;
   nextRunAt: string;
   lastRunAt?: string;
   lastStatus?: "completed" | "failed";

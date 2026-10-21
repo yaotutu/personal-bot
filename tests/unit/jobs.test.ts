@@ -313,3 +313,22 @@ test("repository writes returned empty arrays and recovers after a failed update
   assert.equal(await repository.update(() => ({ items: [], result: "cleared" })), "cleared");
   assert.equal(await readFile(file, "utf8"), "[]\n");
 });
+
+test("update modifies job fields, records updatedAt and recalculates nextRunAt", async (t) => {
+  const file = await tempFile(t);
+  const service = createJobService(createJobRepository(file));
+  const job = await service.add("original prompt", true, "10:00");
+  assert.equal(job.updatedAt, undefined);
+
+  assert.equal(await service.update("missing", { prompt: "foo" }), undefined);
+
+  const updated = await service.update(job.id, { prompt: "new prompt", at: "14:30" });
+  assert.ok(updated);
+  assert.equal(updated.prompt, "new prompt");
+  assert.equal(updated.at, "14:30");
+  assert.ok(updated.updatedAt && Number.isFinite(Date.parse(updated.updatedAt)));
+  assert.ok(new Date(updated.updatedAt).getTime() >= new Date(job.createdAt).getTime());
+
+  const stored = await service.get(job.id);
+  assert.deepEqual(stored, updated);
+});

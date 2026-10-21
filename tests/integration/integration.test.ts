@@ -915,16 +915,38 @@ test("Jobs REST API: list filtering, sorting, patch update and delete lifecycle"
   assert.equal(sortedDesc.jobs[0].id, job2.id);
   assert.equal(sortedDesc.jobs[1].id, job1.id);
 
-  // 4. PATCH 更新任务
+  // 4. PATCH 更新任务（验证 updatedAt 刷新且回读一致）
+  const beforePatchTime = new Date(job1.createdAt).getTime();
   const patchRes = await h.request(`/api/jobs/${job1.id}`, { prompt: "Task 1 updated", at: "12:00" }, "PATCH");
   assert.equal(patchRes.status, 200);
   const patchedJob = await patchRes.json();
   assert.equal(patchedJob.prompt, "Task 1 updated");
   assert.equal(patchedJob.at, "12:00");
+  assert.ok(patchedJob.updatedAt, "updatedAt must exist");
+  assert.ok(new Date(patchedJob.updatedAt).getTime() >= beforePatchTime, "updatedAt must be refreshed on patch");
+  const readBack = await h.request(`/api/jobs/${job1.id}`).then((r) => r.json());
+  assert.equal(readBack.job.updatedAt, patchedJob.updatedAt, "GET detail updatedAt must match PATCH response");
 
-  // 5. 校验非法 PATCH 格式 (daily 为 true 时 at 必须为 HH:mm)
-  const badPatch = await h.request(`/api/jobs/${job1.id}`, { at: "not-a-time" }, "PATCH");
-  assert.equal(badPatch.status, 400);
+  // 5. 校验非法 PATCH 格式
+  // 5.1 daily 为 true 时 at 必须为 HH:mm
+  const badPatchDaily = await h.request(`/api/jobs/${job1.id}`, { at: "not-a-time" }, "PATCH");
+  assert.equal(badPatchDaily.status, 400);
+
+  // 5.2 daily 为 false（一次性任务）必须包含时区，无时区字符串必须返回 400 且不修改任务
+  const badPatchOnceNoTz = await h.request(`/api/jobs/${job1.id}`, { daily: false, at: "2026-10-29T09:00:00" }, "PATCH");
+  assert.equal(badPatchOnceNoTz.status, 400);
+  const badPatchOnceErr = await badPatchOnceNoTz.json();
+  assert.equal(badPatchOnceErr.code, "INVALID_SCHEDULE_FORMAT");
+  const unmutatedJob = await h.request(`/api/jobs/${job1.id}`).then((r) => r.json());
+  assert.equal(unmutatedJob.job.at, "12:00", "task must remain unchanged after rejected update");
+
+  // 5.3 daily 为 false 时传入合法带时区时间戳正常接受
+  const validPatchOnce = await h.request(`/api/jobs/${job1.id}`, { daily: false, at: "2026-10-29T09:00:00+08:00" }, "PATCH");
+  assert.equal(validPatchOnce.status, 200);
+  const validOnceBody = await validPatchOnce.json();
+  assert.equal(validOnceBody.daily, false);
+  assert.equal(validOnceBody.at, "2026-10-29T09:00:00+08:00");
+  assert.equal(validOnceBody.nextRunAt, "2026-10-29T01:00:00.000Z");
 
   // 6. DELETE 删除任务
   const delRes = await h.request(`/api/jobs/${job1.id}`, undefined, "DELETE");

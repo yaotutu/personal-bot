@@ -42,7 +42,7 @@ export const readJobsDocument = (value: unknown): Job[] => {
     isObject(item) && typeof item.id === "string" && typeof item.prompt === "string" &&
     typeof item.daily === "boolean" && typeof item.at === "string" &&
     (item.daily ? /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(item.at) : isDate(item.at)) &&
-    typeof item.enabled === "boolean" && isDate(item.createdAt) && isDate(item.nextRunAt) &&
+    typeof item.enabled === "boolean" && isDate(item.createdAt) && optionalDate(item.updatedAt) && isDate(item.nextRunAt) &&
     optionalDate(item.lastRunAt) && optionalString(item.lastResult) &&
     (item.lastStatus === undefined || (typeof item.lastStatus === "string" && ["completed", "failed"].includes(item.lastStatus))) &&
     (item.controlState === undefined || (typeof item.controlState === "string" && ["paused", "cancelled", "retry_pending"].includes(item.controlState))) &&

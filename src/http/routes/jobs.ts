@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { HttpDependencies } from "../../bootstrap/types.js";
 import { jobControlSchema, jobsQuerySchema, updateJobSchema } from "../contracts/rest.js";
 import { presentJob, presentJobDetail } from "../job-presenters.js";
+import { isIsoWithTimezone } from "../../features/jobs/schedule-calculator.js";
 
 /** 定时任务（Jobs）独立查询、详情、修改、控制与删除接口。 */
 export const createJobsRoutes = (
@@ -76,8 +77,14 @@ export const createJobsRoutes = (
         return c.json({ error: "Invalid HH:mm format for daily task", code: "INVALID_SCHEDULE_FORMAT" }, 400);
       }
     } else {
-      if (!Number.isFinite(Date.parse(nextAt))) {
-        return c.json({ error: "Invalid ISO 8601 timestamp for one-time task", code: "INVALID_SCHEDULE_FORMAT" }, 400);
+      if (!isIsoWithTimezone(nextAt)) {
+        return c.json(
+          {
+            error: "Invalid ISO 8601 timestamp for one-time task; timezone required (e.g. 2026-10-29T09:00:00+08:00 or 2026-10-29T01:00:00.000Z)",
+            code: "INVALID_SCHEDULE_FORMAT",
+          },
+          400,
+        );
       }
     }
 

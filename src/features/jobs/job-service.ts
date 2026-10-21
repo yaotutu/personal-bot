@@ -129,6 +129,7 @@ export const createJobService = (repository: JobRepository) => ({
     const originSpaceId = updates.originSpaceId !== undefined ? updates.originSpaceId : job.originSpaceId;
     const timeChanged = daily !== job.daily || at !== job.at;
     const nextRunAt = timeChanged && job.enabled ? nextRunAfter(daily, at, new Date()) : job.nextRunAt;
+    const updatedAt = new Date().toISOString();
     const updated: Job = {
       ...job,
       prompt,
@@ -136,6 +137,7 @@ export const createJobService = (repository: JobRepository) => ({
       at,
       nextRunAt,
       originSpaceId,
+      updatedAt,
     };
     return { items: items.map((item) => item === job ? updated : item), result: updated };
   }),

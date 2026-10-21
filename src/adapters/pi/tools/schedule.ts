@@ -1,6 +1,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import type { JobService } from "../../../features/jobs/job-service.js";
+import { isIsoWithTimezone } from "../../../features/jobs/schedule-calculator.js";
 
 // P4 对话式定时任务工具：模型把自然语言时间转成参数。一次性用 ISO 时间
 // （含时区），每日用 HH:mm。崩了重跑哲学：调度器只是扫表 + 诚实状态。
@@ -44,8 +45,8 @@ export const scheduleTool = (jobs: Pick<JobService, "add" | "list" | "cancel">, 
           };
         const daily = params.daily === true;
         // 校验时间形状，坏输入给模型可纠正的提示而不是崩。
-        const iso = daily ? null : new Date(params.at);
-        if (daily ? !/^\d{1,2}:\d{2}$/.test(params.at) : isNaN(iso!.getTime()))
+        const validTime = daily ? /^\d{1,2}:\d{2}$/.test(params.at) : isIsoWithTimezone(params.at);
+        if (!validTime)
           return {
             content: [
               {

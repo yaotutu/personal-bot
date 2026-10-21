@@ -26,7 +26,7 @@ export const presentJob = (job: Job): JobDto => ({
   enabled: job.enabled,
   status: presentJobStatus(job),
   createdAt: job.createdAt,
-  updatedAt: latestDate(job.createdAt, job.lastRunAt, job.lastControl?.at) ?? job.createdAt,
+  updatedAt: latestDate(job.createdAt, job.updatedAt, job.lastRunAt, job.lastControl?.at) ?? job.createdAt,
   nextRunAt: job.enabled ? job.nextRunAt : undefined,
   lastRunAt: job.lastRunAt,
   lastResult: job.lastResult,
