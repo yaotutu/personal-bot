@@ -30,7 +30,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
     cors({
       origin: (origin) => origin ?? "*",
       allowHeaders: ["Authorization", "Content-Type"],
-      allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     }),
   );
   app.use(
