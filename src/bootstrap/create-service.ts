@@ -133,6 +133,11 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
         cancelApprovals: async (ownerSpaceId, runId) => {
           for (const action of await actions.list()) if (action.spaceId === ownerSpaceId && action.runId === runId && action.status === "pending") await actions.cancel(action.id);
         },
+        subscribeApprovals: (ownerSpaceId, runId, listener) => actions.subscribe(({ approval }) => {
+          if (approval.spaceId === ownerSpaceId && approval.runId === runId) {
+            listener({ id: approval.id, pending: approval.status === "pending" });
+          }
+        }),
         openSession: async ({ runId, activity, status }) => createPiExecution(
           await openPi({
             config,

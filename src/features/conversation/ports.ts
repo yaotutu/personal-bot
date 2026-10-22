@@ -45,5 +45,11 @@ export type ConversationDependencies = {
   /** 活动概览状态变化时的展示推送（SSE 直推通道）；不拥有活动持久化，权威记录仍是会话 JSONL。 */
   publishActivity?: (overview: ActivityOverview) => void;
   cancelApprovals?: (spaceId: string, runId: string) => Promise<void>;
+  /** 只订阅本轮真实审批的等待变化；不传载荷，也不依赖展示状态或推断文件执行成功。 */
+  subscribeApprovals?: (
+    spaceId: string,
+    runId: string,
+    listener: (change: { id: string; pending: boolean }) => void,
+  ) => () => void;
   openSession: (context: { runId: string; activity?: ActivityRun; status?: StatusRun }) => Promise<ConversationExecution>;
 };

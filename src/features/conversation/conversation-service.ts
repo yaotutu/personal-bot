@@ -139,9 +139,20 @@ export function createConversation(
       void cancel("DISCONNECTED").catch(() => undefined);
     };
     signal?.addEventListener("abort", disconnected, { once: true });
-    const timeout = setTimeout(() => {
-      void cancel("TIMEOUT").catch(() => undefined);
-    }, config.runTimeoutMs);
+    // 只扣除非审批等待时间；多个审批重叠时，直到最后一个结束才恢复剩余预算。
+    // 使用单调时钟计时，不重置预算；Stop/断流仍直接 cancel，不依赖此 timer。
+    let remainingMs = config.runTimeoutMs;
+    let countingSince = performance.now();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const resumeTimeout = () => {
+      countingSince = performance.now();
+      timeout = setTimeout(() => {
+        void cancel("TIMEOUT", running.runId).catch(() => undefined);
+      }, remainingMs);
+    };
+    resumeTimeout();
+    const pendingApprovals = new Set<string>();
+    let unsubscribeApprovals: (() => void) | undefined;
     let unsubscribe: (() => void) | undefined;
     const turn: ConversationTurn = {
       userId: user.id,
@@ -161,6 +172,19 @@ export function createConversation(
     let turnRecorded = false;
     const endText = () => emit({ type: "text_end", assistantId: turn.assistantId });
     try {
+      // 在打开模型执行前订阅，避免漏掉本轮（含子代理）刚登记的审批。
+      unsubscribeApprovals = dependencies.subscribeApprovals?.(currentSpaceId, running.runId, ({ id, pending }) => {
+        if (pending) {
+          if (pendingApprovals.size === 0) {
+            clearTimeout(timeout);
+            timeout = undefined;
+            remainingMs = Math.max(0, remainingMs - (performance.now() - countingSince));
+          }
+          pendingApprovals.add(id);
+        } else if (pendingApprovals.delete(id) && pendingApprovals.size === 0 && !running.reason) {
+          resumeTimeout();
+        }
+      });
       emit({
         type: "run_started",
         assistantId: turn.assistantId,
@@ -257,6 +281,7 @@ export function createConversation(
       emit({ type: "run_error", code, message });
     } finally {
       clearTimeout(timeout);
+      unsubscribeApprovals?.();
       signal?.removeEventListener("abort", disconnected);
       unsubscribe?.();
       try {

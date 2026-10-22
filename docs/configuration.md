@@ -82,7 +82,7 @@ chmod 600 .pi-muse/config.json
 | `model.apiKey` | 空 | 模型 API key，直接写在配置文件中 |
 | `model.contextWindow` | `32768` | 必须大于 `model.maxTokens` |
 | `model.maxTokens` | `4096` | 模型输出上限 |
-| `runtime.runTimeoutMs` | `120000` | 客户端轮超时 |
+| `runtime.runTimeoutMs` | `120000` | 聊天轮运行预算（毫秒）；等待人工审批期间暂停计时，所有待审批结束后按剩余预算继续，不重新获得完整预算。审批仍按自身 TTL 到期，Stop/断线仍立即取消；不改变 jobs trigger 的超时语义 |
 | `runtime.schedulerIntervalMs` | `30000` | 定时任务扫描间隔 |
 | `runtime.monitorScanIntervalMs` | `60000` | 网页监控扫描间隔 |
 | `runtime.dataDir` | 配置文件所在目录 | 相对路径按配置文件所在目录解析；推荐绝对路径，但不强制 |
