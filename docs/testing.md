@@ -4,11 +4,14 @@
 
 ## 隔离与授权
 
-- 自动化测试与临时验收使用独立临时实例目录，不修改真实 `.pi-muse/`（含 config.json）数据、OpenMuse 仓库或已有开发进程；`.pi-muse/mock` 是固定联调实例，不是测试临时目录。不自动 commit/push 或撤销已有改动。
-- 不新增 CI、GitHub Actions、远程定时或自动循环入口。真实模型费用不可控，live 必须人工明确授权，不进入默认检查。
-- 启动前核对端口与进程；端口冲突不擅自停止原进程。测试服务、fixture、provider、定时器和临时目录均需在失败路径清理，SIGKILL 只能记为退出检查失败，不能冒充自然退出。
+- 自动化测试与临时验收使用独立临时实例目录，不修改真实 `.pi-muse/`（含 config.json）数据或 OpenMuse 仓库；开发进程启停遵守 [工作区长期授权](../../AGENTS.md#14-开发服务进程授权)。`.pi-muse/mock` 是固定联调实例，不是测试临时目录。不撤销已有改动；模块收尾的本地提交遵守 [根规则](../../AGENTS.md#15-模块收尾与提交)，不自动 push。
+- 所有测试必须真实连接后端，并真实调用外部大模型接口；不得使用 mock、fake provider 或拦截返回值替代。用户已长期授权本项目所有开发测试的真实模型费用，无需担心费用或逐次请示，不得以费用为由跳过。现存模拟测试不算满足本规则；live 不进入默认检查不等于可以跳过。
+- 不新增 CI、GitHub Actions、远程定时或自动循环入口；真实调用授权不改变用户数据、凭据、审批与发布保护。
+- 启动前核对端口与进程归属；确认是本项目开发服务时可按根规则协调重启，不停止生产、非本项目或归属不明的进程。测试服务、fixture、provider、定时器和临时目录均需在失败路径清理，SIGKILL 只能记为退出检查失败，不能冒充自然退出。
 
-## 测试分层与目录
+## 现存测试入口与局限
+
+下表描述现有脚本实现，不是对新规则的例外授权。目前 unit/integration/E2E 中仍有模拟模型；运行这些旧脚本不能宣称已完成用户要求的测试。必须另外执行真实后端与外部大模型测试，不能仅修改文档就宣称现存脚本已迁移。
 
 | 层 | 目录 | 入口 | 用途 | 模型 / 网络 |
 | --- | --- | --- | --- | --- |
@@ -37,7 +40,7 @@
 - **断言依据**：实际工具调用与结果、文件内容、审批状态、HTTP 状态、SSE 事件、socket 关闭、messages/revision、重启后状态。按职责检查真实文件和状态，不依赖模型自述或自然语言快照。
 - **不得替代**：不以 `console.log`、隐藏 stack、自然语言答案或快照对比作为通过证明；不能拿 fake provider、HTTP/schema 或旧版本验收冒充真实模型/页面验收，也不能用页面测试代替 HTTP/SSE 断言。
 - **失败逐项记录**：任何场景 FAIL 必须按事实单条报告，不能汇总掩盖、合并断言或自动 retry 模型/工具凑通过。取消应检查终态与连接/副作用，不把 RUN_ERROR 当作普通执行成功。
-- **完成状态**：未补相应回归的变更须标记「未完成回归」并说明阻塞；费用/凭据或页面环境不具备时明确写未验证。代码修改、自动化、真实模型和页面验收必须分别报告准确版本与范围。
+- **完成状态**：未补相应回归的变更须标记「未完成回归」并说明阻塞；缺少凭据、服务不可用或页面环境不具备时明确写未验证，不以费用为由跳过。代码修改、自动化、真实模型和页面验收必须分别报告准确版本与范围。
 
 ## 命令与完成检查
 
@@ -71,13 +74,19 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 - 必须同时给出 `--config` 与 `--allow-live`；允许参数开头一个 `--`，未知/重复参数、尾随多余参数和命令行密钥均拒绝，缺参数非零退出。
 - 仅读显式配置的 `.model`（baseUrl、id、可选 apiKey、contextWindow、maxTokens），不引用其 runtime.dataDir、不复制完整配置。真实 key 仅驻留 `tests/support/live-model.ts` 透明代理内存，业务实例只用代理占位 key。
 - DATA_DIR 使用临时空实例，服务仅监听 `127.0.0.1` 随机端口；正式 DATA_DIR、17890 服务、OpenMuse 和 watcher 都不是测试对象。关闭与异常均走 finally，回收 service / server / 慢 HTTP fixture / 代理 / 定时器 / 临时目录。
-- 不进入 `pnpm test`、`pnpm check`、CI 或远程定时，不自动运行。调用前必须获得明确费用授权，不做模型/工具自动 retry，不为验收修改 pi 底层。
+- 不由 `pnpm test`、`pnpm check`、CI 或远程定时隐式触发；主 Agent 按任务范围主动执行，使用用户已给出的长期费用授权，不重复请示。保留 `--config` 与 `--allow-live` 作为命令级防误触门禁；不做模型/工具自动 retry，不为验收修改 pi 底层。
 - 默认 finally 清理；`--keep-artifacts` 保留合成测试 data 与脱敏 summary.json/traces，包含逐项结果、调用轨迹及版本身份，不保存真实配置、供应商鉴权头或 key。trace 落盘前将 key 替换为 `[REDACTED]`，上游失败仅返回受控 502，不返回供应商错误正文，不承诺保留任意错误 stack。
 - 以透明代理记录的真实 tool call / result / 时序和 HTTP、文件系统、状态证据判断，不以自然语言自述通过。价格/速率限制不可控，任何 FAIL 单独记录，不凑 N/N。
 
 ### `pnpm check`
 
 顺序为 typecheck → test → test:e2e（含服务端 build）→ `pnpm --dir web build` → `git diff --check`，任一步非零即停；不包含 live，不自动产生真实模型费用。
+
+### 已运行开发服务的 CORS 真实联调
+
+运行 `node --import tsx tests/live/cors.ts --config .pi-muse/config.json --allow-live`，可追加 `--keep-artifacts` 保存脱敏汇总。该专项与上面的隔离实例 runner 不同：直接连接本机配置端口的已运行后端，读取 `server.port/accessKey` 与 `model.id`，不使用模型 key，不启动或修改服务。
+
+执行前确认目标是使用真实外部模型、数据隔离的开发实例。脚本先完成一轮真实模型对话，再通过 REST 创建专用测试记忆，验证 PATCH 预检、修改落盘及未鉴权 401，最后通过 API 清理本轮记忆和空间；失败非零退出，不重试模型，不使用 fake provider。它验证 HTTP/CORS 协议，不冒充浏览器页面或原生 UI 验收。
 
 ## 稳定 E2E 覆盖范围
 
@@ -97,7 +106,7 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 
 ## 自有 Web 页面验收
 
-- 主要入口为仓库自有 Web DEV（默认 15173），后端使用隔离实例，按实际监听端口设置 `API_TARGET`；不要改已有服务配置或停止占用进程。启动与代理用法见 [README](../README.md#自研-web-客户端web)。
+- 主要入口为仓库自有 Web DEV（默认 15173），后端使用隔离实例，按实际监听端口设置 `API_TARGET`；不要擅自改已有服务配置，开发进程启停按根规则授权执行。启动与代理用法见 [README](../README.md#自研-web-客户端web)。
 - 涉及工具报文或展示时，实际查看对应 renderer、完整审批预览、刷新后历史恢复及错误态，不只抓 AG-UI 事件或验证 JSON。
 - HTTP/SSE 变更还需按 [API 开发规范](api-development.md#每次接口变更的验收门槛)实际打开 `/docs` 确认接入说明可见；页面 200 或 schema 存在不算文档语义验收。
 - 真实模型 + Web、fake provider + Web、服务端自动化分别记录，不用历史 OpenMuse/原生客户端记录替代当前自有 Web 验收。
