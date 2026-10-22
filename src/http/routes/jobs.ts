@@ -2,7 +2,10 @@ import { Hono } from "hono";
 import type { HttpDependencies } from "../../bootstrap/types.js";
 import { jobControlSchema, jobsQuerySchema, updateJobSchema } from "../contracts/rest.js";
 import { presentJob, presentJobDetail } from "../job-presenters.js";
-import { isIsoWithTimezone } from "../../features/jobs/schedule-calculator.js";
+import {
+  assertValidSchedule,
+  InvalidScheduleError,
+} from "../../features/jobs/schedule-calculator.js";
 
 /** 定时任务（Jobs）独立查询、详情、修改、控制与删除接口。 */
 export const createJobsRoutes = (
@@ -72,30 +75,37 @@ export const createJobsRoutes = (
     const nextDaily = parsed.data.daily !== undefined ? parsed.data.daily : existing.daily;
     const nextAt = parsed.data.at !== undefined ? parsed.data.at.trim() : existing.at;
 
-    if (nextDaily) {
-      if (!/^\d{1,2}:\d{2}$/.test(nextAt)) {
-        return c.json({ error: "Invalid HH:mm format for daily task", code: "INVALID_SCHEDULE_FORMAT" }, 400);
+    // 预校验合并后的排期设定：在进入 withSpace 之前校验，防止非法时刻创建新空间
+    try {
+      assertValidSchedule(nextDaily, nextAt);
+    } catch (err) {
+      if (err instanceof InvalidScheduleError) {
+        return c.json({ error: err.message, code: err.code }, 400);
       }
-    } else {
-      if (!isIsoWithTimezone(nextAt)) {
-        return c.json(
-          {
-            error: "Invalid ISO 8601 timestamp for one-time task; timezone required (e.g. 2026-10-29T09:00:00+08:00 or 2026-10-29T01:00:00.000Z)",
-            code: "INVALID_SCHEDULE_FORMAT",
-          },
-          400,
-        );
-      }
+      throw err;
     }
 
-    const updated = await jobs.update(c.req.param("id"), {
-      prompt: parsed.data.prompt,
-      daily: parsed.data.daily,
-      at: parsed.data.at,
-      originSpaceId,
-    });
-    if (!updated) return c.json({ error: "Job not found", code: "JOB_NOT_FOUND" }, 404);
-    return c.json(presentJob(updated));
+    const update = async () => {
+      try {
+        const updated = await jobs.update(c.req.param("id"), {
+          prompt: parsed.data.prompt,
+          daily: parsed.data.daily,
+          at: parsed.data.at,
+          originSpaceId,
+        });
+        if (!updated) return c.json({ error: "Job not found", code: "JOB_NOT_FOUND" }, 404);
+        return c.json(presentJob(updated));
+      } catch (err) {
+        if (err instanceof InvalidScheduleError) {
+          return c.json({ error: err.message, code: err.code }, 400);
+        }
+        throw err;
+      }
+    };
+
+    return originSpaceId
+      ? conversationHub.withSpace(originSpaceId, update)
+      : update();
   });
 
   app.delete("/api/jobs/:id", async (c) => {

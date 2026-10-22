@@ -525,6 +525,37 @@ test("docs: subagent stays inside the parent run and no background task creation
   assert.ok(doc.paths["/api/jobs/{id}"]?.get, "generated doc must include GET /api/jobs/{id}");
   assert.ok(doc.paths["/api/jobs/{id}/control"]?.post, "generated doc must include POST /api/jobs/{id}/control");
   assert.ok(doc.paths["/api/jobs/{id}"]?.patch, "generated doc must include PATCH /api/jobs/{id}");
+  const updateJobOp = doc.paths["/api/jobs/{id}"]?.patch as {
+    description?: string;
+    requestBody?: { content: Record<string, { schema: JsonSchema }> };
+  } | undefined;
+  const updateJobDesc = updateJobOp?.description ?? "";
+  assert.match(updateJobDesc, /originSpaceId 省略时保留原绑定/);
+  assert.match(updateJobDesc, /显式改绑新 ID 时在接纳前先建立目标空间/);
+  assert.match(updateJobDesc, /409 SPACE_DELETING/);
+  assert.match(updateJobDesc, /随新空间删除级联清理/);
+  assert.match(updateJobDesc, /来源删除后绝不改投主空间/);
+  const patchBody = updateJobOp?.requestBody?.content?.["application/json"]?.schema;
+  const originFieldDesc = patchBody?.properties?.originSpaceId?.description ?? "";
+  assert.match(originFieldDesc, /创建时省略默认 local-main，PATCH 修改时省略保留原绑定/);
+  assert.match(originFieldDesc, /显式指定新 ID 在接纳前先建立空间/);
+  assert.match(originFieldDesc, /409 SPACE_DELETING/);
+  assert.match(originFieldDesc, /删除来源空间将级联清理名下任务/);
+  assert.match(originFieldDesc, /绝不改投主空间/);
+
+  // A03: updateJob description 与 at 字段必须说明严格两位 HH:mm、00:00 至 23:59、
+  // 非法日程 400 INVALID_SCHEDULE_FORMAT 且不自动进位、不写入；合法日程按服务器时区。
+  assert.match(updateJobDesc, /严格两位 HH:mm/);
+  assert.match(updateJobDesc, /00:00 至 23:59/);
+  assert.match(updateJobDesc, /400 INVALID_SCHEDULE_FORMAT/);
+  assert.match(updateJobDesc, /非法日程返回 400 INVALID_SCHEDULE_FORMAT，不自动进位、不写入/);
+  assert.match(updateJobDesc, /合法日程按服务端本地时区计算并保存/);
+
+  const atFieldDesc = patchBody?.properties?.at?.description ?? "";
+  assert.match(atFieldDesc, /严格两位/);
+  assert.match(atFieldDesc, /00:00 至 23:59/);
+  assert.match(atFieldDesc, /400 INVALID_SCHEDULE_FORMAT/);
+  assert.match(atFieldDesc, /非法日程返回 400 INVALID_SCHEDULE_FORMAT，不自动进位、不写入/);
   assert.ok(doc.paths["/api/jobs/{id}"]?.delete, "generated doc must include DELETE /api/jobs/{id}");
 });
 

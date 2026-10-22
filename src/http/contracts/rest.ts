@@ -55,7 +55,7 @@ export const saveProfileSchema = z.object({
 // ---------------------------------------------------------------------------
 // 来源空间会被用于通知投递，必须复用空间域的目录安全校验；未指定来源时投递主空间。
 const originSpaceIdSchema = z.string().refine(isSpaceId, "Invalid originSpaceId")
-  .optional().describe("接收结果通知的来源空间：字母数字开头，可含 _ -，最长 64；仅省略时默认 local-main。显式新 ID 在接纳前建立空间；显式来源不存在或被删除时绝不改投主空间。删除进行中返回 409，客户端刷新空间列表后由用户重新选择，不自动重试旧 ID。");
+  .optional().describe("接收结果通知的来源空间：字母数字开头，可含 _ -，最长 64；创建时省略默认 local-main，PATCH 修改时省略保留原绑定。显式指定新 ID 在接纳前先建立空间；删除进行中返回 409 SPACE_DELETING，客户端刷新空间列表后由用户重新选择，不自动重试旧 ID。删除来源空间将级联清理名下任务；来源不存在或删除后绝不改投主空间，目录不复活。");
 
 export const jobsQuerySchema = z.strictObject({
   spaceId: z.string().refine(isSpaceId, "Invalid spaceId").optional().describe("按归属空间过滤；省略表示不按空间过滤"),
@@ -70,7 +70,9 @@ export const jobControlSchema = z.strictObject({
 export const updateJobSchema = z.strictObject({
   prompt: z.string().trim().min(1).max(2000).optional().describe("修改后的提醒/任务内容"),
   daily: z.boolean().optional().describe("是否每天重复"),
-  at: z.string().trim().min(1).max(64).optional().describe("设定时刻：daily=true 时为 'HH:mm'（如 '09:00'，按服务端本地时区解释，前端无需转换）；daily=false 时为带时区偏移的 ISO 8601 时间戳（如 '2026-10-22T09:00:00+08:00'）"),
+  // at 刻意不做 min(1)：空字符串也交给领域排期校验，与其它非法值一样返回
+  // 400 INVALID_SCHEDULE_FORMAT，而不是请求结构错误 INVALID_REQUEST。
+  at: z.string().trim().max(64).optional().describe("设定时刻：daily=true 时为严格两位 'HH:mm'（00:00 至 23:59，前导零必填，如 '09:00'），按服务端本地时区解释，前端无需转换；daily=false 时为带时区偏移的 ISO 8601 时间戳（如 '2026-10-22T09:00:00+08:00'）。非法日程返回 400 INVALID_SCHEDULE_FORMAT，不自动进位、不写入"),
   originSpaceId: originSpaceIdSchema,
 });
 

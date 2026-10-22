@@ -106,18 +106,17 @@ test("reconcileOnStart rejects damaged jobs without replacing the original file"
   assert.equal(await readFile(file, "utf8"), "broken original");
 });
 
-test("nextRunAfter preserves invalid input fallback and Date errors", () => {
+test("nextRunAfter rejects invalid daily time without fallback or Date auto-overflow", () => {
   const after = new Date(2030, 0, 1, 10, 30);
-  assert.equal(
-    nextRunAfter(true, "invalid", after),
-    new Date(2030, 0, 2).toISOString(),
-  );
-  assert.equal(
-    nextRunAfter(true, "25:75", after),
-    new Date(2030, 0, 2, 2, 15).toISOString(),
-  );
-  assert.throws(() => nextRunAfter(false, "invalid", after), RangeError);
-  assert.throws(() => nextRunAfter(true, "Infinity:00", after), RangeError);
+  const isScheduleError = (err: unknown) =>
+    err instanceof Error && "code" in err && (err as { code: string }).code === "INVALID_SCHEDULE_FORMAT";
+  assert.throws(() => nextRunAfter(true, "invalid", after), isScheduleError);
+  assert.throws(() => nextRunAfter(true, "25:75", after), isScheduleError);
+  assert.throws(() => nextRunAfter(true, "09:99", after), isScheduleError);
+  assert.throws(() => nextRunAfter(true, "24:00", after), isScheduleError);
+  assert.throws(() => nextRunAfter(true, "9:00", after), isScheduleError);
+  assert.throws(() => nextRunAfter(false, "invalid", after), isScheduleError);
+  assert.throws(() => nextRunAfter(true, "Infinity:00", after), isScheduleError);
 });
 
 test("repository rejects bad job entries instead of filtering and preserves original bytes", async (t) => {
@@ -331,4 +330,73 @@ test("update modifies job fields, records updatedAt and recalculates nextRunAt",
 
   const stored = await service.get(job.id);
   assert.deepEqual(stored, updated);
+});
+
+test("JobService add, update, and reconcileOnStart strictly reject invalid daily time and keep data intact", async (t) => {
+  const file = await tempFile(t);
+  const repo = createJobRepository(file);
+  const service = createJobService(repo);
+  const isScheduleError = (err: unknown) =>
+    err instanceof Error && "code" in err && (err as { code: string }).code === "INVALID_SCHEDULE_FORMAT";
+
+  // 1. add 拒绝非法时刻
+  for (const badTime of ["09:99", "24:00", "9:00", "invalid", "", "25:00"]) {
+    await assert.rejects(
+      () => service.add("test bad daily", true, badTime),
+      isScheduleError,
+    );
+  }
+  // 文件仍为空或不存在
+  assert.deepEqual(await service.list(), []);
+
+  // 2. 正常添加任务（包含 paused 任务）
+  const job = await service.add("valid daily", true, "10:30");
+  await service.control(job.id, "pause");
+  const paused = await service.get(job.id);
+  assert.equal(paused?.controlState, "paused");
+  assert.equal(paused?.enabled, false);
+
+  // 3. 对暂停/停用任务 update 非法时刻，也必须拒绝
+  for (const badTime of ["09:99", "24:00", "9:00", "invalid"]) {
+    await assert.rejects(
+      () => service.update(job.id, { at: badTime }),
+      isScheduleError,
+    );
+  }
+  // 任务状态与时刻保持原样
+  const unchanged = await service.get(job.id);
+  assert.equal(unchanged?.at, "10:30");
+  assert.equal(unchanged?.controlState, "paused");
+
+  // 4. 合法边界 00:00 与 23:59 update 成功
+  const updated00 = await service.update(job.id, { at: "00:00" });
+  assert.equal(updated00?.at, "00:00");
+  const updated2359 = await service.update(job.id, { at: "23:59" });
+  assert.equal(updated2359?.at, "23:59");
+});
+
+test("reconcileOnStart strictly validates existing records (including disabled) and preserves original bytes on failure", async (t) => {
+  const file = await tempFile(t);
+  const repo = createJobRepository(file);
+  const service = createJobService(repo);
+
+  // 写入包含非法时刻的停用任务
+  const corruptJob: Job = {
+    ...baseJob("corrupt-disabled"),
+    daily: true,
+    at: "24:00", // 非法每日时刻
+    enabled: false,
+    controlState: "paused",
+  };
+  const originalBytes = JSON.stringify([corruptJob], null, 2) + "\n";
+  await writeFile(file, originalBytes);
+
+  // 确切断言：repository 读阶段由 readJobsDocument 按存储模式拦截并抛出 InvalidDocumentError，绝不进位且文件字节原样保留
+  await assert.rejects(
+    () => service.reconcileOnStart(),
+    (err: unknown) => err instanceof Error && err.name === "InvalidDocumentError" && err.message.includes("jobs"),
+  );
+
+  // 文件字节必须原样保留
+  assert.equal(await readFile(file, "utf8"), originalBytes);
 });

@@ -1,5 +1,6 @@
 import type { MemoryState } from "../../features/memory/types.js";
 import type { Job } from "../../features/jobs/types.js";
+import { isStrictDailyTime } from "../../features/jobs/schedule-calculator.js";
 
 /** 固定安全文案，不在错误里附带原文、文件路径或用户资料。 */
 export class InvalidDocumentError extends Error {
@@ -41,7 +42,8 @@ export const readJobsDocument = (value: unknown): Job[] => {
   if (!Array.isArray(value) || !value.every((item) =>
     isObject(item) && typeof item.id === "string" && typeof item.prompt === "string" &&
     typeof item.daily === "boolean" && typeof item.at === "string" &&
-    (item.daily ? /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(item.at) : isDate(item.at)) &&
+    // 每日时刻与领域共用同一严格规则（00:00 至 23:59，前导零必填），不维护第二套正则。
+    (item.daily ? isStrictDailyTime(item.at) : isDate(item.at)) &&
     typeof item.enabled === "boolean" && isDate(item.createdAt) && optionalDate(item.updatedAt) && isDate(item.nextRunAt) &&
     optionalDate(item.lastRunAt) && optionalString(item.lastResult) &&
     (item.lastStatus === undefined || (typeof item.lastStatus === "string" && ["completed", "failed"].includes(item.lastStatus))) &&

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { JobRepository } from "./ports.js";
-import { nextRunAfter } from "./schedule-calculator.js";
+import { assertValidSchedule, nextRunAfter } from "./schedule-calculator.js";
 import type { Job, JobControlAction, JobControlResult } from "./types.js";
 
 /**
@@ -64,10 +64,15 @@ export const createJobService = (repository: JobRepository) => ({
     controlJob(repository, id, action, isBusy),
 
   /**
-   * 启动时沿 nanobot 语义重算 daily、停用过期 once；没有断点续跑。
-   * 用户请求的即时 retry 也不在重启后自动恢复，清除队列展示标记，保留控制记录。
+   * 启动时对存量全部任务（无论 enabled 或停用）先做严格排期校验，遇到非法时刻立即拒绝启动，
+   * 确保坏记录文件字节原样保留，不静默过滤、不自动禁用、不改写坏条目；
+   * 校验通过后再重算 daily 与停用过期 once。没有断点续跑。
    */
   reconcileOnStart: (): Promise<void> => repository.update((items) => {
+    // 先严格校验所有存量任务（包含 enabled 与停用），坏条目直接抛错阻止启动
+    for (const job of items) {
+      assertValidSchedule(job.daily, job.at);
+    }
     const now = new Date();
     const updated = items.map((original) => {
       const job = original.controlState === "retry_pending"
@@ -84,9 +89,12 @@ export const createJobService = (repository: JobRepository) => ({
   }),
 
   add: (prompt: string, daily: boolean, at: string, originSpaceId: string = "local-main"): Promise<Job> => repository.update((items) => {
+    const trimmedPrompt = prompt.trim();
+    const trimmedAt = at.trim();
+    assertValidSchedule(daily, trimmedAt);
     const job: Job = {
-      id: randomUUID(), prompt: prompt.trim(), daily, at, enabled: true,
-      createdAt: new Date().toISOString(), nextRunAt: nextRunAfter(daily, at, new Date()),
+      id: randomUUID(), prompt: trimmedPrompt, daily, at: trimmedAt, enabled: true,
+      createdAt: new Date().toISOString(), nextRunAt: nextRunAfter(daily, trimmedAt, new Date()),
       originSpaceId,
     };
     return { items: [...items, job], result: job };
@@ -115,6 +123,8 @@ export const createJobService = (repository: JobRepository) => ({
 
   /**
    * 修改定时任务的提示词、执行时刻（daily/at）或归属空间。
+   * 无论任务是否处于调度中（包含 paused/cancelled 任务），最终合并后的 schedule
+   * 必须通过领域排期校验，在 repository 读改写事务内校验防并发绕过；
    * 若设定时刻改变且任务处于调度中（enabled），基于当前时间重算 nextRunAt。
    */
   update: (
@@ -127,6 +137,10 @@ export const createJobService = (repository: JobRepository) => ({
     const daily = updates.daily !== undefined ? updates.daily : job.daily;
     const at = updates.at !== undefined ? updates.at.trim() : job.at;
     const originSpaceId = updates.originSpaceId !== undefined ? updates.originSpaceId : job.originSpaceId;
+
+    // 校验合并后的排期设定；无论 enabled 与否都拒绝非法排期
+    assertValidSchedule(daily, at);
+
     const timeChanged = daily !== job.daily || at !== job.at;
     const nextRunAt = timeChanged && job.enabled ? nextRunAfter(daily, at, new Date()) : job.nextRunAt;
     const updatedAt = new Date().toISOString();

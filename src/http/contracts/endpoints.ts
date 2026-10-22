@@ -238,7 +238,7 @@ export const endpoints: EndpointSpec[] = [
     operationId: "updateJob",
     method: "patch", path: "/api/jobs/:id", tag: "任务", summary: "修改定时任务",
     hint:
-      "修改定时任务的提示词（prompt）、执行周期与时刻（daily、at）或归属空间（originSpaceId）。时刻设定规则：daily=true 时 at 为 HH:mm（按服务端本地时区解释，前端无需换算）；daily=false 时 at 必须为带时区偏移的完整 ISO 8601 时间戳。修改时刻且任务处于调度中时，将自动重算下次触发时刻 nextRunAt（ISO 8601 UTC）。任务不存在返回 404。",
+      "修改定时任务的提示词（prompt）、执行周期与时刻（daily、at）或归属空间（originSpaceId）。时刻设定规则：daily=true 时 at 必须为严格两位 HH:mm（00:00 至 23:59，前导零不可省略），按服务端本地时区解释，前端无需换算；daily=false 时 at 必须为带时区偏移的完整 ISO 8601 时间戳。非法日程返回 400 INVALID_SCHEDULE_FORMAT，不自动进位、不写入；合法日程按服务端本地时区计算并保存。修改时刻且任务处于调度中时，将自动重算下次触发时刻 nextRunAt（ISO 8601 UTC）。任务不存在返回 404。originSpaceId 省略时保留原绑定（不改投主空间也不创建新空间）；显式改绑新 ID 时在接纳前先建立目标空间，并与目标空间的删除串行协调。目标空间正在删除中返回 409 SPACE_DELETING，客户端不自动重试旧 ID；改绑成功后随新空间删除级联清理，来源删除后绝不改投主空间，目录不复活。",
     auth: true, request: req.updateJobSchema, response: resp.jobItem,
   },
   {
