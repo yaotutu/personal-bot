@@ -70,17 +70,21 @@ export const resolvePublicHost = async (
 ): Promise<ResolvedAddress> => {
   signal?.throwIfAborted();
   const normalized = hostname.replace(/\.$/, "").toLowerCase();
+  const unbracketed = normalized.startsWith("[") && normalized.endsWith("]")
+    ? normalized.slice(1, -1)
+    : normalized;
   if (!allowPrivateTargets) {
-    if (normalized === "localhost" || normalized.endsWith(".localhost"))
+    if (unbracketed === "localhost" || unbracketed.endsWith(".localhost"))
       throw new Error("Blocked local hostname");
   }
-  if (isIP(normalized)) {
-    if (!allowPrivateTargets && !isPublicIp(normalized))
+  const ipFamily = isIP(unbracketed);
+  if (ipFamily) {
+    if (!allowPrivateTargets && !isPublicIp(unbracketed))
       throw new Error("Blocked private address");
-    return { address: normalized, family: isIP(normalized) };
+    return { address: unbracketed, family: ipFamily };
   }
   // 系统 getaddrinfo 无取消接口；停止等待后丢弃迟到结果，绝不继续建立 HTTP 连接。
-  const lookup = dnsLookup(normalized, { all: true, verbatim: true });
+  const lookup = dnsLookup(unbracketed, { all: true, verbatim: true });
   let abortLookup: (() => void) | undefined;
   const addresses = await (signal ? Promise.race([
     lookup,
@@ -119,15 +123,24 @@ const readBody = async (
   return Buffer.concat(chunks).toString("utf8");
 };
 
+export type HttpRequestFn = (
+  url: URL,
+  config: WebHttpConfig,
+  pinned: ResolvedAddress,
+  timeoutMs: number,
+  signal?: AbortSignal,
+) => Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: string; url: URL }>;
+
 const requestOnce = async (
   url: URL,
   config: WebHttpConfig,
   pinned: ResolvedAddress,
+  timeoutMs: number,
   signal?: AbortSignal,
 ) => {
   signal?.throwIfAborted();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   // 父取消与本请求超时共用底层 request 的销毁语义，等待 headers/body 时都能中断。
   const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
   const headers = {
@@ -171,7 +184,7 @@ const requestOnce = async (
             .catch(reject);
         },
       );
-      request.setTimeout(config.timeoutMs, () => controller.abort());
+      request.setTimeout(timeoutMs, () => controller.abort());
       request.on("error", reject);
       request.end();
     },
@@ -182,33 +195,51 @@ export const safePublicGet = async (
   rawUrl: string,
   config: WebHttpConfig,
   signal?: AbortSignal,
+  doRequest: HttpRequestFn = requestOnce,
 ) => {
   signal?.throwIfAborted();
-  let url = new URL(rawUrl);
-  let pinned = await resolvePublicHost(url.hostname, config.allowPrivateTargets, signal);
-  for (let redirects = 0; redirects < 6; redirects++) {
-    signal?.throwIfAborted();
-    const response = await requestOnce(url, config, pinned, signal);
-    signal?.throwIfAborted();
-    const location = response.headers.location;
-    if (![301, 302, 303, 307, 308].includes(response.status)) {
-      if (response.status < 200 || response.status >= 400)
-        throw new Error(`HTTP ${response.status}`);
-      const contentType = Array.isArray(response.headers["content-type"])
-        ? response.headers["content-type"][0]!
-        : response.headers["content-type"] ?? "";
-      return {
-        status: response.status,
-        contentType,
-        body: response.body,
-        finalUrl: url.toString(),
-      };
-    }
-    if (!location) throw new Error("Redirect without location");
-    url = new URL(Array.isArray(location) ? location[0]! : location, url);
-    pinned = await resolvePublicHost(url.hostname, config.allowPrivateTargets, signal);
+  const deadline = Date.now() + config.timeoutMs;
+  const timeoutController = new AbortController();
+  const overallTimer = setTimeout(() => timeoutController.abort(), config.timeoutMs);
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutController.signal])
+    : timeoutController.signal;
+
+  try {
+    combinedSignal.throwIfAborted();
+    let url = new URL(rawUrl);
+    let pinned = await resolvePublicHost(url.hostname, config.allowPrivateTargets, combinedSignal);
+    for (let redirects = 0; redirects < 6; redirects++) {
+      combinedSignal.throwIfAborted();
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        timeoutController.abort();
+        combinedSignal.throwIfAborted();
+      }
+      const response = await doRequest(url, config, pinned, remainingMs, combinedSignal);
+      combinedSignal.throwIfAborted();
+      const location = response.headers.location;
+      if (![301, 302, 303, 307, 308].includes(response.status)) {
+        if (response.status < 200 || response.status >= 400)
+          throw new Error(`HTTP ${response.status}`);
+        const contentType = Array.isArray(response.headers["content-type"])
+          ? response.headers["content-type"][0]!
+          : response.headers["content-type"] ?? "";
+        return {
+          status: response.status,
+          contentType,
+          body: response.body,
+          finalUrl: url.toString(),
+        };
+      }
+      if (!location) throw new Error("Redirect without location");
+      url = new URL(Array.isArray(location) ? location[0]! : location, url);
+      pinned = await resolvePublicHost(url.hostname, config.allowPrivateTargets, combinedSignal);
   }
-  throw new Error("Too many redirects");
+    throw new Error("Too many redirects");
+  } finally {
+    clearTimeout(overallTimer);
+  }
 };
 
 const decodeEntities = (value: string) =>

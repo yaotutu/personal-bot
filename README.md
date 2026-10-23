@@ -136,7 +136,7 @@ pnpm start
 ├── jobs.json / goals.json / actions.json / monitors.json
 ├── sessions/<threadId>/
 │   ├── *.jsonl                          # pi 权威历史
-│   ├── INSTRUCTIONS.md                  # 会话专属指令（含 ## 会话用途），按需存在
+│   ├── INSTRUCTIONS.md                  # 会话专属指令（含 ## 空间用途），按需存在
 │   ├── DREAM.md                         # 会话补充 Dream 提示词，按需存在
 │   ├── dream.json                       # 会话 Dream 开关、游标、最近结果与待决项，按需存在
 │   └── skills.json                      # 会话技能覆盖，按需存在

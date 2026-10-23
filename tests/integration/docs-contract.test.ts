@@ -899,14 +899,14 @@ test("docs: memory and Dream endpoints pin layering, capacity, prompt inheritanc
     ["user", "soul", "instructions", "memory"],
   );
 
-  // 会话指令端点支持可选 purpose 维护 `## 会话用途`。
+  // 空间指令端点支持可选 purpose 维护 `## 空间用途`。
   const instructionsPut = (paths["/api/spaces/{spaceId}/instructions"] ?? paths["/api/threads/{threadId}/instructions"])?.put;
   assert.ok(instructionsPut);
   assert.deepEqual(
     Object.keys(instructionsPut.requestBody?.content["application/json"]?.schema.properties ?? {}).sort(),
     ["instructions", "purpose"],
   );
-  assert.match(instructionsPut.description ?? "", /## (空间|会话)用途/);
+  assert.match(instructionsPut.description ?? "", /## 空间用途/);
 });
 test("docs: /openapi.json and /docs are served without auth", async (t) => {
   const model = await createFakeModel();

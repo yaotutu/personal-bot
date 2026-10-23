@@ -44,7 +44,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 | --- | --- | --- |
 | jobs | 定时到期后在所属会话执行真实 pi 轮，与该会话聊天争锁 | 按 nanobot 重算 daily；过期一次性任务启动不补跑；保存失败只补存同一次已得结果和完成时间，不重跑模型/工具 |
 | monitors | 固定扫表，到期抓取复用 web 安全边界；不启动模型轮 | change 为指纹变化，首检建基线不通知；contains 从未命中进入命中才通知；抓取失败只记 error |
-| dream | 固定 2 小时周期扫描已开启会话（主会话默认开启，其他默认关闭），按游标+约 4k token 重叠窗口读取新消息，在独立内存 SessionManager 中运行仅含 `propose_notes` 的受限整理轮 | 会话忙或无新消息时跳过；写前校验文件版本与 `## 会话用途`，非主会话全局建议及无用途会话指令进 `pending` 待用户确认；仅整轮无跳过/无失败时推进游标，重启遗留 `running` 标为 `failed` |
+| dream | 固定 2 小时周期扫描已开启会话（主会话默认开启，其他默认关闭），按游标+约 4k token 重叠窗口读取新消息，在独立内存 SessionManager 中运行仅含 `propose_notes` 的受限整理轮 | 会话忙或无新消息时跳过；写前校验文件版本与 `## 空间用途`，非主会话全局建议及无用途会话指令进 `pending` 待用户确认；仅整轮无跳过/无失败时推进游标，重启遗留 `running` 标为 `failed` |
 
 - monitor 默认每 60 秒扫描到期的 active 项，检查间隔为分钟级；支持 pause/resume/stop。入口为对话 `monitor` 工具与 `POST /api/agent/monitors`，调用结构以生成契约为准。
 - jobs/monitors 仅省略 `originThreadId` 时使用主会话。显式新来源在接纳前建立，删除中的来源绑定返回 409；删除来源后的迟到通知不改投主会话、不复活会话或投向新同名会话。解析目的地后重查绑定，不能执行旧扫描快照。
@@ -106,7 +106,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 | 路径 | 内容 |
 | --- | --- |
 | `sessions/<threadId>/*.jsonl` | pi 历史唯一权威来源 |
-| `sessions/<threadId>/INSTRUCTIONS.md` | 本会话专属规则（含 `## 会话用途`），下一轮注入 |
+| `sessions/<threadId>/INSTRUCTIONS.md` | 本会话专属规则（含 `## 空间用途`），下一轮注入 |
 | `sessions/<threadId>/DREAM.md` | 本会话补充 Dream 提示词，按需存在 |
 | `sessions/<threadId>/dream.json` | 本会话 Dream 开关、游标、最近结果与待确认项，按需存在 |
 | `sessions/<threadId>/skills.json` | 本会话技能开关覆盖，技能资产全局一份 |

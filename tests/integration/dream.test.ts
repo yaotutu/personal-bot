@@ -114,13 +114,13 @@ test("Dream integration: main thread consolidates USER/SOUL/MEMORY, advances cur
 test("Dream integration: non-main thread routes session rules via purpose, holds global notes in pending, and respects failure cursor boundary", async (t) => {
   const { json, chat, dataDir } = await createFixture(t);
 
-  // 1. 为邮件会话设置会话用途与初始规则，并开启 Dream + 自定义补充提示词。
+  // 1. 为邮件空间设置空间用途与初始规则，并开启 Dream + 自定义补充提示词。
   const savedInst = await json("/api/spaces/mail-thread/instructions", "PUT", {
     instructions: "保持礼貌。",
     purpose: "处理外部商务邮件",
   });
   assert.equal(savedInst.status, 200);
-  assert.match((savedInst.body as { instructions: string }).instructions, /^## 会话用途\n处理外部商务邮件/);
+  assert.match((savedInst.body as { instructions: string }).instructions, /^## 空间用途\n处理外部商务邮件/);
 
   const savedDream = await json("/api/spaces/mail-thread/dream", "PUT", {
     enabled: true,
@@ -151,11 +151,11 @@ test("Dream integration: non-main thread routes session rules via purpose, holds
 
   // 全局 USER.md 未被非主会话直接污染。
   assert.equal(((await json("/api/profile")).body as { user: string }).user, "");
-  // 会话指令已写入，且 `## 会话用途` 保持不变。
+  // 会话指令已写入，且 `## 空间用途` 保持不变。
   const afterInst = (await json("/api/spaces/mail-thread/instructions")).body as {
     instructions: string;
   };
-  assert.match(afterInst.instructions, /## 会话用途\n处理外部商务邮件/);
+  assert.match(afterInst.instructions, /## 空间用途\n处理外部商务邮件/);
   assert.match(afterInst.instructions, /邮件落款统一写 Best regards/);
 
   // 4. 全局概览能看到待决项；用户确认写入 USER.md 后生效并清空 pending。

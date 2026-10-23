@@ -25,10 +25,11 @@ export const monitorTool = (
           Type.Literal("resume"),
           Type.Literal("stop"),
         ]),
-        url: Type.String({
-          description:
-            "REQUIRED for every action (placeholder unless create). The public http(s) page to watch.",
-        }),
+        url: Type.Optional(
+          Type.String({
+            description: "The public http(s) page to watch (required for create).",
+          }),
+        ),
         condition: Type.Optional(
           Type.Union([Type.Literal("change"), Type.Literal("contains")]),
         ),
@@ -41,7 +42,7 @@ export const monitorTool = (
     ),
     execute: async (_id, params) => {
       if (params.action === "create") {
-        if (!/^https?:\/\//.test(params.url))
+        if (!params.url || !/^https?:\/\//.test(params.url))
           return {
             content: [{ type: "text", text: "url must be a public http(s) URL." }],
             details: undefined,

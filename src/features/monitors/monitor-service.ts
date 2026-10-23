@@ -102,6 +102,9 @@ export const createMonitorService = (repository: MonitorRepository) => {
         const urlChanged = input.url !== undefined && input.url.trim() !== monitor.url;
         const conditionChanged = input.condition !== undefined && input.condition !== monitor.condition;
         const valueChanged = input.value !== undefined && nextValue !== monitor.value;
+        const currentOrigin = monitor.originSpaceId ?? "local-main";
+        const nextOrigin = input.originSpaceId ?? currentOrigin;
+        const originChanged = input.originSpaceId !== undefined && nextOrigin !== currentOrigin;
 
         if (input.url !== undefined) {
           monitor.url = input.url.trim();
@@ -113,8 +116,7 @@ export const createMonitorService = (repository: MonitorRepository) => {
           monitor.intervalMinutes = Math.max(MIN_INTERVAL_MINUTES, input.intervalMinutes);
         }
 
-        const nextOrigin = input.originSpaceId;
-        if (nextOrigin !== undefined) {
+        if (input.originSpaceId !== undefined) {
           monitor.originSpaceId = nextOrigin;
         }
 
@@ -123,6 +125,8 @@ export const createMonitorService = (repository: MonitorRepository) => {
           monitor.lastMatched = undefined;
           monitor.pendingNotification = undefined;
           monitor.error = undefined;
+        } else if (originChanged) {
+          monitor.pendingNotification = undefined;
         }
         return { items, result: monitor };
       }),
@@ -152,7 +156,8 @@ export const createMonitorService = (repository: MonitorRepository) => {
       repository.update((items) => {
         let cleared = 0;
         for (const item of items) {
-          if (item.originSpaceId === originSpaceId && item.pendingNotification) {
+          const itemOrigin = item.originSpaceId ?? "local-main";
+          if (itemOrigin === originSpaceId && item.pendingNotification) {
             item.pendingNotification = undefined;
             cleared++;
           }

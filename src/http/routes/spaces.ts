@@ -93,6 +93,8 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
       if (clearSchedules) {
         removedJobs = await jobs.removeByOriginSpaceId(spaceId);
         removedMonitors = await monitors.removeByOriginSpaceId(spaceId);
+      } else {
+        await monitors.clearPendingByOriginSpaceId(spaceId);
       }
 
       // 8. 用全新的 sessionId 重新打开并初始化该空间

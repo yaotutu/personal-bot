@@ -55,9 +55,12 @@ export const createJobsRoutes = (
   app.post("/api/jobs/:id/control", async (c) => {
     const parsed = jobControlSchema.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: "Invalid job control request", code: "INVALID_REQUEST" }, 400);
-    const main = await conversationHub.forSpace("local-main");
+    const existing = await jobs.get(c.req.param("id"));
+    if (!existing) return c.json({ error: "Task not found" }, 404);
+    const targetSpace = existing.originSpaceId ?? "local-main";
+    const spaceConversation = await conversationHub.forSpace(targetSpace);
     const result = await jobs.control(c.req.param("id"), parsed.data.action, () =>
-      main.isRunning() || scheduler.isBusy(),
+      spaceConversation.isRunning() || scheduler.isBusy(),
     );
     if (!result.ok)
       return c.json({ error: result.message }, result.code === "not_found" ? 404 : 409);

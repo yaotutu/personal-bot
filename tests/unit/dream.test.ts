@@ -92,7 +92,19 @@ test("purpose helpers and proposal planner enforce session purpose, length limit
   const formatted = withPurpose("Always sign as Alex.", "处理客户邮件");
   assert.equal(readPurpose(formatted), "处理客户邮件");
   assert.equal(purposeChanged(formatted, formatted + "\nUse formal tone."), false);
-  assert.equal(purposeChanged(formatted, "## 会话用途\n被篡改的用途\n\nAlways sign as Alex."), true);
+  assert.equal(purposeChanged(formatted, "## 空间用途\n被篡改的用途\n\nAlways sign as Alex."), true);
+
+  // withPurpose 替换与清除旧用途段，不重复堆叠
+  const replaced = withPurpose(formatted, "处理技术支持");
+  assert.equal(readPurpose(replaced), "处理技术支持");
+  assert.equal(replaced, "## 空间用途\n处理技术支持\n\nAlways sign as Alex.");
+  assert.equal(replaced.includes("处理客户邮件"), false);
+  assert.equal(replaced.split("## 空间用途").length, 2);
+
+  const cleared = withPurpose(replaced, "");
+  assert.equal(readPurpose(cleared), "");
+  assert.equal(cleared, "Always sign as Alex.");
+  assert.equal(withPurpose("## 空间用途\n只有用途", ""), "");
 
   const parsed = parseProposal({
     changes: [
@@ -128,7 +140,7 @@ test("purpose helpers and proposal planner enforce session purpose, length limit
   assert.equal(nonMainPlan.rejected.length, 1);
   assert.equal(nonMainPlan.rejected[0]?.reason, "unknown memory id");
 
-  // 未声明会话用途时，instructions 建议降级为 pending(no_purpose)。
+  // 未声明空间用途时，instructions 建议降级为 pending(no_purpose)。
   const noPurposePlan = planProposal(
     [{ target: "instructions", text: "rule", source: "m1" }],
     { isMain: true, hasPurpose: false, existingMemoryIds: new Set(), instructions: "" },
@@ -147,6 +159,17 @@ test("purpose helpers and proposal planner enforce session purpose, length limit
   // 行级去重：重复追加同一句不会膨胀文本。
   const once = appendInstructions(formatted, "邮件末尾加签名");
   assert.equal(appendInstructions(once, "邮件末尾加签名"), once);
+
+  // 多行完整块去重：重复追加相同多行块不膨胀文本，避免 partial 失败重跑时堆叠
+  const multiline = "### 规则列表\n- 规则一：使用中文\n- 规则二：简洁回答";
+  const withMulti = appendInstructions(formatted, multiline);
+  assert.ok(withMulti.includes(multiline));
+  assert.equal(appendInstructions(withMulti, multiline), withMulti);
+  assert.equal(appendInstructions(withMulti, "  ### 规则列表  \n  - 规则一：使用中文  \n  - 规则二：简洁回答  "), withMulti);
+  const differentMulti = "### 其他规则\n- 规则三：始终签名";
+  const withBoth = appendInstructions(withMulti, differentMulti);
+  assert.notEqual(withBoth, withMulti);
+  assert.ok(withBoth.includes(differentMulti));
 });
 
 test("prompt composer keeps fixed safety rules regardless of global inheritance", () => {

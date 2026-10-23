@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWebService, UNTRUSTED_CONTENT_BANNER } from "../../src/features/web/web-service.js";
-import { parseBingRssResults, parseDuckDuckGoResults, resolvePublicHost } from "../../src/adapters/web/http-transport.js";
+import { parseBingRssResults, parseDuckDuckGoResults, resolvePublicHost, safePublicGet } from "../../src/adapters/web/http-transport.js";
 import type { FetchedWebPage, WebSearchResult, WebTransport } from "../../src/features/web/types.js";
 
 const service = (transport: Partial<WebTransport>) =>
@@ -99,6 +99,98 @@ test("public HTTP transport blocks local and private DNS targets before connecti
   for (const host of ["localhost", "127.0.0.1", "::1", "10.0.0.1", "172.16.0.1", "192.168.1.2"]) {
     await assert.rejects(() => resolvePublicHost(host), /Blocked|DNS unavailable/);
   }
+});
+
+test("public HTTP transport handles WHATWG IPv6 bracketed hostnames and allowPrivateTargets", async () => {
+  // 1. 默认拒绝 IPv6 回环与私网字面量（带方括号与不带方括号）
+  await assert.rejects(() => resolvePublicHost("[::1]", false), /Blocked|DNS unavailable/);
+  await assert.rejects(() => resolvePublicHost("::1", false), /Blocked|DNS unavailable/);
+  await assert.rejects(() => resolvePublicHost("[fe80::1]", false), /Blocked|DNS unavailable/);
+
+  // 2. allowPrivateTargets=true 时允许 ::1 与私网 IPv6
+  const loopbackBracketed = await resolvePublicHost("[::1]", true);
+  assert.deepEqual(loopbackBracketed, { address: "::1", family: 6 });
+  const loopbackPlain = await resolvePublicHost("::1", true);
+  assert.deepEqual(loopbackPlain, { address: "::1", family: 6 });
+
+  // 3. 公网 IPv6 字面量直接解析并按 IP 校验通过（带方括号与不带方括号）
+  const publicV6Bracketed = await resolvePublicHost("[2606:4700:4700::1111]", false);
+  assert.deepEqual(publicV6Bracketed, { address: "2606:4700:4700::1111", family: 6 });
+  const publicV6Plain = await resolvePublicHost("2606:4700:4700::1111", false);
+  assert.deepEqual(publicV6Plain, { address: "2606:4700:4700::1111", family: 6 });
+});
+
+test("safePublicGet timeoutMs is the total budget for the whole fetch across redirects", async () => {
+  const hopsTimeouts: number[] = [];
+  const mockDoRequest = async (url: URL, _config: unknown, _pinned: unknown, timeoutMs: number, signal?: AbortSignal) => {
+    hopsTimeouts.push(timeoutMs);
+    signal?.throwIfAborted();
+    if (url.pathname === "/first") {
+      // 模拟第一跳耗时 60ms 后返回 302 重定向到 /second
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      signal?.throwIfAborted();
+      return {
+        status: 302,
+        headers: { location: "http://[2606:4700:4700::1111]/second" },
+        body: "",
+        url,
+      };
+    }
+    return {
+      status: 200,
+      headers: { "content-type": "text/plain" },
+      body: "final-content",
+      url,
+    };
+  };
+
+  const res = await safePublicGet(
+    "http://[2606:4700:4700::1111]/first",
+    { timeoutMs: 500, maxResponseBytes: 1024, allowPrivateTargets: false },
+    undefined,
+    mockDoRequest,
+  );
+  assert.equal(res.body, "final-content");
+  assert.equal(hopsTimeouts.length, 2);
+  // 第一跳获得的预算接近 500ms
+  assert.ok(hopsTimeouts[0]! >= 400 && hopsTimeouts[0]! <= 500);
+  // 第二跳获得的预算必须扣除第一跳耗时
+  assert.ok(hopsTimeouts[1]! < hopsTimeouts[0]!);
+  assert.ok(hopsTimeouts[1]! <= 450);
+
+  // 累积耗时超出总预算时触发整体超时拒绝
+  const hangingDoRequest = async (url: URL, _config: unknown, _pinned: unknown, _timeoutMs: number, signal?: AbortSignal) => {
+    signal?.throwIfAborted();
+    if (url.pathname === "/start") {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      signal?.throwIfAborted();
+      return {
+        status: 302,
+        headers: { location: "http://[2606:4700:4700::1111]/hang" },
+        body: "",
+        url,
+      };
+    }
+    // 第二跳阻塞等待超过剩余预算
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, 200);
+      signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      }, { once: true });
+    });
+    return { status: 200, headers: {}, body: "", url };
+  };
+
+  await assert.rejects(
+    safePublicGet(
+      "http://[2606:4700:4700::1111]/start",
+      { timeoutMs: 80, maxResponseBytes: 1024, allowPrivateTargets: false },
+      undefined,
+    hangingDoRequest,
+    ),
+    /abort/i,
+  );
 });
 
 // ---- AbortSignal 透传与取消语义 ----

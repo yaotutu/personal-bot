@@ -32,7 +32,7 @@ export const fixedRules = (purpose: string, isMain: boolean): string => `Hard ru
 - Never save credentials, API keys, tokens or other secrets.
 - Never record guesses by the assistant as facts about the user.
 - Never create skills and never change permissions, tools, models or configuration.
-- Never change the "## 会话用途" section; this conversation's purpose is: ${purpose ? JSON.stringify(purpose) : "(not set)"}.
+- Never change the "## 空间用途" section; this conversation's purpose is: ${purpose ? JSON.stringify(purpose) : "(not set)"}.
 - When purpose is not set, do not target INSTRUCTIONS; use pending instead.
 - Instruction text you propose must stay under ${INSTRUCTIONS_LIMIT} characters in total.
 - ${isMain

@@ -89,7 +89,7 @@ chmod 600 .pi-muse/config.json
 | `tools.writable.enabled` | `true` | 是否注册 `write` / `edit`；开启后仍需逐次人工审批 |
 | `tools.writable.actionTimeoutMs` | `300000` | 文件操作审批有效期（毫秒）；过期不能提交修改 |
 | `tools.web.enabled` | `true` | 是否向模型声明 `search_web` / `web_fetch` |
-| `tools.web.timeoutMs` | `30000` | 单次 Web 请求超时 |
+| `tools.web.timeoutMs` | `30000` | 整个 Web 抓取总超时预算（毫秒，含最多 6 次重定向，每跳使用剩余时间） |
 | `tools.web.maxResponseBytes` | `2000000` | 单次响应大小上限 |
 | `tools.web.maxContentChars` | `50000` | `web_fetch` 默认返回字符上限 |
 | `tools.web.searchResults` | `5` | 默认搜索结果数，工具参数最大 10 |

@@ -1,5 +1,5 @@
 import { INSTRUCTIONS_LIMIT } from "./prompt.js";
-import { purposeChanged, readPurpose } from "./purpose.js";
+import { PURPOSE_HEADING, purposeChanged, readPurpose } from "./purpose.js";
 import type { DreamPending, DreamTarget } from "./types.js";
 
 /**
@@ -100,7 +100,7 @@ export const planProposal = (
       }
       // 用途段不可被改写；指令总长也要受控，两项都在这里挡住。
       const next = appendInstructions(context.instructions, change.text);
-      if (change.text.includes("## 会话用途") || purposeChanged(context.instructions, next)) {
+      if (change.text.includes(PURPOSE_HEADING) || purposeChanged(context.instructions, next)) {
         plan.rejected.push({ change, reason: "would change session purpose" });
         continue;
       }
@@ -120,20 +120,31 @@ export const planProposal = (
 
 /**
  * 把一条新指令并入现有指令文本：追加到末尾，保持用途段在开头不变。
- * 去重在这里做：完全相同的行不重复追加。
+ * 去重支持单行与多行完整块：已存在的块或单行不重复追加。
  */
 export const appendInstructions = (current: string, addition: string): string => {
-  const base = current.trim();
-  const line = addition.trim();
-  if (!line) return base;
-  if (base.split("\n").some((existing) => existing.trim() === line)) return base;
-  if (!base) return line;
-  // 若当前文本只有 `## 会话用途` 段落而尚无空行分隔，先空一行再追加规则，避免新规则并入用途段。
-  const separator = base.includes("## 会话用途") && !base.includes("\n\n") ? "\n\n" : "\n";
-  return `${base}${separator}${line}`;
+  const base = current.replace(/\r\n/g, "\n").trim();
+  const normalizedAddition = addition.replace(/\r\n/g, "\n").trim();
+  if (!normalizedAddition) return base;
+  if (!base) return normalizedAddition;
+
+  const baseLines = base.split("\n");
+  const additionLines = normalizedAddition.split("\n").map((l) => l.trim());
+
+  if (additionLines.length > 0) {
+    const isDuplicate = baseLines.some((_, i) => {
+      if (i + additionLines.length > baseLines.length) return false;
+      return additionLines.every((addL, idx) => baseLines[i + idx]!.trim() === addL);
+    });
+    if (isDuplicate) return base;
+  }
+
+  // 若当前文本只有 `## 空间用途` 段落而尚无空行分隔，先空一行再追加规则，避免新规则并入用途段。
+  const separator = base.includes(PURPOSE_HEADING) && !base.includes("\n\n") ? "\n\n" : "\n";
+  return `${base}${separator}${normalizedAddition}`;
 };
 
-/** 把一条新笔记并入 USER/SOUL 的纯文本；按行去重，其余内容原样保留。 */
+/** 把一条新笔记并入 USER/SOUL 的纯文本；按块/行去重，其余内容原样保留。 */
 export const appendNote = appendInstructions;
 
 export { readPurpose };

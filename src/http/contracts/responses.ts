@@ -225,7 +225,7 @@ export const dreamPendingItem = z.object({
   reason: z
     .enum(["ambiguous", "global_from_session", "no_purpose"])
     .describe(
-      "未直接落盘的原因：ambiguous=模型不确定归属，global_from_session=非主会话提出的全局 USER/SOUL 建议，no_purpose=会话未声明 `## 会话用途`",
+      "未直接落盘的原因：ambiguous=模型不确定归属，global_from_session=非主会话提出的全局 USER/SOUL 建议，no_purpose=会话未声明 `## 空间用途`",
     ),
   createdAt: z.string().describe("生成时间（ISO 8601）"),
 });
