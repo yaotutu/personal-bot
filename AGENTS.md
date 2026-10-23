@@ -45,7 +45,7 @@
 | 修改业务、状态、存储、权限、pi 或生命周期 | [架构规范](docs/architecture.md)：职责、所有权、隔离、审批与能力接入 |
 | 新增功能、修复问题或修改代码 | [测试规范](docs/testing.md)：回归补强、命令、证据标准与验收边界 |
 | 修改 HTTP/SSE、工具报文或客户端接入/展示 | [API 开发规范](docs/api-development.md)；同时核对 `src/http/contracts/` 与自有 `web/` |
-| 修改配置、启动或部署 | [配置说明](docs/configuration.md)与 [README](README.md)：端口、代理、凭据、DATA_DIR 与操作边界 |
+| 修改配置、启动或部署 | [配置说明](docs/configuration.md)、[快速上手](docs/getting-started.md)与 [开发指南](docs/development.md)：端口、代理、凭据、DATA_DIR 与操作边界 |
 | 调整 pi 集成或子代理 | 架构规范与 [pi 复用边界](docs/pi-reuse.md)；不照搬历史版本结论 |
 
 ## 最低完成标准
@@ -59,7 +59,7 @@
 
 ## 常用入口
 
-- 开发启动：`pnpm dev`；模拟联调：`pnpm dev:mock`；自有 Web：`pnpm --dir web dev`。配置、端口与代理细节见 README / 配置说明，进程启停按根规则先核对归属再操作。
+- 开发启动：`pnpm dev`；模拟联调：`pnpm dev:mock`；自有 Web：`pnpm --dir web dev`。配置、端口与代理细节见快速上手 / 开发指南 / 配置说明，进程启停按根规则先核对归属再操作。
 - 默认验证：`pnpm check`；分层命令、fake-model 触发词和 live 参数见测试规范。
 - 对外接口：运行时 `/docs`、`/openapi.json`；[HTTP 辅助说明](docs/http-api-contract.md)不是第二份接口规范。
 - 待实施需求：[backlog](docs/backlog.md) 与 `docs/discussions/`；历史实施和验收：`docs/archive/`，不作为当前实现或授权依据。

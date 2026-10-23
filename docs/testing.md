@@ -106,7 +106,7 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 
 ## 自有 Web 页面验收
 
-- 主要入口为仓库自有 Web DEV（默认 15173），后端使用隔离实例，按实际监听端口设置 `API_TARGET`；不要擅自改已有服务配置，开发进程启停按根规则授权执行。启动与代理用法见 [README](../README.md#自研-web-客户端web)。
+- 主要入口为仓库自有 Web DEV（默认 15173），后端使用隔离实例，按实际监听端口设置 `API_TARGET`；不要擅自改已有服务配置，开发进程启停按根规则授权执行。启动与代理用法见 [开发指南](development.md)。
 - 涉及工具报文或展示时，实际查看对应 renderer、完整审批预览、刷新后历史恢复及错误态，不只抓 AG-UI 事件或验证 JSON。
 - HTTP/SSE 变更还需按 [API 开发规范](api-development.md#每次接口变更的验收门槛)实际打开 `/docs` 确认接入说明可见；页面 200 或 schema 存在不算文档语义验收。
 - 真实模型 + Web、fake provider + Web、服务端自动化分别记录，不用历史 OpenMuse/原生客户端记录替代当前自有 Web 验收。
