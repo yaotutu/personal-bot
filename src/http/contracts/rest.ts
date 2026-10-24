@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isSpaceId } from "../../features/conversation/validate-input.js";
+import { isSpaceId } from "../../features/conversation/space-id.js";
 
 /**
  * REST 请求校验契约（zod v4）：路由实际使用的请求 schema 集中地，同时作为
@@ -158,14 +158,67 @@ export const resetSpaceSchema = z.object({
   clearSchedules: z.boolean().optional().describe("是否同时清理该空间绑定的定时任务与监控；默认 false 保留并转绑新会话"),
 });
 export type ResetSpaceRequestDto = z.infer<typeof resetSpaceSchema>;
+const attachmentIdSchema = z.string().min(1).max(100).regex(/^[A-Za-z0-9._-]+$/);
+const attachmentNameSchema = z.string().min(1).max(200).refine(
+  (value) => !value.includes("/") && !value.includes("\\") && !/[\u0000-\u001f\u007f]/.test(value),
+  "Attachment name must not contain control characters, slash, or backslash",
+);
+const attachmentMimeSchema = z.enum([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "text/html",
+  "image/svg+xml",
+  "application/json",
+  "application/xml",
+  "text/xml",
+  "application/yaml",
+  "text/yaml",
+  "application/javascript",
+  "text/javascript",
+  "text/typescript",
+  "application/sql",
+  "text/css",
+  "application/octet-stream",
+]);
+/** 大附件不能使用嵌套量词 regex：11MB 级输入会触发 regex 栈溢出。 */
+const hasStandardBase64Shape = (value: string): boolean => {
+  if (!value.length || value.length % 4 !== 0) return false;
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  const end = value.length - padding;
+  for (let index = 0; index < end; index++) {
+    const code = value.charCodeAt(index);
+    const isUppercase = code >= 65 && code <= 90;
+    const isLowercase = code >= 97 && code <= 122;
+    const isDigit = code >= 48 && code <= 57;
+    if (!isUppercase && !isLowercase && !isDigit && value[index] !== "+" && value[index] !== "/")
+      return false;
+  }
+  return true;
+};
+const attachmentBase64Schema = z.string().min(1).refine(
+  hasStandardBase64Shape,
+  "dataBase64 must be standard Base64 with valid padding and no whitespace",
+);
+export const messageAttachmentSchema = z.strictObject({
+  id: attachmentIdSchema.describe("客户端生成的附件稳定 ID；仅允许 ASCII 字母/数字/./-/_，不用于磁盘路径"),
+  name: attachmentNameSchema.describe("用户可见原始文件名；纯展示，不用作路径，允许 Unicode"),
+  mimeType: attachmentMimeSchema.describe("显式 MIME。application/octet-stream 只能依赖已知文本扩展名识别；PDF/Office/压缩包等二进制拒绝"),
+  dataBase64: attachmentBase64Schema.describe("标准 Base64 字符集与 padding；服务端继续校验 canonical 编码、实际字节数、UTF-8 或图片魔数"),
+});
 export const runRequestSchema = z.strictObject({
   spaceId: spaceIdSchema.default("local-main").describe("空间标识；缺省为 local-main"),
   runId: z.string().min(1).max(200).describe("本轮唯一 ID；同一成功请求可幂等重放"),
   expectedRevision: z.string().min(1).max(200).describe("GET /api/conversation 返回的版本；新空会话为 empty，冲突返回 409"),
   message: z.strictObject({
     id: z.string().trim().min(1).max(200),
-    content: z.string().min(1).max(32000).refine((value) => Boolean(value.trim()), "Message cannot be blank"),
-  }).describe("唯一的新用户消息；失败重试使用原消息 ID 和内容"),
+    content: z.string().max(32000).describe("用户输入文本；可为空串，但无文本且无附件时拒绝"),
+    attachments: z.array(messageAttachmentSchema).max(4).optional().describe("随这条消息显式提交的有序附件，最多 4 项；不提供独立上传"),
+  }).describe("唯一的新用户消息；失败重试使用原消息 ID、内容与附件身份"),
 }).describe("增量聊天请求，响应为 AG-UI SSE；客户端不回传历史");
 export const stopRequestSchema = z.strictObject({
   spaceId: spaceIdSchema.default("local-main").describe("空间标识；缺省为 local-main"),

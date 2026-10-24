@@ -1,6 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { StreamAggregator } from "../../web/src/chat/chat-state.js";
+import { StreamAggregator, projectHistory } from "../../web/src/chat/chat-state.js";
+
+test("attachment-only user history and snapshots retain file metadata", () => {
+  const attachment = {
+    id: "file-1", name: "notes.txt", kind: "text" as const, mimeType: "text/plain", size: 5,
+    sha256: "a".repeat(64),
+  };
+  const messages = [{ id: "user-file", role: "user" as const, content: "", attachments: [attachment] }];
+  assert.deepEqual(projectHistory(messages)[0], {
+    id: "user-file", role: "user", text: "", attachments: [attachment], toolCalls: [],
+  });
+
+  const stream = new StreamAggregator([]);
+  stream.push({ type: "MESSAGES_SNAPSHOT", messages });
+  assert.deepEqual(stream.messages[0]?.attachments, [attachment]);
+});
 
 test("chat stream reuses the tool placeholder when text starts with the same assistant ID", () => {
   const stream = new StreamAggregator([]);

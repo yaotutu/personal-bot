@@ -1,3 +1,10 @@
+import type {
+  ConversationAttachment,
+  ConversationAttachmentInput,
+  ConversationPromptAttachment,
+  ConversationAttachmentView,
+} from "./attachments.js";
+
 /** 会话控制条目与模型消息共同存放在 pi 权威历史中。 */
 export const TURN_ENTRY_TYPE = "personal-bot.turn";
 export const RESULT_ENTRY_TYPE = "personal-bot.result";
@@ -9,6 +16,7 @@ export type ConversationTurn = {
   text: string;
   runId: string;
   assistantId: string;
+  attachments?: ConversationAttachment[];
 };
 export type ConversationResult = {
   runId: string;
@@ -21,7 +29,12 @@ export type ConversationRecords = {
 
 /** 只描述本项目使用的历史字段；协议 SDK 的其他能力不进入业务层。 */
 export type HistoryMessage =
-  | { id: string; role: "user"; content: string }
+  | {
+      id: string;
+      role: "user";
+      content: string;
+      attachments?: ConversationAttachmentView[];
+    }
   | {
       id: string;
       role: "assistant";
@@ -40,7 +53,18 @@ export type ConversationInput = {
   spaceId?: string;
   runId: string;
   expectedRevision: string;
-  message: { id: string; content: string };
+  message: {
+    id: string;
+    content: string;
+    attachments?: ConversationAttachmentInput[];
+  };
+};
+
+/** 领域已完成附件规范化；原始 base64 不再进入协调器与历史。 */
+export type ValidatedUserMessage = {
+  id: string;
+  content: string;
+  attachments?: ConversationPromptAttachment[];
 };
 export type ConversationSnapshot = { messages: ConversationHistory; revision: string };
 export type CancelReason = "STOPPED" | "DISCONNECTED" | "TIMEOUT" | "SHUTDOWN";

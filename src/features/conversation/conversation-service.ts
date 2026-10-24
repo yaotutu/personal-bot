@@ -4,6 +4,7 @@ import { ConversationError, rejectConversation } from "./errors.js";
 import { validateConversationInput } from "./validate-input.js";
 import type { ConversationDependencies, ConversationExecution } from "./ports.js";
 import type { CancelReason, ConversationEvent, ConversationInput, ConversationResult, ConversationTurn, ConversationNotification } from "./types.js";
+import { attachmentIdentity, buildConversationPrompt } from "./attachments.js";
 
 type ActiveRun = {
   runId: string;
@@ -159,6 +160,7 @@ export function createConversation(
       text: user.content as string,
       runId: input.runId,
       assistantId: "assistant-" + input.runId,
+      ...(user.attachments?.length ? { attachments: user.attachments.map(attachmentIdentity) } : {}),
     };
     let activity: ActivityRun | undefined;
     let delivered = false;
@@ -217,7 +219,8 @@ export function createConversation(
             emit(event);
           }
         });
-        await running.session.prompt(turn.text);
+        const prompt = buildConversationPrompt(turn.text, user.attachments);
+        await running.session.prompt(prompt.prompt, prompt.images);
         // prompt 完成 + waitForIdle 才允许提交终态；message_end 的 public listener
         // 早于 pi 内部 appendMessage，不能在 listener 内发 RUN_FINISHED。
         await running.session.waitForIdle();

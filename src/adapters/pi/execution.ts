@@ -53,7 +53,10 @@ export const projectExecutionEvent = (event: AgentSessionEvent): ExecutionEvent 
 
 /** 包装当前 pi session，不创建新的执行状态、重试机制或持久化容器。 */
 export const createPiExecution = (session: AgentSession, manager: SessionManager): ConversationExecution => ({
-  prompt: (text) => session.prompt(text, { expandPromptTemplates: false }),
+  prompt: (text, images) => session.prompt(text, {
+    expandPromptTemplates: false,
+    ...(images?.length ? { images: images.map((image) => ({ ...image })) } : {}),
+  }),
   waitForIdle: () => session.waitForIdle(),
   abort: () => session.abort(),
   dispose: () => session.dispose(),

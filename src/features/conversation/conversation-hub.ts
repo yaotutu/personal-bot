@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { isSpaceId } from "./validate-input.js";
+import { isSpaceId } from "./space-id.js";
 import type { Conversation } from "./conversation-service.js";
 import { rejectConversation } from "./errors.js";
 

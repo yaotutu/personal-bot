@@ -601,6 +601,36 @@ test("docs: subagent stays inside the parent run and no background task creation
   assert.ok(doc.paths["/api/jobs/{id}"]?.delete, "generated doc must include DELETE /api/jobs/{id}");
 });
 
+test("docs: conversation attachments keep one-shot submission and per-attachment history previews explicit", () => {
+  const doc = buildOpenApiDocument();
+  type Operation = {
+    description: string;
+    requestBody?: { content: Record<string, { schema: JsonSchema }> };
+    responses: Record<string, { content?: Record<string, { schema?: JsonSchema }> }>;
+  };
+  const run = doc.paths["/api/conversation/run"].post as Operation;
+  assert.match(run.description, /最多 4 项/);
+  assert.match(run.description, /单图最大 8MiB/);
+  assert.match(run.description, /413 REQUEST_TOO_LARGE/);
+  assert.match(run.description, /不自动换模型/);
+  assert.ok(run.responses["413"]?.content?.["application/json"]?.schema);
+
+  const attachment = run.requestBody?.content?.["application/json"]?.schema
+    .properties?.message?.properties?.attachments?.items as JsonSchema | undefined;
+  assert.deepEqual(attachment?.required, ["id", "name", "mimeType", "dataBase64"]);
+  const properties = attachment?.properties as Record<string, JsonSchema>;
+  assert.equal(properties.image, undefined);
+
+  const history = doc.paths["/api/conversation"].get as Operation;
+  const message = history.responses["200"]?.content?.["application/json"]?.schema
+    ?.properties?.messages?.items as JsonSchema | undefined;
+  const historyAttachment = message?.properties?.attachments?.items as JsonSchema | undefined;
+  const historyFields = historyAttachment?.properties as Record<string, JsonSchema>;
+  assert.deepEqual(Object.keys(historyFields).sort(), ["id", "image", "kind", "mimeType", "name", "sha256", "size"]);
+  assert.ok(historyFields.image);
+  assert.equal(message?.properties?.image, undefined);
+});
+
 test("docs: notification stream documents the client sync protocol and keeps event namespaces separate", () => {
   const document = buildOpenApiDocument();
   type StreamResponse = { description: string; "x-sse-events": Record<string, { schema: unknown }> };

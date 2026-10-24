@@ -30,7 +30,11 @@ export type ConversationHistoryPort = {
 
 /** 执行仍交给 pi；port 只包含协调器实际调用的操作，不重建 agent loop。 */
 export type ConversationExecution = {
-  prompt: (text: string) => Promise<void>;
+  prompt: (text: string, images?: readonly {
+    type: "image";
+    data: string;
+    mimeType: string;
+  }[]) => Promise<void>;
   waitForIdle: () => Promise<void>;
   abort: () => Promise<void>;
   dispose: () => void;

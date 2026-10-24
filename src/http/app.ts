@@ -35,10 +35,14 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   );
   app.use(
     "*",
-    bodyLimit({
-      maxSize: 1_048_576,
-      onError: (c) => c.json({ error: "Request body exceeds 1 MiB" }, 413),
-    }),
+    async (c, next) => {
+      // 聊天附件路由有自己的 12MiB 上限；其余接口维持原有 1MiB 保护。
+      if (c.req.method === "POST" && c.req.path === "/api/conversation/run") return next();
+      return bodyLimit({
+        maxSize: 1_048_576,
+        onError: (c) => c.json({ error: "Request body exceeds 1 MiB" }, 413),
+      })(c, next);
+    },
   );
   app.onError((error, c) => {
     if (error instanceof ConversationError && (error.code === "SPACE_DELETING" || error.code === "THREAD_DELETING"))

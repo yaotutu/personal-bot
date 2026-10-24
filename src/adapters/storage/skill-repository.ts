@@ -8,7 +8,7 @@ import { getBuiltinSkillsDir } from "./builtin-skills.js";
 import { writeJsonDocument } from "./json-document.js";
 import { InvalidDocumentError } from "./document-schemas.js";
 import { createSerializedWriter } from "../../shared/serialized-writer.js";
-import { isSpaceId } from "../../features/conversation/validate-input.js";
+import { isSpaceId } from "../../features/conversation/space-id.js";
 import type { SkillCatalog, SkillRepository } from "../../features/skills/port.js";
 
 const overridesSchema = z.strictObject({ overrides: z.record(z.string(), z.boolean()) });

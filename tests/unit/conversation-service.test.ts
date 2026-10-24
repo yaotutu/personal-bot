@@ -10,12 +10,12 @@ const fixture = () => {
   let listener: (event: ExecutionEvent) => void = () => {};
   const history: ConversationHistoryPort = {
     history: () => [], records: () => ({ turns: [], results: new Map() }), checkpoint: () => "leaf",
-    omitTurn: () => { calls.push("omit"); }, appendTurn: () => { calls.push("turn"); },
+    omitTurn: () => { calls.push("omit"); }, appendTurn: (turn) => { calls.push("turn:" + JSON.stringify(turn)); },
     appendNotification: (notification) => { calls.push("notification:" + notification.text); },
     appendResult: (result) => { calls.push(result.status); }, restoreIfNoUser: () => { calls.push("restore"); },
   };
   const session: ConversationExecution = {
-    prompt: async () => { calls.push("prompt"); listener({ type: "assistant_end", reason: "stop", text: "answer" }); },
+    prompt: async (text, images) => { calls.push("prompt:" + text + JSON.stringify(images ?? [])); listener({ type: "assistant_end", reason: "stop", text: "answer" }); },
     waitForIdle: async () => { calls.push("idle"); }, abort: async () => { calls.push("abort"); },
     dispose: () => { calls.push("dispose"); }, syncContext: () => { calls.push("sync"); },
     subscribe: (next) => { listener = next; return () => { calls.push("unsubscribe"); }; },
@@ -36,6 +36,33 @@ test("coordinator finishes only after pi idle and persisted result and then rele
   assert.equal(events.at(-1)?.type, "run_finished");
   assert.equal(conversation.isRunning(), false);
   assert.deepEqual(calls.slice(-2), ["unsubscribe", "dispose"]);
+});
+
+test("coordinator records attachment metadata and passes images in the same SDK prompt", async () => {
+  const { calls, dependencies } = fixture();
+  const conversation = createConversation({ configured: true, runTimeoutMs: 5000 }, dependencies);
+  const png = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.from("ok"),
+  ]);
+  await conversation.run({
+    spaceId: "local-main", runId: "image-run", expectedRevision: "leaf",
+    message: {
+      id: "user", content: "",
+      attachments: [{
+        id: "image_1", name: "随机码.png", mimeType: "image/png",
+        dataBase64: png.toString("base64"),
+      }],
+    },
+  }, () => {});
+  const turnCall = calls.find((call) => call.startsWith("turn:"));
+  const promptCall = calls.find((call) => call.startsWith("prompt:"));
+  assert.ok(turnCall);
+  assert.ok(promptCall);
+  assert.match(turnCall, /"attachments":\[/);
+  assert.doesNotMatch(turnCall, new RegExp(png.toString("base64")));
+  assert.match(promptCall, /UNTRUSTED USER IMAGE/);
+  assert.match(promptCall, new RegExp(png.toString("base64")));
 });
 
 test("trigger has an explicit timeout only when requested and shares the lock with client runs", async (t) => {

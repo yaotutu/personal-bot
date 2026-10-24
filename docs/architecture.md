@@ -29,7 +29,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - `conversationHub` 每个 thread 缓存唯一协调器（含初始化 Promise），阻止重复创建两把锁；主会话 `local-main` 常驻。短生命周期锁串行协调初始化、HTTP 来源绑定、规则/技能保存和删除，不占用模型执行锁；删除先关门，旧引用关闭后不能向新同名会话投递。
 - 历史读取和迟到 Stop 只查已有会话；不存在/已删 ID 返回空历史或 false，不 mkdir、不进入列表。显式新 run、规则/技能保存或来源绑定可建立会话；存在性以会话列表为准。
 - 每个 conversation 独占 active run、运行锁和取消原因。客户端 run 与同 thread 的定时 trigger 共锁，其他用户 thread 独立；run 有客户端超时与断流取消，jobs trigger 保留既有无客户端超时语义，不擅自统一两者。
-- pi 的 `createAgentSession` 负责执行循环、工具执行和持久化，SessionManager/JSONL 是唯一历史权威。展示读取完整 branch，模型 compaction/context edit 仍由 pi 管理，不维护第二套历史。
+- pi 的 `createAgentSession` 负责执行循环、工具执行和持久化，SessionManager/JSONL 是唯一历史权威。聊天附件不落工作区、不建附件库：图片通过 SDK prompt images 进入同条 user message，UTF-8 正文以不可信数据包装进 prompt；custom turn 只存附件元数据，展示图片从该条 user message 的 image blocks 读取。展示读取完整 branch，模型 compaction/context edit 仍由 pi 管理，不维护第二套历史。
 - 模型与工具诊断在进入模型上下文和 pi 持久化前脱敏，不只是清洗 SSE 副本。默认文案为 `Tool execution failed` / `Model request failed`；仅 guard 声明的受控拒绝（`details.denied`）可透传。文件缺失使用受控 `File not found.`，技能诊断使用 `builtin/...` / `user/...` 逻辑路径。
 - 工具副作用不因最终回复失败而回滚，失败不自动重试。停止后的半截 assistant 文本仍受 pi 的 `error/aborted` 历史过滤规则限制，不为恢复半截文本修改 pi。
 - memory/identity 共用一个 repository 与完整读改写队列；其他持久域各有唯一 repository，同一文档不得在路由或工具中另开 writer。

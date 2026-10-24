@@ -85,7 +85,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getConversation",
     method: "get", path: "/api/conversation", tag: "空间", summary: "读取会话权威历史",
-    hint: "刷新/恢复时同步历史用；历史只读，客户端不要回写。合法但不存在、已删除或正在删除的 ID 返回 200 {messages:[], revision:'empty'}，不创建会话或工作区，不使其出现在列表；非法 ID 返回 400。空历史不代表空间存在，存在性以 GET /api/spaces 为准。消息含工具投影（toolCalls 与 role=tool 消息按 toolCallId 关联）。文件/模型原始错误在进入模型上下文与历史前脱敏，文件缺失使用受控提示，不返回服务端绝对路径。",
+    hint: "刷新/恢复时同步历史用；历史只读，客户端不要回写。合法但不存在、已删除或正在删除的 ID 返回 200 {messages:[], revision:'empty'}，不创建会话或工作区，不使其出现在列表；非法 ID 返回 400。空历史不代表空间存在，存在性以 GET /api/spaces 为准。消息含工具投影（toolCalls 与 role=tool 消息按 toolCallId 关联）。role=user 只有 content 与可选 attachments；每项为 id/name/kind/mimeType/size/sha256，kind=image 还可带 image:{mimeType,dataBase64} 并按本条 SDK user 的 image blocks 顺序关联，文本正文不自动展开。文件/模型原始错误在进入模型上下文与历史前脱敏，文件缺失使用受控提示，不返回服务端绝对路径。",
     auth: true, query: conversationQuery, response: resp.conversationResponse,
   },
   {
@@ -147,11 +147,18 @@ export const endpoints: EndpointSpec[] = [
     operationId: "runConversation",
     method: "post", path: "/api/conversation/run", tag: "空间", summary: "提交一条用户消息（SSE 流）",
     hint: `提交 message 和 expectedRevision；版本冲突 409 后重新读取历史。首次合法 ID 建立新空间；删除进行中返回 409 SPACE_DELETING，客户端不自动重试旧 ID。事件顺序：${SSE_EVENT_ORDER}。` +
+      "message.attachments 最多 4 项，随本条消息一次性提交：PNG/JPEG/GIF/WebP 单图最大 8MiB，全部原始字节合计最大 8MiB，严格 UTF-8 文本合计最大 100000 字节；请求体上限 12MiB，超限在 SSE/历史/模型开始前返回 413 REQUEST_TOO_LARGE。图片需要当前单业务模型支持视觉，服务端不自动换模型、不静默丢图；PDF/Office/压缩包及其他二进制拒绝，SVG/HTML 只按不可信文本处理。completed 重放或失败显式重试必须保持附件顺序与字节 SHA-256 身份一致。" +
       "主模型可在本轮调用 subagent 工具（官方 pi 1.3.0 示例适配），子会话返回结果后主模型继续；这不是独立后台任务队列，不提供创建子任务的 HTTP 接口。" +
       "工具参数为单个 {agent,task}、并行 {tasks:[{agent,task}]} 或链式 {chain:[{agent,task}]} 三选一；最多8项，最多4个子会话并发，链式用 {previous} 引用上一步结果，失败即停止。" +
       "subagent 的客户端卡片按 tools.presentation 的 hidden/summary 策略显示，参数正文不透出；父 SSE 不直接嵌套子会话聊天流或暴露原始工具详情。" +
       "子会话上下文与私有目录独立，通过 shared/... 显式共享；写入仍逐次审批，审批 spaceId/runId 绑定父运行。Stop、父超时、删除空间和聊天流断开会同时取消并等待子会话清理；不会在服务重启后自动续跑。",
     auth: true, request: req.runRequestSchema, response: z.object({}).describe("SSE 流"),
+    errorResponses: {
+      400: { description: "非法消息、附件或空间 ID；未创建可见用户轮", schema: resp.errorResponse },
+      409: { description: "历史版本、运行或消息身份冲突，空间正删除或会话正忙；重新核对，不自动重发", schema: resp.errorResponse },
+      413: { description: "run JSON 请求体超过 12MiB；SSE、历史与模型均未开始", schema: resp.errorResponse },
+      503: { description: "模型未配置或服务正关闭；本次消息未接纳", schema: resp.errorResponse },
+    },
     sse: {
       description: "AG-UI 事件流（text/event-stream，每帧 data: <JSON>）",
       events: sseEvents,

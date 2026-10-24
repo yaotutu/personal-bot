@@ -11,10 +11,14 @@ export type ToolCallView = {
   result?: string;
 };
 
+/** 直接取权威历史 DTO 的附件字段，Web 只展示，不另造上传或存储结构。 */
+export type MessageAttachmentView = NonNullable<ApiMessage["attachments"]>[number];
+
 export type MessageView = {
   id: string;
   role: "user" | "assistant";
   text: string;
+  attachments?: MessageAttachmentView[];
   toolCalls: ToolCallView[];
   /** 运行中的 assistant 消息（流式聚合）。 */
   streaming?: boolean;
@@ -29,6 +33,7 @@ export const projectHistory = (messages: ApiMessage[]): MessageView[] => {
         id: message.id,
         role: "user",
         text: typeof message.content === "string" ? message.content : "",
+        ...(message.attachments?.length ? { attachments: message.attachments } : {}),
         toolCalls: [],
       });
     } else if (message.role === "assistant") {

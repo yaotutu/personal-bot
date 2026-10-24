@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { isSpaceId } from "../../features/conversation/validate-input.js";
+import { isSpaceId } from "../../features/conversation/space-id.js";
 import {
   defaultDreamState,
   type DreamRepository,

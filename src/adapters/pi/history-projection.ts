@@ -11,6 +11,7 @@ import {
   type ConversationResult,
   type ConversationTurn,
 } from "../../features/conversation/types.js";
+import type { ConversationAttachmentView } from "../../features/conversation/attachments.js";
 import type { DreamMessage } from "../../features/dream/types.js";
 import { notificationIdOf } from "./notification-message.js";
 
@@ -68,7 +69,29 @@ const toolCallsOf = (
           },
         ]
       : [];
+});
+
+const imageBlocksOf = (content: unknown) =>
+  Array.isArray(content)
+    ? content.filter(
+        (block): block is { type: "image"; data: string; mimeType: string } =>
+          block?.type === "image" && typeof block.data === "string" && typeof block.mimeType === "string",
+      )
+    : [];
+
+const attachmentsWithHistoryImages = (
+  attachments: readonly ConversationAttachmentView[] | undefined,
+  messageContent: unknown,
+) => {
+  if (!attachments?.length) return undefined;
+  const images = imageBlocksOf(messageContent);
+  let imageIndex = 0;
+  return attachments.map((attachment) => {
+    if (attachment.kind !== "image") return attachment;
+    const image = images[imageIndex++];
+    return image ? { ...attachment, image: { mimeType: image.mimeType, dataBase64: image.data } } : attachment;
   });
+};
 
 /**
  * 将 pi 当前分支投影为客户端历史。
@@ -107,12 +130,14 @@ export const projectConversationHistory = (
     if (entry.type !== "message" || omitted.has(entry.id)) continue;
     const { message } = entry;
     if (message.role === "user") {
-      const content = textOf(message.content);
-      if (!content) continue;
+      // 附件正文/图片标签只进模型上下文；客户端气泡始终恢复用户原始输入。
+      const content = turn?.text ?? textOf(message.content);
+      if (!content && !turn?.attachments?.length) continue;
       messages.push({
         id: turn?.userId || entry.id,
         role: "user",
         content,
+        ...(turn?.attachments?.length ? { attachments: attachmentsWithHistoryImages(turn.attachments, message.content) } : {}),
       });
       continue;
     }

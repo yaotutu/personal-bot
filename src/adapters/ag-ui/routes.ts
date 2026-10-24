@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import { runRequestSchema, stopRequestSchema } from "../../http/contracts/rest.js";
 import type { ConversationHub } from "../../features/conversation/conversation-hub.js";
@@ -12,9 +13,14 @@ import type { ToolPresentation } from "./tool-presentation.js";
  */
 export const createAgUiRoutes = (hub: ConversationHub, presentation: ToolPresentation) => {
   const app = new Hono();
+  // 附件随 run JSON 一次性提交；此路由必须先于全局 1MiB 限制获得专用上限。
+  app.use("/api/conversation/run", bodyLimit({
+    maxSize: 12 * 1024 * 1024,
+    onError: (c) => c.json({ error: "Conversation request body exceeds 12 MiB", code: "REQUEST_TOO_LARGE" }, 413),
+  }));
   app.post("/api/conversation/run", async (c) => {
     const parsed = runRequestSchema.safeParse(await c.req.json().catch(() => undefined));
-    if (!parsed.success) return c.json({ error: "Invalid conversation request" }, 400);
+    if (!parsed.success) return c.json({ error: "Invalid conversation request", code: "INVALID_INPUT" }, 400);
     const input = parsed.data;
     const spaceId = input.spaceId || "local-main";
     let conversation;

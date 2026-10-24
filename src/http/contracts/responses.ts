@@ -66,6 +66,18 @@ export const deleteSpaceResponse = z.object({
   }),
 });
 export type DeleteSpaceDto = z.infer<typeof deleteSpaceResponse>;
+export const conversationAttachment = z.strictObject({
+  id: z.string().describe("请求内稳定的附件 ID"),
+  name: z.string().describe("用户可见原始文件名；纯展示，不是路径"),
+  kind: z.enum(["image", "text"]).describe("text=严格 UTF-8 文本；image=SDK 历史中的图片块"),
+  mimeType: z.string().describe("服务端按声明/魔数确认的 MIME；文本附件只返回元数据"),
+  size: z.number().int().positive().describe("原始输入字节数；SDK 压缩后预览的 size 仍以原始输入为准"),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/).describe("原始输入字节 SHA-256；用于重试/重放身份相等性"),
+  image: z.object({
+    mimeType: z.string().describe("SDK user message 实际图片块的 MIME"),
+    dataBase64: z.string().describe("SDK 历史图片块的 Base64；仅作恢复预览，不在 custom entry 另存一份"),
+  }).optional().describe("仅 kind=image 可有；按本条 SDK user message 的 image blocks 顺序关联，跳过文本附件"),
+});
 export const chatMessage = z.object({
   id: z.string(),
   role: z.enum(["user", "assistant", "tool"]),
@@ -83,6 +95,12 @@ export const chatMessage = z.object({
     )
     .optional(),
   toolCallId: z.string().optional().describe("role=tool 时对应的调用 ID"),
+  attachments: z.array(conversationAttachment).optional().describe("仅 role=user；按提交顺序返回元数据，文本正文不回灌到普通气泡"),
+}).superRefine((message, context) => {
+  if (message.role !== "user" && message.attachments)
+    context.addIssue({ code: "custom", message: "attachments are only valid on user messages" });
+  if (message.attachments?.some((attachment) => attachment.kind !== "image" && attachment.image))
+    context.addIssue({ code: "custom", message: "only image attachments may include image data" });
 });
 export const conversationResponse = z.object({
   revision: z.string().describe("pi 当前叶子版本；空会话为 empty，发送时作为 expectedRevision"),

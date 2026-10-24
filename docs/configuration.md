@@ -78,7 +78,7 @@ chmod 600 .pi-muse/config.json
 | `server.accessKey` | 空 | 服务访问密钥，不是模型 key；留空启动会打印非回环 host 的安全警告，但不会阻断启动 |
 | `server.allowedOrigins` | localhost / 127.0.0.1 的 15173、17890 共四个 origin | CORS origin 数组；显式配置会替换默认列表，用于自有 Web |
 | `model.baseUrl` | 空 | OpenAI-compatible API 根地址，例如 `/v1`；必须与 `model.id` 同时配置 |
-| `model.id` | 空 | 模型 ID |
+| `model.id` | 空 | 唯一业务模型 ID；图片附件要求该模型支持视觉输入，不自动切换或降级 |
 | `model.apiKey` | 空 | 模型 API key，直接写在配置文件中 |
 | `model.contextWindow` | `32768` | 必须大于 `model.maxTokens` |
 | `model.maxTokens` | `4096` | 模型输出上限 |

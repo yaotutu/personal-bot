@@ -12,7 +12,7 @@ import {
   readThreadInstructions,
   writeThreadInstructions,
 } from "../../adapters/storage/thread-instructions.js";
-import { isSpaceId } from "../../features/conversation/validate-input.js";
+import { isSpaceId } from "../../features/conversation/space-id.js";
 import { withPurpose } from "../../features/dream/purpose.js";
 import {
   updateSkillsSchema,

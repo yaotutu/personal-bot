@@ -110,7 +110,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
           id: config.modelId!,
           name: config.modelId!,
           reasoning: false,
-          input: ["text"],
+          input: ["text", "image"],
           contextWindow: config.contextWindow,
           maxTokens: config.maxTokens,
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

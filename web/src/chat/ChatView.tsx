@@ -80,6 +80,10 @@ const ToolCard = ({ call }: { call: ToolCallView }) => (
   </div>
 );
 
+const formatAttachmentSize = (size: number) => size < 1024 ? `${size} B`
+  : size < 1024 * 1024 ? `${(size / 1024).toFixed(1)} KiB`
+  : `${(size / (1024 * 1024)).toFixed(1)} MiB`;
+
 const MessageBubble = ({ message }: { message: MessageView }) => {
   const mine = message.role === "user";
   return (
@@ -99,6 +103,19 @@ const MessageBubble = ({ message }: { message: MessageView }) => {
           </div>
         )}
         {message.text && <p className="whitespace-pre-wrap">{message.text}</p>}
+        {!!message.attachments?.length && (
+          <div className={`space-y-1.5 ${message.text ? "mt-2" : ""}`}>
+            {message.attachments.map((attachment) => (
+              // 文件名只进入 React 文本节点；文本正文、HTML 与任何附件 URI 都不执行或请求。
+              <div key={attachment.id} className="min-w-0 rounded-lg bg-stone-100 px-2.5 py-2 text-xs text-stone-800">
+                <div className="break-all font-medium">{attachment.name}</div>
+                <div className="mt-0.5 break-all text-stone-500">
+                  {attachment.kind === "image" ? "图片" : "文本"} · {formatAttachmentSize(attachment.size)} · {attachment.mimeType}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         {message.streaming && !message.text && message.toolCalls.length === 0 && (
           <span className="inline-flex gap-1">
             <span className="animate-bounce">·</span>

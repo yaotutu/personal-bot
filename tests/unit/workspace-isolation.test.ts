@@ -3,7 +3,7 @@ import { test, type TestContext } from "node:test";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isThreadId } from "../../src/features/conversation/validate-input.js";
+import { isThreadId } from "../../src/features/conversation/space-id.js";
 import {
   createDataLayout,
   ensureThreadLayout,

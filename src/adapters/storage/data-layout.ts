@@ -1,6 +1,6 @@
 import { lstat, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { isSpaceId } from "../../features/conversation/validate-input.js";
+import { isSpaceId } from "../../features/conversation/space-id.js";
 
 /**
  * 统一描述个人助手的数据文件布局。
