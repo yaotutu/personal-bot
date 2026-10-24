@@ -45,10 +45,13 @@ export const sameAttachmentList = (
 ): boolean =>
   left.length === right.length &&
   left.every((attachment, index) => {
-    const other = attachmentIdentity(right[index]!);
-    return Object.entries(attachmentIdentity(attachment)).every(
-      ([key, value]) => other[key as keyof ConversationAttachment] === value,
-    );
+    const other = right[index]!;
+    return attachment.id === other.id &&
+      attachment.name === other.name &&
+      attachment.kind === other.kind &&
+      attachment.mimeType === other.mimeType &&
+      attachment.size === other.size &&
+      attachment.sha256 === other.sha256;
   });
 
 const sha256Of = (data: Uint8Array) => createHash("sha256").update(data).digest("hex");

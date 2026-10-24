@@ -5,7 +5,9 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   buildConversationPrompt,
   normalizeConversationAttachments,
+  sameAttachmentList,
   type ConversationAttachmentInput,
+  type ConversationAttachment,
 } from "../../src/features/conversation/attachments.js";
 import { ConversationError } from "../../src/features/conversation/errors.js";
 import {
@@ -165,4 +167,42 @@ test("conversation identity binds ordered attachment metadata and wire schemas m
     revision: "leaf",
     messages: [{ id: "user", role: "user", content: "", attachments: [{ ...metadataOf(validated.user.attachments![0]!), image: { mimeType: "image/png", dataBase64: "aGk=" } }] }],
   }).success, false);
+});
+
+test("attachment replay identity compares only protocol metadata", () => {
+  const base: ConversationAttachment = {
+    id: "file_1",
+    name: "note.txt",
+    kind: "text",
+    mimeType: "text/plain",
+    size: 3,
+    sha256: "a".repeat(64),
+  };
+  const second: ConversationAttachment = { ...base, id: "file_2", name: "other.txt", sha256: "b".repeat(64) };
+  const withTransient: ConversationAttachment & {
+    data: Uint8Array;
+    text: string;
+    image: { mimeType: string; dataBase64: string };
+  } = {
+    ...base,
+    data: new Uint8Array(),
+    text: "ignored",
+    image: { mimeType: "image/png", dataBase64: "aGk=" },
+  };
+
+  assert.equal(sameAttachmentList([base], [withTransient]), true);
+  const changes = [
+    { id: "other" },
+    { name: "other.txt" },
+    { kind: "image" as const },
+    { mimeType: "image/png" },
+    { size: 4 },
+    { sha256: "c".repeat(64) },
+  ];
+  for (const change of changes)
+    assert.equal(sameAttachmentList([base], [{ ...base, ...change }]), false, Object.keys(change)[0]);
+
+  assert.equal(sameAttachmentList([base, second], [base, second]), true);
+  assert.equal(sameAttachmentList([base, second], [second, base]), false);
+  assert.equal(sameAttachmentList([base], [base, second]), false);
 });

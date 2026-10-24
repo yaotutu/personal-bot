@@ -75,18 +75,27 @@ const isText = (bytes: Uint8Array) => {
 const metadataOf = (path: string, bytes: Buffer, mtimeMs: number): WorkspaceFileDetail => {
   const imageType = imageTypeOf(bytes);
   const kind = imageType ? "image" : isText(bytes) ? "text" : "binary";
-  return {
+  const common = {
     name: basename(path),
     path,
-    kind,
     size: bytes.length,
     updatedAt: new Date(mtimeMs).toISOString(),
-    mimeType: imageType ?? (kind === "text" ? "text/plain; charset=utf-8" : "application/octet-stream"),
-    // ignoreBOM=true 让 U+FEFF 留在字符串中，完整下载/保存回读不改变原始字节。
-    ...(kind === "text"
-      ? { content: new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes) }
-      : { dataBase64: bytes.toString("base64") }),
-  } as WorkspaceFileDetail;
+  };
+  if (kind === "text") {
+    return {
+      ...common,
+      kind,
+      mimeType: "text/plain; charset=utf-8",
+      // ignoreBOM=true 让 U+FEFF 留在字符串中，完整下载/保存回读不改变原始字节。
+      content: new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes),
+    };
+  }
+  return {
+    ...common,
+    kind,
+    mimeType: imageType ?? "application/octet-stream",
+    dataBase64: bytes.toString("base64"),
+  };
 };
 
 const openRegularFile = async (target: string) => {

@@ -9,6 +9,7 @@ import { createService } from "../../src/bootstrap/create-service.js";
 import { createConfig } from "../../src/config/load-config.js";
 import { createWritableFileTools } from "../../src/adapters/pi/tools/files-writable.js";
 import { sharedWorkspaceDir, spaceWorkspaceDir } from "../../src/adapters/storage/data-layout.js";
+import type { WorkspaceFileSelector } from "../../src/features/workspace/files-service.js";
 import {
   workspaceContentResponse,
   workspaceListResponse,
@@ -191,6 +192,25 @@ test("workspace files: text create, update and read preserve exact UTF-8 content
     method: "PUT", headers, body: jsonBody({ scope: "shared", path: "missing.md", content: "x", confirmed: true }),
   });
   assert.equal(missingUpdate.status, 404);
+
+  const boundaryRequest = {
+    scope: "shared",
+    spaceId: null,
+    path: "response-boundary.md",
+    content: "boundary",
+    confirmed: true,
+    debug: "must-not-leak",
+  } as WorkspaceFileSelector & { content: string; confirmed: boolean; debug: string };
+  const boundaryCreate = await service.workspaceFiles.create(boundaryRequest);
+  const boundaryUpdate = await service.workspaceFiles.update(boundaryRequest);
+  for (const result of [boundaryCreate, boundaryUpdate]) {
+    assert.equal("confirmed" in result, false);
+    assert.equal("debug" in result, false);
+    assert.deepEqual(
+      Object.keys(result).sort(),
+      ["content", "kind", "mimeType", "name", "path", "scope", "spaceId", "size", "updatedAt"].sort(),
+    );
+  }
 });
 
 test("workspace files: downloads classify PNG, binary and SVG text with byte limits", async (t) => {

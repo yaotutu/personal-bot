@@ -21,7 +21,7 @@ const positiveInt = (max: number, fallback: number) =>
 
 const serverSchema = z.object({
   host: z.string().optional(),
-  // 避开 nanobot(7890) / Vite(5173) 等常见默认端口；启动时若被占用会在区间内自动 +1 找空闲。
+  // 避开 nanobot(7890) / Vite(5173) 等常见默认端口；端口被占用时启动失败，不自动换端口。
   port: positiveInt(65535, 17890),
   accessKey: z.string().optional(),
   allowedOrigins: z.array(z.string()).optional(),

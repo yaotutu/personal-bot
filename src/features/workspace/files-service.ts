@@ -107,11 +107,6 @@ const validUnicode = (content: string): boolean => {
   return true;
 };
 
-const selectorOf = (input: WorkspaceFileSelector): WorkspaceSelector => ({
-  scope: input.scope,
-  spaceId: input.spaceId,
-});
-
 /**
  * 手动文件服务只承担“用户已经看过完整 before/after 并确认”后的落盘入口；
  * 模型 write/edit 仍由 pi 工具层自行登记版本绑定审批，这里不新增审批记录。
@@ -128,42 +123,48 @@ export const createWorkspaceFileService = (
     } else if (input.spaceId !== null) {
       reject(400, "INVALID_REQUEST", "spaceId must be omitted when scope is shared");
     }
-    return { ...input, path: mode === "write" ? normalizeWritePath(input.path) : normalizeReadPath(input.path) };
+    // 显式构造响应选择器；请求里的 content/confirmed 或未来新增字段不得进入 HTTP 返回值。
+    return {
+      scope: input.scope,
+      spaceId: input.spaceId,
+      path: mode === "write" ? normalizeWritePath(input.path) : normalizeReadPath(input.path),
+    };
+  };
+
+  const writeText = async (
+    input: WorkspaceFileSelector & { content: string; confirmed: boolean },
+    write: (selector: WorkspaceFileSelector, content: string) => Promise<WorkspaceTextDetail>,
+  ): Promise<WorkspaceTextDetail & WorkspaceSelector> => {
+    if (!input.confirmed) reject(400, "INVALID_REQUEST", "confirmed must be true after the full preview is accepted");
+    const bytes = Buffer.byteLength(input.content, "utf8");
+    if (bytes > MAX_WORKSPACE_TEXT_BYTES) reject(413, "TOO_LARGE", "Text content exceeds 100000 UTF-8 bytes");
+    if (input.content.includes("\0") || !validUnicode(input.content))
+      reject(400, "INVALID_REQUEST", "Text content must be valid UTF-8 without NUL bytes");
+    const selected = await prepare(input, "write");
+    return { ...selected, ...(await write(selected, input.content)) };
   };
 
   return {
     async list(input: WorkspaceFileSelector): Promise<WorkspaceListResult> {
       const selected = await prepare(input, "read");
-      return { ...selectorOf(selected), path: selected.path, entries: await store.list(selected) };
+      return { ...selected, entries: await store.list(selected) };
     },
     async read(input: WorkspaceFileSelector): Promise<WorkspaceFileDetail & WorkspaceSelector> {
       const selected = await prepare(input, "read");
       if (selected.path === ".") reject(400, "INVALID_REQUEST", "A file path is required");
-      return { ...selectorOf(selected), ...(await store.read(selected)) };
+      return { ...selected, ...(await store.read(selected)) };
     },
     async create(input: WorkspaceFileSelector & { content: string; confirmed: boolean }): Promise<WorkspaceTextDetail & WorkspaceSelector> {
-      if (!input.confirmed) reject(400, "INVALID_REQUEST", "confirmed must be true after the full preview is accepted");
-      const bytes = Buffer.byteLength(input.content, "utf8");
-      if (bytes > MAX_WORKSPACE_TEXT_BYTES) reject(413, "TOO_LARGE", "Text content exceeds 100000 UTF-8 bytes");
-      if (input.content.includes("\0") || !validUnicode(input.content))
-        reject(400, "INVALID_REQUEST", "Text content must be valid UTF-8 without NUL bytes");
-      const selected = await prepare(input, "write");
-      return { ...selectorOf(selected), ...(await store.create(selected, input.content)) };
+      return writeText(input, store.create);
     },
     async update(input: WorkspaceFileSelector & { content: string; confirmed: boolean }): Promise<WorkspaceTextDetail & WorkspaceSelector> {
-      if (!input.confirmed) reject(400, "INVALID_REQUEST", "confirmed must be true after the full preview is accepted");
-      const bytes = Buffer.byteLength(input.content, "utf8");
-      if (bytes > MAX_WORKSPACE_TEXT_BYTES) reject(413, "TOO_LARGE", "Text content exceeds 100000 UTF-8 bytes");
-      if (input.content.includes("\0") || !validUnicode(input.content))
-        reject(400, "INVALID_REQUEST", "Text content must be valid UTF-8 without NUL bytes");
-      const selected = await prepare(input, "write");
-      return { ...selectorOf(selected), ...(await store.update(selected, input.content)) };
+      return writeText(input, store.update);
     },
     async delete(input: WorkspaceFileSelector): Promise<WorkspaceDeleteResult & WorkspaceSelector> {
       const selected = await prepare(input, "write");
       if (selected.path === ".") reject(400, "INVALID_REQUEST", "A file path is required");
       await store.delete(selected);
-      return { scope: selected.scope, spaceId: selected.spaceId, path: selected.path, ok: true };
+      return { ...selected, ok: true };
     },
   };
 };
