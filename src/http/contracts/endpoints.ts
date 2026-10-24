@@ -4,6 +4,7 @@ import * as resp from "./responses.js";
 import * as activity from "./activities.js";
 import * as approval from "./approvals.js";
 import * as status from "./agent-status.js";
+import * as files from "./workspace-files.js";
 import { sseEvents, SSE_EVENT_ORDER } from "./sse-events.js";
 import { workspaceEvents, WORKSPACE_SSE_DESCRIPTION } from "./workspace-events.js";
 
@@ -161,6 +162,63 @@ export const endpoints: EndpointSpec[] = [
     method: "post", path: "/api/conversation/stop", tag: "空间", summary: "停止指定运行",
     hint: "spaceId/runId 必须同时匹配当前轮；迟到 Stop 返回 false，不影响下一轮。不存在或正在删除的空间返回 {stopped:false}，不建立空间或工作区。",
     auth: true, request: req.stopRequestSchema, response: z.object({ stopped: z.boolean() }),
+  },
+  // ---- 工作区文件（手动管理；模型写入仍走审批工具）----
+  {
+    operationId: "listWorkspaceFiles",
+    method: "get", path: "/api/workspace/files", tag: "工作区文件", summary: "列出工作区文件目录",
+    hint: "必须显式选择 scope=space 或 shared；scope=space 时 spaceId 必填且只允许已有合法空间，本接口不隐式创建空间或目录，根目录缺失时返回空列表。path 相对所选根，默认 `.`。返回目录优先、名称升序；目录超过 1000 项返回 413，不截断。符号链接与特殊文件不返回，也不跟随 shared/ 前缀别名。",
+    auth: true, query: files.workspaceListQuerySchema, response: files.workspaceListResponse,
+    errorResponses: {
+      400: { description: "非法选择器/路径或目录不是普通目录", schema: resp.errorResponse },
+      404: { description: "空间或目录不存在", schema: resp.errorResponse },
+      413: { description: "目录超过 1000 项", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "readWorkspaceFile",
+    method: "get", path: "/api/workspace/files/content", tag: "工作区文件", summary: "完整打开或下载工作区文件",
+    hint: "读取现存普通文件，最大 8388608 字节，超过返回 413。kind=text 要求严格 UTF-8 且无 NUL，返回完整 content；PNG/JPEG/GIF/WebP 仅在魔数确认后返回 image，其余为 binary；image/binary 返回 dataBase64 与 mimeType。SVG/HTML 按文本原样返回，客户端必须按不可信文本展示而非执行。路径逐段拒绝符号链接，不透出绝对路径。",
+    auth: true, query: files.workspaceContentQuerySchema, response: files.workspaceContentResponse,
+    errorResponses: {
+      400: { description: "非法路径、目标是目录/符号链接或非普通文件", schema: resp.errorResponse },
+      404: { description: "空间或文件不存在", schema: resp.errorResponse },
+      413: { description: "文件超过下载上限", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "createWorkspaceTextFile",
+    method: "post", path: "/api/workspace/files/text", tag: "工作区文件", summary: "手动新建文本文件",
+    hint: "调用前客户端必须向用户展示完整新内容并获得明确确认，confirmed:true 只表达这个已完成的确认，不创建 preview token、版本协议或服务端审批记录。仅新建；目标存在返回 409。content 最大 100000 UTF-8 字节、必须无 NUL 且是有效 Unicode；路径每段仅允许 ASCII 字母/数字/./-/_。scope=space 必须是已有空间，不会隐式创建空间。成功返回实际写入后的完整文本详情。",
+    auth: true, request: files.workspaceCreateTextSchema, response: files.workspaceTextWriteResponse,
+    errorResponses: {
+      400: { description: "未显式确认、非法路径/文本或路径不安全", schema: resp.errorResponse },
+      404: { description: "空间不存在", schema: resp.errorResponse },
+      409: { description: "目标文件已存在", schema: resp.errorResponse },
+      413: { description: "文本超过 100000 字节", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "updateWorkspaceTextFile",
+    method: "put", path: "/api/workspace/files/text", tag: "工作区文件", summary: "手动保存文本文件",
+    hint: "调用前客户端必须向用户展示完整 before/after 并获得明确确认；confirmed:true 表达该确认。仅更新已存在普通文本文件，缺失返回 404。content 最大 100000 UTF-8 字节、必须无 NUL 且是有效 Unicode；路径每段仅允许 ASCII 字母/数字/./-/_。服务端用同目录临时文件提交，不截断旧文件；最后一次成功保存生效，不提供版本冲突协议或自动重试。成功返回实际写入后的完整文本详情。手动保存后，旧 pending 模型审批因基准版本变化不能覆盖。",
+    auth: true, request: files.workspaceUpdateTextSchema, response: files.workspaceTextWriteResponse,
+    errorResponses: {
+      400: { description: "未显式确认、非法路径/文本或路径不安全", schema: resp.errorResponse },
+      404: { description: "空间或文件不存在", schema: resp.errorResponse },
+      409: { description: "提交后无法读回结果", schema: resp.errorResponse },
+      413: { description: "文本超过 100000 字节", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "deleteWorkspaceFile",
+    method: "delete", path: "/api/workspace/files", tag: "工作区文件", summary: "删除工作区普通文件",
+    hint: "仅删除现存普通文件；目录、符号链接与特殊文件拒绝，不提供目录删除、重命名、回收站或版本树。scope=space 必须是已有空间。成功返回 ok:true 与选择器/path。",
+    auth: true, query: files.workspaceDeleteQuerySchema, response: files.workspaceDeleteResponse,
+    errorResponses: {
+      400: { description: "非法路径、目标是目录/符号链接或非普通文件", schema: resp.errorResponse },
+      404: { description: "空间或文件不存在", schema: resp.errorResponse },
+    },
   },
   // ---- 人设 ----
   {

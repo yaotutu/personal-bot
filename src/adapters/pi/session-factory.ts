@@ -34,6 +34,7 @@ import { projectExecutionEvent } from "./execution.js";
 import type { ActivityRun, ActivityObservation } from "../../features/activities/types.js";
 import { createActivityObserver } from "./activity-observer.js";
 import { createToolPresentation, type ToolPresentation } from "../ag-ui/tool-presentation.js";
+import type { WorkspaceCommitQueue } from "../workspace/file-commit-queue.js";
 import { ACTIVITY_TOOL_INSTRUCTIONS } from "./tools/activity.js";
 import type { StatusRun } from "../../features/workspace/agent-status.js";
 import { createStatusObserver } from "./status-observer.js";
@@ -68,6 +69,8 @@ export type PiDeps = {
   activityParentId?: string;
   skills?: SkillsService;
   presentation?: ToolPresentation;
+  /** 与手动 HTTP 文件入口共用，保证最终版本检查与提交按物理路径串行。 */
+  workspaceCommits?: WorkspaceCommitQueue;
 };
 
 const subagentBlockedTools = new Set([SUBAGENT_TOOL_NAME, "activity", "schedule", "monitor", "instructions", "bash"]);
@@ -140,6 +143,7 @@ export async function openPi(deps: PiDeps) {
     web,
     weather,
     layout,
+    workspaceCommits: deps.workspaceCommits,
   });
 
   const builtinToolNames = new Set(registeredToolNames);

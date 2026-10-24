@@ -17,6 +17,7 @@
 | `src/http/contracts/responses.ts` | 响应 schema、状态与空值语义 |
 | `src/http/contracts/activities.ts` | 活动概览、逐步明细、列表分页与查询 schema |
 | `src/http/contracts/approvals.ts` | 审批决定、执行回执、完整预览与终态历史分页 schema |
+| `src/http/contracts/workspace-files.ts` | 手动工作区文件管理的 selector、五个文件操作、大小限制与响应 schema |
 | `src/http/contracts/agent-status.ts` | 单次运行最新状态查询与 SSE 运行状态投影 schema |
 | `src/http/contracts/sse-events.ts` | AG-UI 聊天事件、数据与顺序 |
 | `src/http/contracts/workspace-events.ts` | 工作区通知事件与客户端同步规则，不与聊天混用 |
@@ -47,6 +48,12 @@ SSE 端点声明 `text/event-stream`，通过每端点 `x-sse-events` 提供机�
 - **聊天流**：只提交 `{spaceId, runId, expectedRevision, message:{id,content}}`，不回传全量历史；revision 冲突在 SSE 前返回 HTTP 409，同一成功 run 的原消息可幂等重放。非法 spaceId 在宿主预校验即 HTTP 400，不进入聊天 SSE。流断开会取消所属 run。
 - **聊天同步与 Stop**：历史返回 `{messages, revision}`；Stop 同时绑定 spaceId/runId，Web 等待取消完成后刷新权威历史。版本冲突恢复未接纳草稿，切换会话取消原流；这些正确性步骤必须在生成契约中完整表达，不能只依赖本文。
 - **工作区通知**：单向通知客户端重读状态，断连不取消聊天；ready 后读取相应快照，刷新中收到新通知要补刷，重连重新同步。准确事件、心跳与重放能力以本端点契约为准，不复制聊天取消语义。
+
+## 手动工作区文件接口
+
+`/api/workspace/files` 只面向用户在客户端完成完整预览与明确确认后的手动管理；`confirmed:true` 是客户端确认事实的必填声明，不生成 preview token、文件版本协议或第二套审批记录。模型 `write` / `edit` 仍必须通过 pi 工具层原有版本绑定审批，不能调用这些 HTTP 端点，也不能复用其 `confirmed` 字段绕过审批。
+
+接口契约与错误语义以 `src/http/contracts/workspace-files.ts` 生成的 `/docs` 为准；实现不得在 Markdown 中另建字段清单。修改时必须同步覆盖 selector、空间存在性、路径/链接边界、UTF-8 与大小上限、手动写入与模型审批共用提交队列的回归。
 
 ## 工具报文与自有 Web 一致性
 

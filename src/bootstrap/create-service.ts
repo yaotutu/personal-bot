@@ -33,6 +33,9 @@ import { createPiExecution } from "../adapters/pi/execution.js";
 import type { ServiceContainer } from "./types.js";
 import { createToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
 import { createWorkspaceEvents } from "../features/workspace/workspace-events.js";
+import { createWorkspaceFileService } from "../features/workspace/files-service.js";
+import { createWorkspaceCommitQueue } from "../adapters/workspace/file-commit-queue.js";
+import { createWorkspaceFileStore } from "../adapters/workspace/files-store.js";
 import { createActivityService } from "../features/activities/service.js";
 import { createDreamRepository } from "../adapters/storage/dream-repository.js";
 import { readThreadInstructions, writeThreadInstructions } from "../adapters/storage/thread-instructions.js";
@@ -57,6 +60,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
 
   const auth = await createAuth(config, layout);
   const workspaceEvents = createWorkspaceEvents();
+  const workspaceCommits = createWorkspaceCommitQueue();
   const memoryRepository = createMemoryRepository(layout.memoryFile);
   const memory = createMemoryService(memoryRepository);
   const identity = createIdentityService(memoryRepository, {
@@ -158,6 +162,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
             web,
             weather,
             skills,
+            workspaceCommits,
           }),
           manager,
         ),
@@ -260,7 +265,10 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     propose: createDreamProposer({ config, layout, modelRuntime }),
   });
   const dreamScheduler = createDreamScheduler(dream);
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, activities, dream, dreamScheduler };
+  const workspaceFiles = createWorkspaceFileService(createWorkspaceFileStore(layout, workspaceCommits), {
+    spaceExists: async (spaceId) => (await conversationHub.spaces()).some((space) => space.id === spaceId),
+  });
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。

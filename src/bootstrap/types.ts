@@ -13,6 +13,8 @@ import type { SkillsService } from "../features/skills/service.js";
 import type { createAuth } from "../adapters/auth/token-service.js";
 import type { ToolPresentation } from "../adapters/ag-ui/tool-presentation.js";
 import type { WorkspaceEvents } from "../features/workspace/workspace-events.js";
+import type { WorkspaceFileService } from "../features/workspace/files-service.js";
+import type { WorkspaceCommitQueue } from "../adapters/workspace/file-commit-queue.js";
 import type { ActivityService } from "../features/activities/service.js";
 import type { DreamService } from "../features/dream/service.js";
 import type { DreamScheduler } from "../features/dream/scheduler.js";
@@ -36,6 +38,8 @@ export type ServiceContainer = {
   skills: SkillsService;
   presentation: ToolPresentation;
   workspaceEvents: WorkspaceEvents;
+  workspaceFiles: WorkspaceFileService;
+  workspaceCommits: WorkspaceCommitQueue;
   activities: ActivityService;
   dream: DreamService;
   dreamScheduler: DreamScheduler;
@@ -43,5 +47,5 @@ export type ServiceContainer = {
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "activities" | "dream"
+  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "dream"
 >;

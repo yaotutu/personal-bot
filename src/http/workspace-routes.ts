@@ -12,6 +12,7 @@ import { createActivitiesRoutes } from "./routes/activities.js";
 import { createConversationRoutes } from "./routes/conversation.js";
 import { createAgentStatusRoutes } from "./routes/agent-status.js";
 import { createProfileRoutes } from "./routes/profile.js";
+import { createWorkspaceFileRoutes } from "./routes/workspace-files.js";
 
 /**
  * 自研 Web 业务端点的组合出口：每个域一个路由文件（routes/），
@@ -31,5 +32,6 @@ export const createWorkspaceRoutes = (dependencies: HttpDependencies) => {
   app.route("/", createActivitiesRoutes(dependencies));
   app.route("/", createConversationRoutes(dependencies));
   app.route("/", createProfileRoutes(dependencies));
+  app.route("/", createWorkspaceFileRoutes(dependencies));
   return app;
 };

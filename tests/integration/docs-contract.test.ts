@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createService } from "../../src/bootstrap/create-service.js";
@@ -212,6 +212,48 @@ test("docs: activity GET endpoints are authenticated read-only JSON operations w
     "approval_updated",
     "ready",
   ]);
+});
+
+test("docs: workspace file endpoints pin explicit selectors, manual confirmation and safety limits", () => {
+  const doc = buildOpenApiDocument();
+  const paths = doc.paths as unknown as Record<string, Record<string, OpenApiOperation>>;
+  const fileOperations = {
+    list: paths["/api/workspace/files"]?.get,
+    content: paths["/api/workspace/files/content"]?.get,
+    create: paths["/api/workspace/files/text"]?.post,
+    update: paths["/api/workspace/files/text"]?.put,
+    delete: paths["/api/workspace/files"]?.delete,
+  };
+  for (const [name, operation] of Object.entries(fileOperations)) {
+    assert.ok(operation, `missing workspace file operation ${name}`);
+    assert.deepEqual(operation.security, [{ bearerAuth: [] }]);
+    assert.equal(operation.tags?.[0], "工作区文件");
+  }
+
+  assert.deepEqual(
+    Object.entries(paths).filter(([path]) => path.startsWith("/api/workspace/files")).map(([path, operations]) => [
+      path,
+      Object.keys(operations).sort(),
+    ]),
+    [
+      ["/api/workspace/files", ["delete", "get"]],
+      ["/api/workspace/files/content", ["get"]],
+      ["/api/workspace/files/text", ["post", "put"]],
+    ],
+  );
+
+  for (const rule of [/scope=space 或 shared/, /spaceId 必填/, /不隐式创建空间/, /1000 项/, /413/])
+    assert.match(fileOperations.list!.description ?? "", rule);
+  for (const rule of [/8388608 字节/, /严格 UTF-8/, /无 NUL/, /PNG\/JPEG\/GIF\/WebP/, /dataBase64/, /不透出绝对路径/])
+    assert.match(fileOperations.content!.description ?? "", rule);
+  for (const operation of [fileOperations.create!, fileOperations.update!]) {
+    for (const rule of [/完整 before\/after|完整新内容/, /confirmed:true/, /100000 UTF-8 字节/, /ASCII 字母/])
+      assert.match(operation.description ?? "", rule);
+  }
+  assert.match(fileOperations.create!.description ?? "", /目标存在返回 409/);
+  assert.match(fileOperations.update!.description ?? "", /缺失返回 404/);
+  assert.match(fileOperations.update!.description ?? "", /旧 pending 模型审批/);
+  assert.match(fileOperations.delete!.description ?? "", /仅删除现存普通文件/);
 });
 
 test("docs: activity list pins limit range, filter enums, cursor binding and no time-window filtering", () => {
@@ -979,6 +1021,8 @@ test("docs: live GET responses parse against registry schemas (no drift)", async
     .filter((e) => e.method === "get" && !e.path.includes(":") || e.path === "/api/health")
     .filter((e) => !e.sse) // SSE 端点响应是流，不是 JSON schema；safeParse 不适用
     .filter((e) => e.path !== "/api/agent/status")
+    // 工作区文件 GET 需要显式 selector/path，且 content 需要先准备现存文件；下方单独覆盖。
+    .filter((e) => !e.path.startsWith("/api/workspace/files"))
     .map((e) => ({ path: e.path }));
   // conversation 需要查询参数；单独加。
   for (const { path } of cases) {
@@ -1007,6 +1051,18 @@ test("docs: live GET responses parse against registry schemas (no drift)", async
   const profile = await service.app.request("/api/profile", { headers });
   const profileEndpoint = endpoints.find((e) => e.path === "/api/profile" && e.method === "get")!;
   assert.ok(profileEndpoint.response.safeParse(await profile.json()).success, "profile response drifted");
+  await writeFile(join(dataDir, "workspace", "threads", "local-main", "docs-file.txt"), "docs");
+  const workspaceList = await service.app.request("/api/workspace/files?scope=space&spaceId=local-main", { headers });
+  assert.equal(workspaceList.status, 200);
+  const workspaceListEndpoint = endpoints.find((e) => e.path === "/api/workspace/files" && e.method === "get")!;
+  assert.ok(workspaceListEndpoint.response.safeParse(await workspaceList.json()).success, "workspace list response drifted");
+  const workspaceContent = await service.app.request(
+    "/api/workspace/files/content?scope=space&spaceId=local-main&path=docs-file.txt",
+    { headers },
+  );
+  assert.equal(workspaceContent.status, 200);
+  const workspaceContentEndpoint = endpoints.find((e) => e.path === "/api/workspace/files/content")!;
+  assert.ok(workspaceContentEndpoint.response.safeParse(await workspaceContent.json()).success, "workspace content response drifted");
 });
 
 test("docs: every served route is registered and every registration is served (no shadow API)", async (t) => {

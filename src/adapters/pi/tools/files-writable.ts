@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { ApprovalCapacityError, type ActionService } from "../../../features/actions/action-service.js";
 import type { ActivityObservation } from "../../../features/activities/types.js";
 import { resolveWorkspacePath, safeWorkspacePath } from "./workspace-path.js";
+import { createWorkspaceCommitQueue, type WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
 
 const MAX_BYTES = 100_000;
 const POLL_INTERVAL_MS = 2_000;
@@ -15,16 +16,8 @@ type Actions = Pick<ActionService, "submit" | "poll" | "cancel" | "markExecuting
 type Snapshot = { content: string; version: string };
 export type ActivityToolObservation = { observe: (event: ActivityObservation) => void; prefix: string; getActivityId?: () => string | undefined };
 
-/** 同一物理 workspace 的不同工具工厂共用队列；审批等待不占锁，只有提交串行化。 */
-const commits = new Map<string, Promise<void>>();
-const serialCommit = async <T>(target: string, commit: () => Promise<T>): Promise<T> => {
-  const previous = commits.get(target) ?? Promise.resolve();
-  const result = previous.then(commit);
-  const tail = result.then(() => undefined, () => undefined);
-  commits.set(target, tail);
-  try { return await result; }
-  finally { if (commits.get(target) === tail) commits.delete(target); }
-};
+/** 兼容独立工具工厂测试；生产 bootstrap 注入与 HTTP 手动写入共用的队列。 */
+const fallbackCommits = createWorkspaceCommitQueue();
 
 const denied = (text: string) => ({
   content: [{ type: "text" as const, text }], details: { denied: true }, isError: true,
@@ -160,7 +153,8 @@ const awaitApproval = async (
 const commitFile = async (
   root: string, path: string, target: string, original: Snapshot | undefined,
   content: string, approval: { id: string; expiresAt: number }, actions: Actions, signal?: AbortSignal, sharedDir?: string, boundaryDir?: string,
-) => serialCommit(target, async () => {
+  commitQueue: WorkspaceCommitQueue = fallbackCommits,
+) => commitQueue(target, async () => {
   // 先持久化真实执行开始，避免文件已提交后才第一次登记执行；写失败时不执行副作用。
   if (!await actions.markExecuting(approval.id)) {
     return denied("Approval cannot execute (expired or already used); nothing was written.");
@@ -209,6 +203,7 @@ const commitFile = async (
 export const createWritableFileTools = (
   root: string, actions: Actions, timeoutMs: number, context?: ApprovalContext, sharedDir?: string, boundaryDir?: string,
   observation?: ActivityToolObservation,
+  commitQueue: WorkspaceCommitQueue = fallbackCommits,
 ) => [
   defineTool({
     name: "write", label: "Write file",
@@ -233,7 +228,7 @@ export const createWritableFileTools = (
         ...event, id: `${observation.prefix}:${event.id}`, parentId: `${observation.prefix}:tool:${_id}`,
       }) : undefined);
       if (approved === undefined) return denied("Write not approved (denied, expired or cancelled); nothing was written.");
-      return commitFile(root, params.path, target, original, params.content, approved, actions, signal, sharedDir, boundaryDir);
+      return commitFile(root, params.path, target, original, params.content, approved, actions, signal, sharedDir, boundaryDir, commitQueue);
     },
   }),
   defineTool({
@@ -268,7 +263,7 @@ export const createWritableFileTools = (
         ...event, id: `${observation.prefix}:${event.id}`, parentId: `${observation.prefix}:tool:${_id}`,
       }) : undefined);
       if (approved === undefined) return denied("Edit not approved (denied, expired or cancelled); nothing was written.");
-      return commitFile(root, params.path, target, original, content, approved, actions, signal, sharedDir, boundaryDir);
+      return commitFile(root, params.path, target, original, content, approved, actions, signal, sharedDir, boundaryDir, commitQueue);
     },
   }),
 ];

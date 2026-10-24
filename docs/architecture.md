@@ -15,7 +15,7 @@
 | `src/adapters/pi/` | session factory、历史投影、activity 记录与安全观察、诊断脱敏、资源隔离、prompt、工具装配与路径 guard | 第二套历史、手写 agent loop |
 | `src/adapters/ag-ui/` | SSE、事件投影、运行与取消适配 | 会话锁或业务域状态 |
 | `src/adapters/storage/` | DataLayout、文件读写、各域 repository | 业务状态机、通用 CRUD 框架 |
-| `src/adapters/web/`、`src/adapters/weather/` | 安全网络传输、供应商适配 | 绕过 DNS/大小/超时边界 |
+| `src/adapters/web/`、`src/adapters/weather/`、`src/adapters/workspace/` | 安全网络传输、供应商适配、手动文件存储与提交队列 | 绕过 DNS/大小/超时/工作区路径边界 |
 | `src/adapters/auth/token-service.ts` | 登录、token 与签名密钥 | 业务规则 |
 | `src/http/` | 鉴权、CORS、routes、contracts、presenter 与自动文档 | 创建业务实例、启动 scheduler |
 | `web/src/` | 自有工作台、聊天 SSE、历史/任务/审批展示 | 自定义后端事实、复制手写 DTO |
@@ -72,12 +72,12 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 
 ## 文件工具与审批
 
-- read/grep/find/ls 默认只可达 `DATA_DIR/workspace/threads/<threadId>/`，主会话使用 `threads/local-main/`，无父目录特权。`workspace/`、`threads/` 仅是容器，不得回退为会话根；`shared/...` 仅映射到 `workspace/shared/`。
+- read/grep/find/ls 默认只可达 `DATA_DIR/workspace/threads/<threadId>/`，主会话使用 `threads/local-main/`，无父目录特权。`workspace/`、`threads/` 仅是容器，不得回退为会话根；`shared/...` 仅映射到 `workspace/shared/`。HTTP 手动文件管理使用显式 `scope=space|shared` 选择根，不再解释 `shared/` 前缀；scope=space 必须指向已有空间，GET 与写操作都不隐式创建空间。
 - 拒绝绝对路径、`..`、根/中间目录/目标符号链接。只读 operations 核查 SDK 最终解析路径，递归 grep/find 不跟随链接，ls 跳过链接。仅 read 可额外读取本轮启用技能的精确 `SKILL.md` 路径，不开放相邻文件或目录。
 - `bash` 永不暴露。`write`/`edit` 默认开启，可由 `tools.writable.enabled` 关闭；仅注册受控工具，不开放 pi 默认的无限制写工具。
 - 审批域记录人的决定和工具回报的执行事实，不直接执行副作用。每次操作登记完整路径、内容/编辑前后文本、文件基准版本及 spaceId/runId/expiresAt，可关联 activityId/toolCallId；Web 原样转义展示完整预览，不能只展示截断摘要让人批准。
 - 截止时间登记时固定，决定时原子检查过期；Stop/abort 撤销 pending，启动前撤销旧进程遗留 pending。批准旧卡片不能复活已取消的执行。
-- 提交前再次核对路径、版本、审批期限与取消状态。不同工具实例共用逐物理路径队列；文件变化必须重新申请审批。拒绝、过期或运行取消不提交该次修改，不覆盖他人新内容。
+- 提交前再次核对路径、版本、审批期限与取消状态。不同工具实例共用逐物理路径队列；文件变化必须重新申请审批。拒绝、过期或运行取消不提交该次修改，不覆盖他人新内容。手动 HTTP 新建/更新/删除与模型工具提交注入同一个队列；HTTP 更新同样先写临时文件再替换，不截断旧文件。客户端必须在调用前完整展示 before/after 并取得用户确认，但这不是模型审批，也不能改变模型工具的版本绑定审批。
 - 写入/编辑先写同目录临时文件再提交，限制正文大小；保护针对单进程工具并发，不承诺抵御外部恶意进程在最终检查与 rename 间的路径竞争，不增加跨进程锁或事务框架。
 - approved 仅表示人的批准，不代表磁盘提交成功。工具先原子登记执行开始，再报告实际提交结果；无执行回报时不推断成功，重启将遗留 running 执行标记 unknown，不重跑文件操作。会话规则、技能开关和展示策略不能绕过路径边界或审批。
 - 终态历史与登记时的完整预览长期保留，不按时间或条数裁剪；历史分页只返回摘要，完整预览按需读取详情。相同决定幂等返回，不延长授权也不重新执行；相反决定、过期或取消发生冲突。读取 pending 不返回过期项，也不为查询改写决定状态。

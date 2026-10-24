@@ -19,6 +19,7 @@ import { instructionsTool } from "./instructions.js";
 import { createActivityTool, ACTIVITY_TOOL_NAME } from "./activity.js";
 import type { ActivityRun } from "../../../features/activities/types.js";
 import { SUBAGENT_TOOL_NAME } from "../subagent/extension.js";
+import type { WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
 
 type ToolDependencies = {
   root: string;
@@ -41,6 +42,7 @@ type ToolDependencies = {
   layout?: DataLayout;
   sharedDir?: string;
   readOnlyFiles?: readonly string[];
+  workspaceCommits?: WorkspaceCommitQueue;
 };
 
 /**
@@ -75,7 +77,7 @@ const registrations = [
   {
     names: ["write", "edit"],
     create: (deps: ToolDependencies) =>
-      deps.actions ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { spaceId: deps.spaceId, runId: deps.runId, subagentId: deps.subagentId, workspaceSpaceId: deps.workspaceSpaceId ?? deps.spaceId, activityId: deps.currentActivityId }, deps.sharedDir, deps.layout?.workspaceDir, deps.activityObservation) : [],
+      deps.actions ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { spaceId: deps.spaceId, runId: deps.runId, subagentId: deps.subagentId, workspaceSpaceId: deps.workspaceSpaceId ?? deps.spaceId, activityId: deps.currentActivityId }, deps.sharedDir, deps.layout?.workspaceDir, deps.activityObservation, deps.workspaceCommits) : [],
   },
   { names: ["search_web", "web_fetch"], create: (deps: ToolDependencies) => deps.web ? createWebTools(deps.web) : [] },
   { names: ["get_weather"], create: (deps: ToolDependencies) => deps.weather ? [weatherTool(deps.weather)] : [] },
