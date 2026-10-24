@@ -908,12 +908,15 @@ test("Jobs REST API: list filtering, sorting, patch update and delete lifecycle"
 
   // 3. 排序 (按 nextRunAt asc / desc)
   const sortedAsc = await h.request("/api/jobs?sort=nextRunAt&order=asc").then((r) => r.json());
-  assert.equal(sortedAsc.jobs[0].id, job1.id);
-  assert.equal(sortedAsc.jobs[1].id, job2.id);
+  // daily 任务在当前时间之后才排今天；08:00 可能已是明天而 10:00 仍是今天。
+  // 以两个真实 nextRunAt 推导期望，不能用 HH:mm 的字符串顺序假设跨日顺序。
+  const [earlierId, laterId] = Date.parse(job1.nextRunAt!) <= Date.parse(job2.nextRunAt!)
+    ? [job1.id, job2.id]
+    : [job2.id, job1.id];
+  assert.deepEqual(sortedAsc.jobs.map((job: { id: string }) => job.id), [earlierId, laterId]);
 
   const sortedDesc = await h.request("/api/jobs?sort=nextRunAt&order=desc").then((r) => r.json());
-  assert.equal(sortedDesc.jobs[0].id, job2.id);
-  assert.equal(sortedDesc.jobs[1].id, job1.id);
+  assert.deepEqual(sortedDesc.jobs.map((job: { id: string }) => job.id), [laterId, earlierId]);
 
   // 4. PATCH 更新任务（验证 updatedAt 刷新且回读一致）
   const beforePatchTime = new Date(job1.createdAt).getTime();
