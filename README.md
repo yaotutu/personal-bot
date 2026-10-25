@@ -83,6 +83,7 @@ Pi Muse 是客户端优先的项目。独立客户端可以承载更多信息，
 - [配置说明](docs/configuration.md)
 - [开发与联调](docs/development.md)
 - [架构规范](docs/architecture.md)
+- [产品模块与资源文档](docs/product/README.md)
 
 ## 致谢
 

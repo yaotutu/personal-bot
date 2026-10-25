@@ -63,6 +63,7 @@
 - 默认验证：`pnpm check`；分层命令、fake-model 触发词和 live 参数见测试规范。
 - 对外接口：运行时 `/docs`、`/openapi.json`；[HTTP 辅助说明](docs/http-api-contract.md)不是第二份接口规范。
 - 待实施需求：[backlog](docs/backlog.md) 与 `docs/discussions/`；历史实施和验收：`docs/archive/`，不作为当前实现或授权依据。
+- 产品模块与资源准备：[模块索引](docs/product/README.md)，虚拟形象的状态、动作清单和待确认媒体规格见 [虚拟形象资源](docs/product/avatar.md)；不将候选方案视为实施授权。
 
 ## 文档维护规则
 
