@@ -1,76 +1,91 @@
+<div align="center">
+
+<img src="docs/assets/muse.png" width="112" alt="Pi Muse">
+
 # Pi Muse
 
-一个基于 [pi](https://github.com/earendil-works/pi) 的开源个人 Agent，配合独立的手机 App 使用。
+**一个客户端优先的开源 personal agent。**
 
-你可以把服务端部署在自己的电脑或服务器上，接入自己的模型服务，再用手机 App 连接。服务端和 App 的源码都公开。
+部署自己的服务端，在手机 App 里聊天、安排任务、查看进度、确认文件修改。
 
-[部署指南](docs/getting-started.md) · [下载 Android App](https://github.com/yaotutu/pi-muse-mobile/releases) · [客户端源码](https://github.com/yaotutu/pi-muse-mobile)
+[开始使用](#开始使用) · [界面](#界面) · [功能](#功能) · [未来](#接下来) · [Android 下载](https://github.com/yaotutu/pi-muse-mobile/releases)
 
-## 为什么做这个项目
+[![GitHub stars](https://img.shields.io/github/stars/yaotutu/pi-muse?style=flat-square&logo=github)](https://github.com/yaotutu/pi-muse/stargazers)
+[![Android](https://img.shields.io/badge/Android-App-3b82f6?style=flat-square&logo=android&logoColor=white)](https://github.com/yaotutu/pi-muse-mobile/releases)
+[![Node](https://img.shields.io/badge/Node.js-24%2B-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
 
-我很喜欢 Muse 的 UI，也想要一个能自己部署、每天在手机上用的个人 Agent，所以基于 pi 重新开发了服务端和手机客户端。Pi Muse 的界面与交互借鉴了 Muse。
+</div>
 
-Pi Muse 是一个客户端优先的项目。独立客户端能承载更多信息，也能提供更完整的交互。任务进度、工具结果、文件修改和审批，都可以根据各自的内容设计界面和操作方式。
+![Pi Muse mobile app](docs/assets/showcase.png)
 
-把 Agent 接进飞书、QQ、微信这类聊天工具，交互通常围绕消息、命令和简单卡片展开，能展示什么、用户怎么操作，都受平台提供的能力限制。自己开发客户端，就可以按个人 Agent 的需要来设计这些交互。
+## 界面
 
-## 开源，也可以自己部署
+我喜欢 Muse 的 UI，所以基于 [pi](https://github.com/earendil-works/pi) 重新开发了 Pi Muse 的服务端和手机客户端。界面与交互借鉴 Muse。
 
-服务端在[这个仓库](https://github.com/yaotutu/pi-muse)，手机 App 在 [pi-muse-mobile](https://github.com/yaotutu/pi-muse-mobile)。两边都开放源码，可以查看具体实现、反馈问题，也欢迎参与开发。
+Pi Muse 是客户端优先的项目。独立客户端可以承载更多信息，也能设计更完整的交互；接进飞书、QQ、微信这类聊天工具时，交互通常只有消息、命令和简单卡片。任务、目标、审批这些内容值得有各自的页面，而不是都塞进聊天记录。
 
-服务运行在哪里、接哪个模型、怎样保存会话和记忆，都由你自己配置和管理。普通用户只需要部署服务端、下载安装 App，不需要把几个仓库都研究一遍。
+## 功能
 
-## 现在能做什么
+- **聊天与空间**：流式回复，按工作、生活、学习建立不同空间，分别保存对话和规则。
+- **运行与活动**：查看 Agent 正在做什么、工具调用和已登记工作的进度，需要时可以停止。
+- **任务与监控**：通过聊天创建一次性或每日任务，监控网页变化和关键词。
+- **目标与里程碑**：记录长期目标，拆分并勾选里程碑。
+- **文件修改与审批**：Agent 修改授权目录里的文件时，先展示完整改动，由你批准后执行。
+- **记忆**：保存偏好和重要信息，需要时检索，也可以启用后台整理。
 
-- 流式聊天，查看运行状态和工具调用，需要时停止执行。
-- 按工作、学习、生活建立不同空间，分别设置规则、保存对话上下文。
-- 保存偏好和长期记忆，需要时检索，也可以启用后台记忆整理。
-- 创建定时任务、管理目标和里程碑，监控网页变化或关键词。
-- 搜索和读取公开网页，查询天气。
-- 让 Agent 修改授权工作区内的文件。修改前会展示完整预览，需要你批准后才能执行，并可查看执行结果。
+<p align="center">
+  <img src="docs/assets/session.png" width="92%" alt="运行状态与会话面板">
+</p>
 
-目前主要维护 Android 客户端，iOS 还在规划中。安装包具体支持哪些功能，请看对应的 Release 说明。
+<p align="center">
+  <sub>运行状态与会话面板</sub>
+</p>
 
-提醒结果目前在应用内查看，还没有 Android 锁屏推送。工具结果的专用展示也还在完善，目前主要使用文本和摘要。
+目前主要维护 Android 客户端，iOS 还在规划中。提醒结果在 App 内查看，还没有锁屏推送。工具结果的专用展示也还在完善，目前主要使用文本和摘要。
 
-## 接下来想做什么
+## 接下来
 
-下面这些还在规划中。
+### 带个人登录状态的浏览器
 
-### 能使用个人登录状态的浏览器
+很多工作要先登录才能继续。只抓取公开网页，遇到登录页就拿不到内容，Agent 也就帮不上忙。
 
-这是我很想做的一部分。很多工作需要先登录才能继续：查看自己账号里的信息、打开内部文档、处理工作平台上的任务。只抓取公开网页，遇到登录页就拿不到内容，Agent 也就帮不上忙。
-
-我希望在 Pi Muse 里集成真正的浏览器。由你完成登录和授权，Agent 在允许的范围内使用这个登录会话，帮你查看页面、整理信息和处理事情。这部分还没实现，目前只有网页搜索、抓取和监控。
+我希望 Pi Muse 能集成真正的浏览器：由你完成登录和授权，Agent 在允许的范围内使用这个会话，查看页面、整理信息、处理事情。这部分还没实现，目前只有网页搜索、抓取和监控。
 
 ### 接入更多设备和消息
 
-独立 App 是目前主要的使用方式，但服务端也提供公开接口。以后希望接入智能硬件、录音设备，以及其他平台的消息，让它们交给同一个 Agent 处理。
-
-手机端也想逐步接入短信、电话和邮件。具体能做到哪一步需要看系统权限和平台限制，目前还没有这些连接器。已有的 HTTP、SSE 接口可以作为开发接入的基础，接口文档在启动服务后的 `/docs` 页面。
+服务端已经提供公开的 HTTP、SSE 接口。以后希望接入智能硬件、录音设备和其他平台的消息，也逐步接入手机上的短信、电话和邮件。具体能做到哪一步要看系统权限和平台限制，目前还没有这些连接器。
 
 ## 开始使用
 
-1. 按[部署指南](docs/getting-started.md)安装服务端，配置模型接口和服务访问密钥。
+1. 按[部署指南](docs/getting-started.md)安装服务端，配置模型接口和访问密钥。
 2. 从 [Releases](https://github.com/yaotutu/pi-muse-mobile/releases) 下载 Android App。
 3. 在 App 中填写服务端地址和访问密钥，连接后即可使用。
 
 服务端需要 Node.js 24+、pnpm 12.10.1，以及兼容 OpenAI Chat Completions 协议的模型服务。模型调用可能产生费用。定时任务和网页监控需要服务端保持运行。
 
-## 数据和安全
+## 开源
+
+服务端在本仓库，手机 App 在 [pi-muse-mobile](https://github.com/yaotutu/pi-muse-mobile)。服务端和客户端源码都开放，可以查看实现、提交问题或参与开发。
+
+服务运行在哪里、接哪个模型、怎样保存会话和记忆，都由你自己配置和管理。普通用户只需要部署服务端、安装 App，不需要把几个仓库都研究一遍。
+
+如果这个项目对你有帮助，欢迎点一个 Star。也欢迎通过 [Issues](https://github.com/yaotutu/pi-muse/issues) 告诉我你在用它做什么。
+
+## 数据与安全
 
 会话、记忆和工作区文件保存在你部署的服务端，目前按明文存储，请妥善保护实例目录和备份。使用外部模型时，处理请求所需的上下文仍会发送给模型服务商，自部署不等于本地推理。
 
-请设置服务访问密钥；远程访问时使用 HTTPS 或安全组网，不要直接把未加密的 HTTP 服务暴露在公网。具体配置见[部署指南](docs/getting-started.md)。
+请设置服务访问密钥；远程访问时使用 HTTPS 或安全组网，不要把未加密的 HTTP 服务直接暴露在公网。详细配置见[部署指南](docs/getting-started.md)和[配置说明](docs/configuration.md)。
 
-## 文档和反馈
+## 文档
 
+- [部署指南](docs/getting-started.md)
 - [配置说明](docs/configuration.md)
 - [开发与联调](docs/development.md)
-- [问题反馈与功能建议](https://github.com/yaotutu/pi-muse/issues)
+- [架构规范](docs/architecture.md)
 
 ## 致谢
 
-- [pi](https://github.com/earendil-works/pi)：Agent 执行与会话管理。
-- [nanobot](https://github.com/HKUDS/nanobot)：个人助手功能的设计参考。
-- Muse：界面与交互设计参考。
+- [pi](https://github.com/earendil-works/pi)：Agent 执行与会话管理
+- [nanobot](https://github.com/HKUDS/nanobot)：个人助手功能的设计参考
+- Muse：界面与交互设计参考
