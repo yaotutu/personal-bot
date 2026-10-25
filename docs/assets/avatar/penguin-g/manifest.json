@@ -1,0 +1,144 @@
+{
+  "character": "Pi Muse ice-blue penguin G",
+  "selected_identity_reference": "../penguin-style-g-ice-blue.png",
+  "package_status": "static_first_draft_only",
+  "implementation_changes": false,
+  "original_reference_modified": false,
+  "state_count": 8,
+  "continuous_animation_count": 0,
+  "quality_notes": [
+    "Generated poses are first drafts pending user review.",
+    "Composition, scale and lighting are not guaranteed frame-accurate across independent generations.",
+    "Transparent outputs have alpha; edge cleanup and isolated specks require further review before production use.",
+    "Icon PNGs are high-resolution design masters, not platform-sized validated launcher exports."
+  ],
+  "icons": {
+    "opaque_master": "icons/icon-master.png",
+    "transparent_foreground_master": "icons/foreground-master.png",
+    "android_safe_zone_validation": "not performed",
+    "ios_validation": "not performed"
+  },
+  "states": [
+    {
+      "state": "idle",
+      "label": "待机",
+      "static_file": "base.png",
+      "phase_mapping": [],
+      "terminal_status_mapping": [],
+      "loop_target": true,
+      "static_status": "generated_first_draft",
+      "animation_status": "pending_video_connection",
+      "animation_file": null,
+      "png_sequence": null,
+      "preview_file": null
+    },
+    {
+      "state": "thinking",
+      "label": "思考",
+      "static_file": "keyframes/thinking.png",
+      "phase_mapping": [
+        "preparing",
+        "waiting_model"
+      ],
+      "terminal_status_mapping": [],
+      "loop_target": true,
+      "static_status": "generated_first_draft",
+      "animation_status": "pending_video_connection",
+      "animation_file": null,
+      "png_sequence": null,
+      "preview_file": null
+    },
+    {
+      "state": "responding",
+      "label": "回复",
+      "static_file": "keyframes/responding.png",
+      "phase_mapping": [
+        "responding"
+      ],
+      "terminal_status_mapping": [],
+      "loop_target": true,
+      "static_status": "generated_first_draft",
+      "animation_status": "pending_video_connection",
+      "animation_file": null,
+      "png_sequence": null,
+      "preview_file": null
+    },
+    {
+      "state": "working",
+      "label": "工作",
+      "static_file": "keyframes/working.png",
+      "phase_mapping": [
+        "executing_tool",
+        "waiting_subagents",
+        "finalizing"
+      ],
+      "terminal_status_mapping": [],
+      "loop_target": true,
+      "static_status": "generated_first_draft",
+      "animation_status": "pending_video_connection",
+      "animation_file": null,
+      "png_sequence": null,
+      "preview_file": null
+    },
+    {
+      "state": "waiting-approval",
+      "label": "等待确认",
+      "static_file": "keyframes/waiting-approval.png",
+      "phase_mapping": [
+        "waiting_approval"
+      ],
+      "terminal_status_mapping": [],
+      "loop_target": true,
+      "static_status": "generated_first_draft",
+      "animation_status": "pending_video_connection",
+      "animation_file": null,
+      "png_sequence": null,
+      "preview_file": null
+    },
+    {
+      "state": "success",
+      "label": "完成",
+      "static_file": "keyframes/success.png",
+      "phase_mapping": [],
+      "terminal_status_mapping": [
+        "succeeded"
+      ],
+      "loop_target": false,
+      "static_status": "generated_first_draft",
+      "animation_status": "pending_video_connection",
+      "animation_file": null,
+      "png_sequence": null,
+      "preview_file": null
+    },
+    {
+      "state": "error",
+      "label": "失败",
+      "static_file": "keyframes/error.png",
+      "phase_mapping": [],
+      "terminal_status_mapping": [
+        "failed"
+      ],
+      "loop_target": false,
+      "static_status": "generated_first_draft",
+      "animation_status": "pending_video_connection",
+      "animation_file": null,
+      "png_sequence": null,
+      "preview_file": null
+    },
+    {
+      "state": "stopped",
+      "label": "停止",
+      "static_file": "keyframes/stopped.png",
+      "phase_mapping": [],
+      "terminal_status_mapping": [
+        "cancelled"
+      ],
+      "loop_target": false,
+      "static_status": "generated_first_draft",
+      "animation_status": "pending_video_connection",
+      "animation_file": null,
+      "png_sequence": null,
+      "preview_file": null
+    }
+  ]
+}

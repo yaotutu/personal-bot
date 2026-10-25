@@ -1,0 +1,119 @@
+{
+  "scope": "static assets only; not animation or runtime acceptance",
+  "files": [
+    {
+      "file": "base.png",
+      "width": 1254,
+      "height": 1254,
+      "channels": "srgba 4.0",
+      "opaque": false,
+      "bytes": 1174005,
+      "sha256": "265c9ec49e373b34fc2f3767b3af9d56a7734fbbe9a9db1222d687b71f48ce13",
+      "alpha_min": 0.0,
+      "alpha_max": 1.0
+    },
+    {
+      "file": "icons/foreground-master.png",
+      "width": 1254,
+      "height": 1254,
+      "channels": "srgba 4.0",
+      "opaque": false,
+      "bytes": 1698913,
+      "sha256": "175eeb3df7ccece6b255f2c48b79468a42e8e4fad77c2163fd0b05659ebffa81",
+      "alpha_min": 0.0,
+      "alpha_max": 1.0
+    },
+    {
+      "file": "icons/icon-master.png",
+      "width": 1254,
+      "height": 1254,
+      "channels": "srgb  3.0",
+      "opaque": true,
+      "bytes": 1808094,
+      "sha256": "4e97de8444ff784ef29717783a6b6e659a5dd7d38cd8faacf350d644bc92ce80"
+    },
+    {
+      "file": "keyframes/error.png",
+      "width": 1254,
+      "height": 1254,
+      "channels": "srgba 4.0",
+      "opaque": false,
+      "bytes": 1054322,
+      "sha256": "b8adbc8f9daefc37b5dd44238c1ed44eb81705b1d229d7de7e4d2d110d0b0d73",
+      "alpha_min": 0.0,
+      "alpha_max": 1.0
+    },
+    {
+      "file": "keyframes/responding.png",
+      "width": 1254,
+      "height": 1254,
+      "channels": "srgba 4.0",
+      "opaque": false,
+      "bytes": 1072465,
+      "sha256": "d186fb41e0814dc61b1ddfbf609b29478890727a664e36e412f413ba2a850e95",
+      "alpha_min": 0.0,
+      "alpha_max": 1.0
+    },
+    {
+      "file": "keyframes/stopped.png",
+      "width": 1254,
+      "height": 1254,
+      "channels": "srgba 4.0",
+      "opaque": false,
+      "bytes": 1167478,
+      "sha256": "1b4f9887157bdd4f759f8c439f55d8e591729fcf7e671526817affccf3af03bd",
+      "alpha_min": 0.0,
+      "alpha_max": 1.0
+    },
+    {
+      "file": "keyframes/success.png",
+      "width": 1254,
+      "height": 1254,
+      "channels": "srgba 4.0",
+      "opaque": false,
+      "bytes": 1103235,
+      "sha256": "93c14c92f8f1988c55245fbfc0f7cd3a6e8b0708033f775575df0267596e83ee",
+      "alpha_min": 0.0,
+      "alpha_max": 1.0
+    },
+    {
+      "file": "keyframes/thinking.png",
+      "width": 1254,
+      "height": 1254,
+      "channels": "srgba 4.0",
+      "opaque": false,
+      "bytes": 1137312,
+      "sha256": "049d196ef89677769600f1dffaede8ae3cd6ac0cd155ed5d8f7b185542e72b60",
+      "alpha_min": 0.0,
+      "alpha_max": 1.0
+    },
+    {
+      "file": "keyframes/waiting-approval.png",
+      "width": 1254,
+      "height": 1254,
+      "channels": "srgba 4.0",
+      "opaque": false,
+      "bytes": 1201348,
+      "sha256": "34b7a1ce9b9c7c8da96f2dc537694447e09cee5f36d6ca9954d204176b10b5ce",
+      "alpha_min": 0.0,
+      "alpha_max": 1.0
+    },
+    {
+      "file": "keyframes/working.png",
+      "width": 1254,
+      "height": 1254,
+      "channels": "srgba 4.0",
+      "opaque": false,
+      "bytes": 1269705,
+      "sha256": "3eab02ef859b1fd584d2832d6b022e44fc956d12527f25a9a7a5ce24f2a5e2d7",
+      "alpha_min": 0.0,
+      "alpha_max": 1.0
+    }
+  ],
+  "errors": [],
+  "user_approval_of_derived_poses": "pending",
+  "continuous_videos_generated": 0,
+  "runtime_tests": "not run: no implementation changes",
+  "technical_checks": "passed: PNG size, real alpha range, file paths and source hashes",
+  "visual_quality": "first draft; edge specks and cross-pose alignment still require review"
+}

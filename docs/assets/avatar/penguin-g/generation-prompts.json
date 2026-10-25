@@ -1,0 +1,118 @@
+{
+  "tool": "built-in image_gen",
+  "selected_reference": "../penguin-style-g-ice-blue.png",
+  "scope": "static reference images only, not animations",
+  "entries": [
+    {
+      "id": "base",
+      "file": "base.png",
+      "source_imagegen_file": "call_8d7d31f55611416aa8c5132e.png",
+      "sha256": "265c9ec49e373b34fc2f3767b3af9d56a7734fbbe9a9db1222d687b71f48ce13",
+      "transparent_background_requested": true,
+      "reference_images": [
+        "../penguin-style-g-ice-blue.png"
+      ],
+      "prompt": "Use case: precise-object-edit. Asset type: transparent production reference for the already selected Pi Muse penguin character.\nEdit the supplied reference image only to remove the warm-white background and any separate floor shadow. Preserve the penguin exactly as selected: same pale ice-blue head, back, crown tufts and flippers; same creamy face and belly; same glossy dark-brown eyes, peach-orange beak and feet; same soft velvety texture, proportions, pose, lighting, highlights and camera framing. Do not redesign or recolor the character, do not change its expression or anatomy, do not add or remove body parts, and do not alter the shadow inside the character's own silhouette.\nOutput a single full-body penguin with a genuinely transparent alpha background. The character should remain fully visible with its original internal contact shading but no external background, floor plane, scene, text, logo, watermark or extra objects. This is a transparent character baseline, not an icon, animation or sprite sheet."
+    },
+    {
+      "id": "thinking",
+      "file": "keyframes/thinking.png",
+      "source_imagegen_file": "call_ca4bc85ffa6842c28356304f9424234c.png",
+      "sha256": "049d196ef89677769600f1dffaede8ae3cd6ac0cd155ed5d8f7b185542e72b60",
+      "transparent_background_requested": true,
+      "reference_images": [
+        "../penguin-style-g-ice-blue.png"
+      ],
+      "prompt": "Use case: identity-preserve character pose. Asset type: single transparent THINKING state keyframe, not an animation.\nUse the provided selected Pi Muse penguin as the exact character identity reference. Preserve its pale icy-blue crown/back/flippers, cream-white heart-shaped face and belly, small dark-brown glossy eyes, peach beak and feet, fine velvety baby down, crown tuft and round proportions. Do not darken the blue, enlarge the eyes or redesign the character.\nChange only the pose and expression: standing full body, the penguin gently tilts its head to its right and looks slightly upward with a thoughtful, friendly expression; one short flipper rests lightly near the underside of its beak, the other remains relaxed. It is patiently considering something, not distressed or sad. No laptop or other props.\nSingle near-frontal fixed eye-level camera, full body and both feet visible, centered within a square with generous margins; diffuse neutral lighting matching the reference. Genuine transparent alpha background, no floor plane, no external shadow, no text, icons, symbols, logos, watermarks, clothing, accessories or multiple panels. Deliver ONE still keyframe suitable as the starting reference for a future continuous animation."
+    },
+    {
+      "id": "responding",
+      "file": "keyframes/responding.png",
+      "source_imagegen_file": "call_19497fb0bdac446883875db30582ff13.png",
+      "sha256": "d186fb41e0814dc61b1ddfbf609b29478890727a664e36e412f413ba2a850e95",
+      "transparent_background_requested": true,
+      "reference_images": [
+        "../penguin-style-g-ice-blue.png"
+      ],
+      "prompt": "Use case: identity-preserve character pose. Asset type: single transparent RESPONDING state keyframe, not an animation.\nThe supplied image is the selected Pi Muse penguin identity. Preserve the exact pale ice-blue crown tuft, head/back/flippers, creamy heart-shaped face and belly, small dark-brown eyes, peach-orange beak and feet, soft fine plush down and round baby proportions. Keep the palette extremely light and friendly. Do not redesign, darken or dress the penguin.\nPose: the penguin sits upright at a small plain pearl-gray laptop, viewed nearly front-on at a slight three-quarter angle, with both short flippers at the keyboard and the face turned up toward the viewer as though composing a friendly reply. Its attention is partly on the viewer, a gentle engaged smile; this is NOT the focused head-down working pose. The unbranded laptop is small and secondary, leaves the face and most of the cream belly visible, and contains no letters or screen content. Both tiny feet remain visible below the seated body.\nOne centered full-body character and laptop, fixed eye-level orthographic-like camera, matching neutral diffused lighting, square canvas with generous margins. Genuine transparent alpha background, no floor plane or external cast shadow. No chair, desk, headphones, clothes, icons, lettering, logos, watermark, extra characters, panels or sprite-sheet grid. Deliver ONE still keyframe to guide a future continuous animation, not a video."
+    },
+    {
+      "id": "working",
+      "file": "keyframes/working.png",
+      "source_imagegen_file": "call_33eb10be3fee4fdb9bdf42208e9f4d9c.png",
+      "sha256": "3eab02ef859b1fd584d2832d6b022e44fc956d12527f25a9a7a5ce24f2a5e2d7",
+      "transparent_background_requested": true,
+      "reference_images": [
+        "../penguin-style-g-ice-blue.png"
+      ],
+      "prompt": "Use case: identity-preserve character pose. Asset type: single transparent WORKING state keyframe, not an animation.\nThe reference is the already selected pale ice-blue Pi Muse penguin. Keep the same crown tuft, light-blue head/back/flippers, ivory-white heart-shaped face and belly, dark-brown glossy eyes, small peach beak and feet, fine soft baby down and round proportions. No dark colors or identity changes.\nChange the pose: sitting at a small unbranded pearl-gray laptop, the penguin leans forward slightly and looks DOWN at the screen with a friendly concentrated expression. Both flippers rest on the keyboard in an active typing position. Keep the entire face visible above the screen edge; do not hide the eyes. A near-frontal slight three-quarter view shows both face and the laptop. This pose must clearly look focused on computer work, unlike the responding pose which looks up toward the user. Tiny feet visible in front of the seated body. No chair or desk.\nFull body and laptop centered in a square with clear margins, fixed eye-level studio camera and diffuse neutral lighting consistent with the reference. Genuine transparent background with no floor plane or external cast shadow. No letters or laptop logos, no screen content, clothing, headphones, accessories, symbols, watermark, extra characters or panels. ONE still keyframe only."
+    },
+    {
+      "id": "waiting-approval",
+      "file": "keyframes/waiting-approval.png",
+      "source_imagegen_file": "call_9c3ad91a8fc24c7f82052385c25ed246.png",
+      "sha256": "34b7a1ce9b9c7c8da96f2dc537694447e09cee5f36d6ca9954d204176b10b5ce",
+      "transparent_background_requested": true,
+      "reference_images": [
+        "../penguin-style-g-ice-blue.png",
+        "keyframes/working.png"
+      ],
+      "prompt": "Use case: identity-preserve character pose. Asset type: single transparent WAITING FOR APPROVAL keyframe, not an animation.\nImage 1 is the immutable selected penguin identity. Image 2 is the working pose and laptop composition reference. Keep the same pale ice-blue penguin, creamy face/belly, small brown eyes, peach beak and feet, crown tuft, fine plush texture, seated proportions, pearl-gray laptop, camera angle and object scale.\nChange only its activity: it has STOPPED typing, lifted both flippers away from the keyboard and holds them relaxed near the sides of its tummy. It looks directly up at the viewer with an attentive, patient, gently expectant expression and a closed small beak. It is waiting for the user's decision, not celebrating, not distressed, not continuing to work. The laptop remains in the same place, but flippers are visibly not touching the keys. Keep both tiny feet visible.\nOne full-body penguin with laptop, centered square with clear margins, diffuse neutral lighting. Genuine alpha transparency, no external floor or shadow, no question marks, warning icons, checkmarks, text, logos, screen content, clothes, headphones, additional characters, panels or grid. Deliver ONE still pose only."
+    },
+    {
+      "id": "success",
+      "file": "keyframes/success.png",
+      "source_imagegen_file": "call_548fe7d6c926471a848ecc3d0c771d04.png",
+      "sha256": "93c14c92f8f1988c55245fbfc0f7cd3a6e8b0708033f775575df0267596e83ee",
+      "transparent_background_requested": true,
+      "reference_images": [
+        "../penguin-style-g-ice-blue.png"
+      ],
+      "prompt": "Use case: identity-preserve character pose. Asset type: single transparent SUCCESS state keyframe, not an animation.\nKeep the provided selected Pi Muse penguin's exact identity: very pale ice-blue head/back/flippers and crown tuft, ivory-white heart-shaped face and plump belly, small dark-brown glossy eyes, peach-orange small beak and tiny feet, soft fine velvety down, round baby proportions. Do not replace it with a new penguin or darken the colors.\nPose: full-body standing, a gentle happy head nod captured near its end, eyes softly curved closed in a pleased smile, small beak smiling. One short flipper is raised in a modest friendly wave near shoulder height, the other relaxed. Warm calm satisfaction after a task finished; no exaggerated celebration, jumping or confetti. No laptop in this completion feedback pose.\nNear-frontal fixed eye-level view, full body with both feet visible, centered square with clear margins, consistent diffused studio light. Genuine transparent background, no floor or external shadow. No checkmark, lettering, emojis, stars, clothing, props, logos, watermark, extra characters, multiple panels or sprite grid. Deliver ONE still pose only."
+    },
+    {
+      "id": "error",
+      "file": "keyframes/error.png",
+      "source_imagegen_file": "call_5eda10dad42641f297bb030a9677bcec.png",
+      "sha256": "b8adbc8f9daefc37b5dd44238c1ed44eb81705b1d229d7de7e4d2d110d0b0d73",
+      "transparent_background_requested": true,
+      "reference_images": [
+        "../penguin-style-g-ice-blue.png"
+      ],
+      "prompt": "Use case: identity-preserve character pose. Asset type: single transparent ERROR state keyframe, not an animation.\nPreserve the supplied selected Pi Muse penguin: same very pale ice-blue crown/head/back/flippers, crown tuft, creamy heart-shaped face and round belly, small dark-brown glossy eyes, peach beak and feet, soft fine velvety down and baby proportions. Keep it cute and approachable, do not darken the palette, do not enlarge its eyes or alter identity.\nPose: full-body standing, head gently tilted to its left, a mildly puzzled expression with the small beak closed in a soft neutral curve. Both short flippers are held a little away from the body with their inner surfaces visible, a modest 'something didn't work' shrug. Eyes remain open, kind and calm. It is NOT crying, panicking, frightened or injured. No laptop or props.\nOne centered character, near-frontal eye-level fixed view, both feet and flippers fully visible, square canvas with margins, neutral diffused studio lighting. Genuine alpha transparency without background, floor plane or external shadow. No red crosses, warning signs, question marks, text, lettering, tears, clothes, logos, watermark, additional characters or panels. ONE still keyframe only."
+    },
+    {
+      "id": "stopped",
+      "file": "keyframes/stopped.png",
+      "source_imagegen_file": "call_97ac9a64f4094444b0fd002668c0e30e.png",
+      "sha256": "1b4f9887157bdd4f759f8c439f55d8e591729fcf7e671526817affccf3af03bd",
+      "transparent_background_requested": true,
+      "reference_images": [
+        "../penguin-style-g-ice-blue.png"
+      ],
+      "prompt": "Use case: identity-preserve character pose. Asset type: single transparent STOPPED / CANCELLED state keyframe for Pi Muse, not an animation.\nThe provided image is the user-selected penguin identity. Preserve its very pale icy-blue head, back, flippers and crown tuft; ivory-white heart-shaped face and round belly; small dark-brown glossy eyes, peach-orange beak and feet, soft fine velvety down, and rounded baby proportions. Do not darken, dress or redesign the penguin.\nPose: the penguin is seated, with a small plain pearl-gray laptop CLOSED across its lap. Both short flippers rest quietly on top of the closed lid, clearly away from typing keys. It looks calmly at the user, neutral-friendly face, closed beak, no celebration and no sadness. This represents a user-requested stop, NOT failure, alarm or a successful completion. Both tiny feet remain visible in front of the seated body. No chair or desk.\nFull body and closed laptop, centered in a square with clear margins; near-frontal slight three-quarter eye-level view, neutral diffuse lighting. Genuine transparent alpha background: no floor plane, no separate cast shadow, no detached white specks around the silhouette. No stop-sign graphic, lettering, symbols, logos, watermark, clothing, headphones, other characters or panels. Deliver one still keyframe only, keeping the same penguin as the reference."
+    },
+    {
+      "id": "icon-master",
+      "file": "icons/icon-master.png",
+      "source_imagegen_file": "call_f5dd19ef96134b27ab15e65336ae2fa1.png",
+      "sha256": "4e97de8444ff784ef29717783a6b6e659a5dd7d38cd8faacf350d644bc92ce80",
+      "transparent_background_requested": false,
+      "reference_images": [
+        "../penguin-style-g-ice-blue.png"
+      ],
+      "prompt": "Use case: identity-preserve product icon. Asset type: square APP ICON MASTER for the selected Pi Muse penguin, one image.\nUse the supplied selected penguin as the identity reference, not merely inspiration. Keep exactly its very pale ice-blue head and crown tuft, creamy heart-shaped face, small dark-brown glossy eyes, little peach-orange beak, soft down texture and friendly gentle smile. Do not turn the head navy or enlarge its eyes, and do not add any accessories.\nCompose a centered frontal head-and-upper-chest portrait, face large and highly readable, the crown tuft entirely inside the canvas. The head takes about 65 percent of the square width; plenty of safety padding, no extremity cut off accidentally. Remove feet, laptop and any other props. Keep the head and fluffy neck recognizable as the same penguin.\nOpaque warm ivory background with an extremely soft pale ice-blue halo behind the head; clean premium app-icon composition, neutral diffuse studio lighting, no scenery or strong shadows. The canvas is an ordinary square, NOT a pre-rounded icon tile, not a phone mockup. No text, letters, numbers, logo marks, badges, border, watermark or other characters. High-resolution square PNG master; this is a static icon design, not an animation."
+    },
+    {
+      "id": "foreground-master",
+      "file": "icons/foreground-master.png",
+      "source_imagegen_file": "call_b0e0835225b64fa0acaa10effd625c1c.png",
+      "sha256": "175eeb3df7ccece6b255f2c48b79468a42e8e4fad77c2163fd0b05659ebffa81",
+      "transparent_background_requested": true,
+      "reference_images": [
+        "icons/icon-master.png"
+      ],
+      "prompt": "Use case: precise-object-edit. Asset type: transparent ICON FOREGROUND MASTER for Pi Muse.\nEdit the supplied icon portrait. Remove ONLY the warm ivory and pale-blue halo background, keeping the head-and-upper-chest portrait of the selected baby penguin. Preserve its face, proportions, tiny brown eyes, peach beak, pale icy-blue crown tuft/head, cream cheeks, plush texture, pose and internal lighting. No redesign, recoloring or added accessories. Keep the same portrait scale and centering. Produce genuine transparent alpha behind the penguin, including around the fine feather edges. Clean isolated silhouette with no detached pixels, no external shadow, no solid white halo. Do not add a tile, border, circle, rounded corners, letters or symbols. One square high-resolution PNG foreground master, not an animation or a multi-panel sheet."
+    }
+  ]
+}
