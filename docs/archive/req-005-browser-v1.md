@@ -1,11 +1,11 @@
 # REQ-005 浏览器 V1 验收记录
 
-- **验收日期：** 2026-10-25。
+- **验收日期：** 2026-10-25；2026-10-26 按产品要求移除 headless 配置并固定带 GUI 启动。
 - **验收范围：** 服务端独立浏览器模块。本页验收 `/browser` 用户调试页与 Agent 工具共享同一个系统 Chrome；不包含移动客户端集成。
 
 ## 实施结果
 
-- 使用 `playwright-core` 驱动本机系统 Chrome，Chrome 懒启动并使用 `DATA_DIR/browser/profile/` 持久 profile。
+- 使用 `playwright-core` 驱动本机系统 Chrome，Chrome 固定以带 GUI 的真实窗口懒启动，并使用 `DATA_DIR/browser/profile/` 持久 profile；不提供 headless 模式。
 - REST 管理全局标签：list、new、close、activate、navigate/back/forward/reload。
 - `/browser` 提供地址栏、标签条、画布、鼠标、滚轮、键盘与 IME 输入。
 - `/ws/browser` 使用一次性 60 秒 ticket，当前激活标签通过 CDP screencast 推送 JPEG 二进制帧；客户端绘制后 ack，慢客户端跳帧或断开。
@@ -16,7 +16,7 @@
 
 - `pnpm typecheck` 通过。
 - `node --import tsx --test --test-timeout=90000 tests/integration/browser.test.ts` 通过，覆盖真实系统 Chrome、REST、WS JPEG 多帧、点击/输入、标签切换、一次性 ticket 与 Agent 工具。
-- `pnpm test` 通过，530/530（含浏览器独立抽取边界测试）。
+- `pnpm test` 通过，531/531（含浏览器独立抽取边界与禁止 headless 配置测试）。
 - `pnpm test:e2e` 通过，39/39。
 - `pnpm check` 通过（typecheck、test、E2E、Web build 与 diff check）。
 - 实际打开当前版本 `/docs`，左侧出现“浏览器”分组，页面无脚本错误。

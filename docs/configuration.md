@@ -55,7 +55,6 @@ chmod 600 .pi-muse/config.json
     },
     "browser": {
       "enabled": true,
-      "headless": true,
       "allowPrivateTargets": false
     },
     "presentation": {
@@ -103,7 +102,6 @@ chmod 600 .pi-muse/config.json
 | `tools.weather.enabled` | `true` | 是否向模型声明 `get_weather` |
 | `tools.weather.defaultCity` | 空 | 用户未指定城市时使用的默认城市；为空时模型会追问城市 |
 | `tools.browser.enabled` | `true` | 是否启用真实浏览器域与 `navigate` / `snapshot` / `act` / `tab` 工具 |
-| `tools.browser.headless` | `true` | 是否以 headless 模式启动系统 Chrome；本地需要真实窗口时可设为 `false` |
 | `tools.browser.executablePath` | 空 | 系统 Chrome 可执行文件路径；省略时使用 Playwright 的 `chrome` channel |
 | `tools.browser.allowPrivateTargets` | `false` | 仅本机联调/测试时允许回环与私网页面；默认保持公网 HTTP(S) 边界 |
 | `tools.browser.timeoutMs` | `30000` | 标签导航和元素操作超时 |
@@ -147,7 +145,7 @@ chmod 600 .pi-muse/config.json
 
 ## 真实浏览器
 
-浏览器域使用 `playwright-core` 驱动本机系统 Chrome，不下载浏览器。Chrome 懒启动，profile 固定在 `DATA_DIR/browser/profile/`；服务端调试页 `/browser` 与 Agent 的 `navigate` / `snapshot` / `act` / `tab` 工具共享同一实例和持久登录态。服务关闭时会结束 WS 订阅并优雅关闭 Chrome。
+浏览器域使用 `playwright-core` 驱动本机系统 Chrome，不下载浏览器，且固定以带 GUI 的真实窗口启动；不提供 headless 模式。Chrome 懒启动，profile 固定在 `DATA_DIR/browser/profile/`；服务端调试页 `/browser` 与 Agent 的 `navigate` / `snapshot` / `act` / `tab` 工具共享同一实例和持久登录态。服务关闭时会结束 WS 订阅并优雅关闭 Chrome。Docker 部署时应搭配 Xvfb/X11 等显示服务，而不是回退 headless。
 
 默认只允许公网 HTTP(S)；需要访问本机测试页面时显式设置 `tools.browser.allowPrivateTargets: true`。该地址规则只是与 web 工具共享的基础实现，浏览器域不依赖 `web_fetch`。浏览器不向模型暴露任意 JavaScript evaluate，也不返回 cookie、localStorage 或密码值；外部页面标题、文本与元素名称都按不可信数据处理。
 

@@ -83,7 +83,7 @@ test("config defaults allow an unconfigured LAN-accessible instance", async (t) 
       },
       weather: { enabled: true, defaultCity: undefined },
       writable: { enabled: true, actionTimeoutMs: 300000 },
-      browser: { enabled: true, executablePath: undefined, headless: true, allowPrivateTargets: false, timeoutMs: 30000 },
+      browser: { enabled: true, executablePath: undefined, allowPrivateTargets: false, timeoutMs: 30000 },
       presentation: { default: "hidden", overrides: {} },
     },
   );
@@ -160,6 +160,13 @@ test("config rejects partial models, unsafe hosts and invalid limits", () => {
         model: { maxTokens: 4096, contextWindow: 4096 },
       }),
     /smaller than model.contextWindow/,
+  );
+});
+
+test("browser config has no headless fallback because Chrome must stay headed", () => {
+  assert.throws(
+    () => createConfig({ tools: { browser: { headless: true } } }),
+    /headless/,
   );
 });
 

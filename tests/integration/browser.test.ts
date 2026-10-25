@@ -64,7 +64,7 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
   service = await createService(createConfig({
     server: { host: "127.0.0.1", accessKey: "browser-test-access-key" },
     runtime: { dataDir, schedulerIntervalMs: 60000, monitorScanIntervalMs: 60000 },
-    tools: { browser: { enabled: true, headless: true, allowPrivateTargets: true, executablePath: chromeExecutable } },
+    tools: { browser: { enabled: true, allowPrivateTargets: true, executablePath: chromeExecutable } },
   }));
   apiServer = serve({ fetch: service.app.fetch, hostname: "127.0.0.1", port: 0 });
   if (!apiServer.listening) await once(apiServer, "listening");

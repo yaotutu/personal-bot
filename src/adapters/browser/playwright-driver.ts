@@ -16,7 +16,6 @@ import {
 type DriverConfig = {
   profileDir: string;
   executablePath?: string;
-  headless: boolean;
   allowPrivateTargets: boolean;
   timeoutMs: number;
 };
@@ -198,7 +197,8 @@ export const createPlaywrightBrowserDriver = (config: DriverConfig): BrowserDriv
     starting ??= (async () => {
       await mkdir(config.profileDir, { recursive: true, mode: 0o700 });
       const launched = await chromium.launchPersistentContext(config.profileDir, {
-        headless: config.headless,
+        // 产品要求固定使用带 GUI 的真实 Chrome；Docker 部署由 Xvfb 提供显示，不回退 headless。
+        headless: false,
         viewport: VIEWPORT,
         args: ["--disable-dev-shm-usage"],
         ...(config.executablePath
@@ -450,12 +450,27 @@ export const createPlaywrightBrowserDriver = (config: DriverConfig): BrowserDriv
         maxWidth: VIEWPORT.width,
         maxHeight: VIEWPORT.height,
       });
+      // headed Chrome 的静态页面可能迟迟不触发 screencast 重绘；启动时从真实
+      // GUI 捕一帧，保证切换标签后客户端立即看到当前页面而不是空白画布。
+      const captured = await cdp.send("Page.captureScreenshot", {
+        format: "jpeg",
+        quality: 70,
+        fromSurface: true,
+      }) as { data: string };
+      listener({
+        data: captured.data,
+        sessionId: 0,
+        metadata: { deviceWidth: VIEWPORT.width, deviceHeight: VIEWPORT.height, timestamp: Date.now() },
+      });
     },
     stopScreencast: stopCast,
     acknowledgeFrame: async (tabId, sessionId) => {
       const cast = casts.get(tabId);
       if (!cast) return;
-      await cast.cdp.send("Page.screencastFrameAck", { sessionId: Number(sessionId) });
+      const value = Number(sessionId);
+      // sessionId=0 是本地初始截帧，不属于 CDP screencast 会话，无需回 ack。
+      if (Number.isInteger(value) && value > 0)
+        await cast.cdp.send("Page.screencastFrameAck", { sessionId: value });
     },
     onTabsChanged: (listener) => tabsListeners.add(listener),
     onFrame: (listener) => frameListeners.add(listener),

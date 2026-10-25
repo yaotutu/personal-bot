@@ -30,7 +30,6 @@
     },
     "browser": {
       "enabled": true,
-      "headless": true,
       "allowPrivateTargets": false
     },
     "presentation": {

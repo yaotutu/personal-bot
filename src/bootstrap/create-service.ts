@@ -93,7 +93,6 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     ? createBrowserService(createPlaywrightBrowserDriver({
       profileDir: layout.browserProfileDir,
       executablePath: config.browser.executablePath,
-      headless: config.browser.headless,
       allowPrivateTargets: config.browser.allowPrivateTargets,
       timeoutMs: config.browser.timeoutMs,
     }))

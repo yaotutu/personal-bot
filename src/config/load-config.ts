@@ -61,7 +61,6 @@ const writableSchema = z.object({
 const browserSchema = z.object({
   enabled: z.boolean().default(true),
   executablePath: z.string().optional(),
-  headless: z.boolean().default(true),
   allowPrivateTargets: z.boolean().default(false),
   timeoutMs: positiveInt(120_000, 30_000),
 }).strict();
