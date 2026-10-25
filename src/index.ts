@@ -1,9 +1,11 @@
 import { execSync } from "node:child_process";
 import { createServer } from "node:net";
+import type { Server } from "node:http";
 import { serve, type ServerType } from "@hono/node-server";
 import { once } from "node:events";
 import { createService } from "./bootstrap/create-service.js";
 import { loadConfig } from "./config/load-config.js";
+import { attachBrowserWebSocket } from "./http/browser-websocket.js";
 
 /**
  * 探测 (host, port) 是否可绑定。仅探测一次，被占用时直接抛错，错误信息包含占用的 PID（若可查出）。
@@ -54,6 +56,7 @@ const lookupPortOwner = (port: number): string | undefined => {
 const config = loadConfig();
 const service = await createService(config);
 let server: ServerType | undefined;
+let detachBrowserWebSocket: (() => void) | undefined;
 try {
   // 端口被占用直接报错并把占用 PID 告诉用户；不会自动避让，避免用户不知道真实监听端口。
   const port = await ensurePortFree(config.host, config.port);
@@ -72,6 +75,8 @@ try {
   );
   // once 同时处理监听失败；端口被占用时也释放已经创建的调度器。
   if (!server.listening) await once(server, "listening");
+  // @hono/node-server 的返回类型覆盖 HTTP/2；本项目默认实际创建 HTTP/1.1 server。
+  detachBrowserWebSocket = attachBrowserWebSocket(server as unknown as Server, service);
 } catch (error) {
   await service.close();
   throw error;
@@ -91,6 +96,7 @@ const shutdown = () => {
     try {
       await service.close();
     } finally {
+      detachBrowserWebSocket?.();
       if (server && "closeIdleConnections" in server) server.closeIdleConnections();
       await stopped;
     }

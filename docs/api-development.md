@@ -19,6 +19,7 @@
 | `src/http/contracts/approvals.ts` | 审批决定、执行回执、完整预览与终态历史分页 schema |
 | `src/http/contracts/workspace-files.ts` | 手动工作区文件管理的 selector、五个文件操作、大小限制与响应 schema |
 | `src/http/contracts/agent-status.ts` | 单次运行最新状态查询与 SSE 运行状态投影 schema |
+| `src/http/contracts/browser.ts` | 真实浏览器 REST、调试页、一次性 WS ticket 与 WS 消息/二进制帧契约 |
 | `src/http/contracts/sse-events.ts` | AG-UI 聊天事件、数据与顺序 |
 | `src/http/contracts/workspace-events.ts` | 工作区通知事件与客户端同步规则，不与聊天混用 |
 | `src/http/openapi.ts` | 从契约生成 OpenAPI 3.1，不维护独立字段定义 |

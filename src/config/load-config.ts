@@ -58,6 +58,13 @@ const writableSchema = z.object({
   enabled: z.boolean().default(true),
   actionTimeoutMs: positiveInt(3_600_000, 300_000),
 }).strict();
+const browserSchema = z.object({
+  enabled: z.boolean().default(true),
+  executablePath: z.string().optional(),
+  headless: z.boolean().default(true),
+  allowPrivateTargets: z.boolean().default(false),
+  timeoutMs: positiveInt(120_000, 30_000),
+}).strict();
 const presentationSchema = z.object({
   default: toolPresentationMode.optional(),
   overrides: z.record(z.string(), toolPresentationMode).optional(),
@@ -72,6 +79,7 @@ const configFileSchema = z.object({
     web: webSchema.prefault({}),
     weather: weatherSchema.prefault({}),
     writable: writableSchema.prefault({}),
+    browser: browserSchema.prefault({}),
     presentation: presentationSchema.prefault({}),
   }).strict().prefault({}),
 }).strict();
@@ -154,6 +162,10 @@ export const createConfig = (
 
   // 写文件默认开启（每次执行都需人工审批）；审批等待默认 5 分钟超时。
   const writable = file.tools.writable;
+  const browser = {
+    ...file.tools.browser,
+    executablePath: text(file.tools.browser.executablePath) || undefined,
+  };
   const presentation = {
     default: file.tools.presentation?.default ?? "hidden",
     overrides: file.tools.presentation?.overrides ?? {},
@@ -190,6 +202,7 @@ export const createConfig = (
     web,
     weather,
     writable,
+    browser,
     presentation,
   };
 };

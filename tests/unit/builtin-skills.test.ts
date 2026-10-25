@@ -16,7 +16,7 @@ const projectRoot = resolve(import.meta.dirname, "../..");
  * 单元测试无法在同一进程里同时跑两条分支（同一个 import.meta.url 只对应
  * 一个位置），所以切到子进程：dev 分支在无关 cwd 里 import 源码测；prod
  * 分支用单文件 tsc 把同一份源码编译到一个模拟 dist 的临时树里，再在无关
- * cwd 里 import 编译产物并枚举 7 项内置技能。
+ * cwd 里 import 编译产物并枚举 8 项内置技能。
  */
 
 const runNode = (args: string[], cwd: string): { status: number; stdout: string; stderr: string } => {
@@ -75,12 +75,12 @@ test("copy-assets 脚本连跑两次不会产生 assets/assets 嵌套", () => {
   }
 });
 
-test("隔离 dist 拷贝后，从任意 cwd 通过编译产物解析并枚举出全部 7 项内置技能", () => {
+test("隔离 dist 拷贝后，从任意 cwd 通过编译产物解析并枚举出全部 8 项内置技能", () => {
   // 在临时项目布局里：<stage>/fake-project/dist/{adapters/storage,assets/skills}/…
   // 编译单一文件 builtin-skills.ts 到 fake-project/dist/adapters/storage/；
   // 再用 copy-assets.mjs 把源码 assets/ 复制到 fake-project/dist/assets/。
   // 然后切到无关 cwd 加载编译产物，断言它返回 fake-project/dist/assets/skills
-  // 且能从该目录枚举出与真实内置技能完全一致的 7 项。
+  // 且能从该目录枚举出与真实内置技能完全一致的 8 项。
   const stageRoot = mkdtempSync(resolve(tmpdir(), "builtin-skills-prod-"));
   const distRoot = resolve(stageRoot, "fake-project", "dist");
   const foreignCwd = mkdtempSync(resolve(tmpdir(), "builtin-skills-prod-run-"));
@@ -140,7 +140,7 @@ test("隔离 dist 拷贝后，从任意 cwd 通过编译产物解析并枚举出
 
     // 用 realpath 对比，规避 macOS 上 /var/folders → /private/var/folders 软链的字面差异
     assert.equal(realpathSync.native(dir), realpathSync.native(resolve(distRoot, "assets", "skills")));
-    assert.equal(entries.length, 7, `预期 7 项内置技能, 实际 ${entries.length}: ${entries.join(",")}`);
+    assert.equal(entries.length, 8, `预期 8 项内置技能, 实际 ${entries.length}: ${entries.join(",")}`);
     assert.deepEqual(entries, realBuiltinSkills);
   } finally {
     rmSync(stageRoot, { recursive: true, force: true });

@@ -83,6 +83,7 @@ test("config defaults allow an unconfigured LAN-accessible instance", async (t) 
       },
       weather: { enabled: true, defaultCity: undefined },
       writable: { enabled: true, actionTimeoutMs: 300000 },
+      browser: { enabled: true, executablePath: undefined, headless: true, allowPrivateTargets: false, timeoutMs: 30000 },
       presentation: { default: "hidden", overrides: {} },
     },
   );

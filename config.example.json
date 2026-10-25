@@ -28,6 +28,11 @@
     "weather": {
       "enabled": true
     },
+    "browser": {
+      "enabled": true,
+      "headless": true,
+      "allowPrivateTargets": false
+    },
     "presentation": {
       "default": "hidden",
       "overrides": {

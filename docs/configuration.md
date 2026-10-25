@@ -53,6 +53,11 @@ chmod 600 .pi-muse/config.json
       "enabled": true,
       "defaultCity": "上海"
     },
+    "browser": {
+      "enabled": true,
+      "headless": true,
+      "allowPrivateTargets": false
+    },
     "presentation": {
       "default": "hidden",
       "overrides": {
@@ -97,8 +102,13 @@ chmod 600 .pi-muse/config.json
 | `tools.web.allowPrivateTargets` | `false` | 仅本机联调时显式放宽私网/回环目标限制；其余请求安全边界不变 |
 | `tools.weather.enabled` | `true` | 是否向模型声明 `get_weather` |
 | `tools.weather.defaultCity` | 空 | 用户未指定城市时使用的默认城市；为空时模型会追问城市 |
+| `tools.browser.enabled` | `true` | 是否启用真实浏览器域与 `navigate` / `snapshot` / `act` / `tab` 工具 |
+| `tools.browser.headless` | `true` | 是否以 headless 模式启动系统 Chrome；本地需要真实窗口时可设为 `false` |
+| `tools.browser.executablePath` | 空 | 系统 Chrome 可执行文件路径；省略时使用 Playwright 的 `chrome` channel |
+| `tools.browser.allowPrivateTargets` | `false` | 仅本机联调/测试时允许回环与私网页面；默认保持公网 HTTP(S) 边界 |
+| `tools.browser.timeoutMs` | `30000` | 标签导航和元素操作超时 |
 | `tools.presentation.default` | `hidden` | 客户端实时流与历史投影的工具展示策略：`hidden` 隐藏工具调用，`summary` 只发送受控摘要 |
-| `tools.presentation.overrides` | `{}` | 按工具名覆盖默认策略；名称以 `src/adapters/pi/tools/index.ts` 的显式注册表为准，包括 `currentTime`、`instructions`、`memory`、`memory_search`、`schedule`、`subagent`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`search_web`、`web_fetch`、`get_weather` |
+| `tools.presentation.overrides` | `{}` | 按工具名覆盖默认策略；名称以 `src/adapters/pi/tools/index.ts` 的显式注册表为准，包括 `currentTime`、`instructions`、`memory`、`memory_search`、`schedule`、`subagent`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`search_web`、`web_fetch`、`get_weather`、`navigate`、`snapshot`、`act`、`tab` |
 
 默认情况下，`.pi-muse/config.json` 所在的 `.pi-muse/` 同时也是实例数据目录。当前默认实例目录已统一为 `.pi-muse/`，旧目录不会被自动读取或迁移。也就是说 sessions、memory、jobs、workspace 和配置文件保持在同一个实例目录内。
 `runtime.dataDir: "."` 也表示该配置文件目录，与启动进程的 cwd 无关；若在 `.pi-muse/config.json` 中填 `".pi-muse"`，则会指向其下嵌套的 `.pi-muse/`，不是项目根目录下的同名目录。
@@ -134,6 +144,12 @@ chmod 600 .pi-muse/config.json
   "overrides": {}
 }
 ~~~
+
+## 真实浏览器
+
+浏览器域使用 `playwright-core` 驱动本机系统 Chrome，不下载浏览器。Chrome 懒启动，profile 固定在 `DATA_DIR/browser/profile/`；服务端调试页 `/browser` 与 Agent 的 `navigate` / `snapshot` / `act` / `tab` 工具共享同一实例和持久登录态。服务关闭时会结束 WS 订阅并优雅关闭 Chrome。
+
+默认只允许公网 HTTP(S)；需要访问本机测试页面时显式设置 `tools.browser.allowPrivateTargets: true`。浏览器不向模型暴露任意 JavaScript evaluate，也不返回 cookie、localStorage 或密码值；外部页面标题、文本与元素名称都按不可信数据处理。
 
 ## 错误策略
 

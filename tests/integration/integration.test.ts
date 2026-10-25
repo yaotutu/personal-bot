@@ -43,6 +43,7 @@ const declaredTools = (request: ModelRequest) =>
     .filter(Boolean)
     .sort();
 const expectedTools = [
+  "act",
   "activity",
   "currentTime",
   "edit",
@@ -55,10 +56,13 @@ const expectedTools = [
   "memory",
   "memory_search",
   "monitor",
+  "navigate",
   "read",
   "schedule",
   "search_web",
+  "snapshot",
   "subagent",
+  "tab",
   "web_fetch",
   "write",
 ];

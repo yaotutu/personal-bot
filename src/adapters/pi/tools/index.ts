@@ -5,6 +5,7 @@ import type { ActionService } from "../../../features/actions/action-service.js"
 import type { MonitorService } from "../../../features/monitors/monitor-service.js";
 import type { WebService } from "../../../features/web/types.js";
 import type { WeatherService } from "../../../features/weather/types.js";
+import type { BrowserService } from "../../../features/browser/browser-service.js";
 import type { DataLayout } from "../../storage/data-layout.js";
 import { currentTimeTool } from "./current-time.js";
 import { memoryTool, memorySearchTool } from "./memory.js";
@@ -15,6 +16,7 @@ import { createFileTools } from "./files.js";
 import { createWritableFileTools, type ActivityToolObservation } from "./files-writable.js";
 import { createWebTools } from "./web.js";
 import { weatherTool } from "./weather.js";
+import { createBrowserTools } from "./browser.js";
 import { instructionsTool } from "./instructions.js";
 import { createActivityTool, ACTIVITY_TOOL_NAME } from "./activity.js";
 import type { ActivityRun } from "../../../features/activities/types.js";
@@ -39,6 +41,7 @@ type ToolDependencies = {
   monitors?: MonitorService;
   web?: WebService;
   weather?: WeatherService;
+  browser?: BrowserService;
   layout?: DataLayout;
   sharedDir?: string;
   readOnlyFiles?: readonly string[];
@@ -61,6 +64,7 @@ export const skillToToolsMap: Record<string, string[]> = {
   goal: ["goal"],
   memory: ["memory", "memory_search"],
   web: ["search_web", "web_fetch"],
+  browser: ["navigate", "snapshot", "act", "tab"],
   write: ["write", "edit"],
 };
 
@@ -81,6 +85,7 @@ const registrations = [
   },
   { names: ["search_web", "web_fetch"], create: (deps: ToolDependencies) => deps.web ? createWebTools(deps.web) : [] },
   { names: ["get_weather"], create: (deps: ToolDependencies) => deps.weather ? [weatherTool(deps.weather)] : [] },
+  { names: ["navigate", "snapshot", "act", "tab"], create: (deps: ToolDependencies) => deps.browser && !isSubagent(deps) ? createBrowserTools(deps.browser) : [] },
 ];
 
 export const registeredToolNames: readonly string[] = [...registrations.flatMap((group) => group.names), SUBAGENT_TOOL_NAME];

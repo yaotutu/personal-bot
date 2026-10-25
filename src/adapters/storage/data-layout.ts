@@ -23,6 +23,7 @@ export type DataLayout = {
   userFile: string;
   dreamFile: string;
   authKeyFile: string;
+  browserProfileDir: string;
   skillsDir: string;
   subagentsDir: string;
 };
@@ -46,6 +47,7 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     userFile: join(profileDir, "USER.md"),
     dreamFile: join(profileDir, "DREAM.md"),
     authKeyFile: join(root, "auth.key"),
+    browserProfileDir: join(root, "browser", "profile"),
     skillsDir: join(root, "skills"),
     subagentsDir: join(root, "subagents"),
   };

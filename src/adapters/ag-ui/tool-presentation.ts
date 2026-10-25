@@ -102,6 +102,10 @@ const summaryResult = (name: string, content: string, isError = false) => {
     if (content === "No scheduled jobs.") return "未设置提醒";
     if (content.startsWith("- ")) return "已查询提醒列表";
   }
+  if (name === "navigate") return "已打开页面";
+  if (name === "snapshot") return "已读取页面结构";
+  if (name === "act") return "已执行浏览器操作";
+  if (name === "tab") return "已管理浏览器标签";
   // 文件/页面内容没有必要靠解析正文猜成功；缺少可信结果信息时只确认结束。
   return finished;
 };

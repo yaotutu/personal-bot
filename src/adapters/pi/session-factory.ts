@@ -24,6 +24,7 @@ import type { ActionService } from "../../features/actions/action-service.js";
 import type { MonitorService } from "../../features/monitors/monitor-service.js";
 import type { WebService } from "../../features/web/types.js";
 import type { WeatherService } from "../../features/weather/types.js";
+import type { BrowserService } from "../../features/browser/browser-service.js";
 import type { SkillsService } from "../../features/skills/service.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { createResourceLoader } from "./resource-loader.js";
@@ -62,6 +63,7 @@ export type PiDeps = {
   monitors?: MonitorService;
   web?: WebService;
   weather?: WeatherService;
+  browser?: BrowserService;
   status?: StatusRun;
   statusSubagentId?: string;
   activity?: ActivityRun;
@@ -78,7 +80,7 @@ const subagentBlockedTools = new Set([SUBAGENT_TOOL_NAME, "activity", "schedule"
 /** 仅装配 pi 运行环境；agent loop 与 JSONL 持久化继续完全交给 SDK。 */
 export async function openPi(deps: PiDeps) {
   const { config, layout, sessionManager, memory, jobs, modelRuntime } = deps;
-  const { goals, actions, actionTimeoutMs, monitors, web, weather, skills, child } = deps;
+  const { goals, actions, actionTimeoutMs, monitors, web, weather, browser, skills, child } = deps;
   if (!config.configured) throw new Error("MODEL_NOT_CONFIGURED");
   const cwd = threadWorkspaceDir(layout, deps.spaceId);
   const sharedDir = sharedWorkspaceDir(layout);
@@ -103,7 +105,8 @@ export async function openPi(deps: PiDeps) {
   for (const s of userSkills) skillMap.set(s.name, s);
 
   const activeSkills = Array.from(skillMap.values()).filter((s) => enabledSkillNames.has(s.name) &&
-    (!child || !["task", "cron", "monitor"].includes(s.name)));
+    (!child || !["task", "cron", "monitor"].includes(s.name)) &&
+    (s.name !== "browser" || (!child && Boolean(browser))));
 
   const extensionPaths: string[] = [];
   for (const skill of activeSkills) {
@@ -142,6 +145,7 @@ export async function openPi(deps: PiDeps) {
     monitors,
     web,
     weather,
+    browser,
     layout,
     workspaceCommits: deps.workspaceCommits,
   });
@@ -284,7 +288,8 @@ export async function openPi(deps: PiDeps) {
   // 4. 构建 System Prompt 并注入技能、专属会话指令与 Extension
   const instructionsFile = !child && deps.spaceId ? threadInstructionsFile(layout, deps.spaceId) : undefined;
   const threadInstructions = instructionsFile ? await readThreadInstructions(instructionsFile) : undefined;
-  const systemPrompt = await buildSystemPrompt(layout, memory, web !== undefined, weather !== undefined, goals, threadInstructions) +
+  const browserPromptEnabled = browser !== undefined && !child && enabledSkillNames.has("browser");
+  const systemPrompt = await buildSystemPrompt(layout, memory, web !== undefined, weather !== undefined, browserPromptEnabled, goals, threadInstructions) +
     (!child ? `\n\n## Work activity management\n${ACTIVITY_TOOL_INSTRUCTIONS}` : "") +
     (child ? `\n\n## Subagent role\n${child.role.systemPrompt}\nYou have an isolated context and private workspace. Return the result to the parent agent. You cannot delegate or schedule work. Use shared/... for shared materials; never assume access to the parent's private files.` : "");
   const resourceLoader = createResourceLoader(systemPrompt, activeSkills, extensionResult);

@@ -167,7 +167,8 @@ test("docs: generated OpenAPI document is structurally complete", () => {
     const ok = operation.responses?.["200"];
     assert.ok(ok, `${path} has no 200 response`);
     if (!endpoint.sse) {
-      const schema = (ok as { content?: { "application/json"?: { schema?: unknown } } }).content?.["application/json"]?.schema;
+      const contentType = endpoint.responseContentType ?? "application/json";
+      const schema = (ok as { content?: Record<string, { schema?: unknown }> }).content?.[contentType]?.schema;
       assert.ok(schema, `${path} 200 response has no JSON schema`);
     } else {
       assert.ok((ok as Record<string, unknown>)["x-sse-events"], `${path} SSE response has no event contract`);
@@ -1051,6 +1052,7 @@ test("docs: live GET responses parse against registry schemas (no drift)", async
     .filter((e) => e.method === "get" && !e.path.includes(":") || e.path === "/api/health")
     .filter((e) => !e.sse) // SSE 端点响应是流，不是 JSON schema；safeParse 不适用
     .filter((e) => e.path !== "/api/agent/status")
+    .filter((e) => e.responseContentType !== "text/html") // 调试页是 HTML，不参与 JSON response safeParse。
     // 工作区文件 GET 需要显式 selector/path，且 content 需要先准备现存文件；下方单独覆盖。
     .filter((e) => !e.path.startsWith("/api/workspace/files"))
     .map((e) => ({ path: e.path }));

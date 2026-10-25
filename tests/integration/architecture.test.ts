@@ -56,6 +56,7 @@ test("DataLayout describes the current paths without migrating legacy data", () 
     userFile: join(profileDir, "USER.md"),
     dreamFile: join(profileDir, "DREAM.md"),
     authKeyFile: join(root, "auth.key"),
+    browserProfileDir: join(root, "browser", "profile"),
     skillsDir: join(root, "skills"),
     subagentsDir: join(root, "subagents"),
   });

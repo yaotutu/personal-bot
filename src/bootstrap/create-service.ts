@@ -26,6 +26,8 @@ import { createWebService } from "../features/web/web-service.js";
 import { createHttpWebTransport } from "../adapters/web/http-transport.js";
 import { createOpenMeteoTransport } from "../adapters/weather/open-meteo.js";
 import { createWeatherService } from "../features/weather/weather-service.js";
+import { createBrowserService } from "../features/browser/browser-service.js";
+import { createPlaywrightBrowserDriver } from "../adapters/browser/playwright-driver.js";
 import { createSessionHistory } from "../adapters/pi/session-history.js";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { openPi } from "../adapters/pi/session-factory.js";
@@ -85,6 +87,16 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
         maxSearchResults: 10,
         maxContentChars: config.web.maxContentChars,
       })
+    : undefined;
+  // 浏览器懒启动：仅配置开启且第一次标签/帧流/Agent 工具需要时才拉起系统 Chrome。
+  const browser = config.browser.enabled
+    ? createBrowserService(createPlaywrightBrowserDriver({
+      profileDir: layout.browserProfileDir,
+      executablePath: config.browser.executablePath,
+      headless: config.browser.headless,
+      allowPrivateTargets: config.browser.allowPrivateTargets,
+      timeoutMs: config.browser.timeoutMs,
+    }))
     : undefined;
   const goals = createGoalService(createGoalRepository(layout.goalsFile));
   const actions = createActionService(createActionRepository(layout.actionsFile), { onChange: (action) => workspaceEvents.approvalChanged(action) });
@@ -161,6 +173,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
             monitors,
             web,
             weather,
+            browser,
             skills,
             workspaceCommits,
           }),
@@ -209,6 +222,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     workspaceEvents.seedApprovals(await actions.list());
   } catch (error) {
     await conversationHub.closeAll();
+    await browser?.close();
     throw error;
   }
   const mainConversation = await conversationHub.forSpace("local-main");
@@ -268,7 +282,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const workspaceFiles = createWorkspaceFileService(createWorkspaceFileStore(layout, workspaceCommits), {
     spaceExists: async (spaceId) => (await conversationHub.spaces()).some((space) => space.id === spaceId),
   });
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler };
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, browser };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
@@ -281,6 +295,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       const results = await Promise.allSettled(stopped);
       await Promise.all([...requests]);
       await approvalExpiry;
+      await browser?.close();
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
     })();

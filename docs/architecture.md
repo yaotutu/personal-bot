@@ -11,11 +11,12 @@
 | `src/index.ts`、`scripts/dev-mock.ts` | 配置加载、监听、信号退出；调用统一组合入口 | 业务规则、工具实现 |
 | `src/config/load-config.ts` | 必需 JSON 配置、直接凭据与校验 | 环境变量回退、创建业务实例 |
 | `src/bootstrap/create-service.ts`、`types.ts` | 唯一实例组装、启动校准、执行源启停、统一关闭 | DTO、agent loop |
-| `src/features/` | conversation/memory/identity/dream/jobs/goals/actions/monitors/skills/web/weather/workspace/activities 的规则与最小 port | Hono、AG-UI、pi SDK、文件系统或具体 adapter |
+| `src/features/` | conversation/memory/identity/dream/jobs/goals/actions/monitors/skills/web/weather/workspace/activities/browser 的规则与最小 port | Hono、AG-UI、pi SDK、文件系统或具体 adapter |
 | `src/adapters/pi/` | session factory、历史投影、activity 记录与安全观察、诊断脱敏、资源隔离、prompt、工具装配与路径 guard | 第二套历史、手写 agent loop |
 | `src/adapters/ag-ui/` | SSE、事件投影、运行与取消适配 | 会话锁或业务域状态 |
 | `src/adapters/storage/` | DataLayout、文件读写、各域 repository | 业务状态机、通用 CRUD 框架 |
 | `src/adapters/web/`、`src/adapters/weather/`、`src/adapters/workspace/` | 安全网络传输、供应商适配、手动文件存储与提交队列 | 绕过 DNS/大小/超时/工作区路径边界 |
+| `src/adapters/browser/` | 系统 Chrome 生命周期、CDP screencast、输入映射与可见结构投影 | HTTP/WS 协议、第二套浏览器实例或任意 evaluate 能力 |
 | `src/adapters/auth/token-service.ts` | 登录、token 与签名密钥 | 业务规则 |
 | `src/http/` | 鉴权、CORS、routes、contracts、presenter 与自动文档 | 创建业务实例、启动 scheduler |
 | `web/src/` | 自有工作台、聊天 SSE、历史/任务/审批展示 | 自定义后端事实、复制手写 DTO |
@@ -91,13 +92,21 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - 取消信号必须沿工具、service、transport 传到在途网络请求，停止不伪装成普通成功或触发搜索兜底；不能只取消客户端显示而等待工具继续执行。
 - 模型 key 只在受保护实例配置与服务端内存，不写 pi auth.json、日志、客户端或 JSONL；provider/runtime key 在 bootstrap 注册一次。独立资源目录不加载个人 CLI 全局配置、skills、extensions 或 MCP。
 - 单进程单 DATA_DIR；保留 accessKey 鉴权中间件。默认 `0.0.0.0` 便于局域网访问，缺 accessKey 会警告；生产部署应显式配置访问密钥。配置和启动细节见 [配置说明](configuration.md)。
+- 真实浏览器是独立 `browser` 域，不复用 `web_fetch`。默认同样拒绝私网目标；`tools.browser.allowPrivateTargets` 仅用于本机联调。页面标题、文本和元素名是不可信数据；不向模型暴露任意 JavaScript evaluate，不返回 cookie/localStorage/密码值。
+
+## 真实浏览器
+
+- `BrowserService` 是全局唯一入口，HTTP REST、`/browser` 调试页、WS 输入与 Agent 工具共享同一个懒启动系统 Chrome 和持久 profile；不做多实例、控制权租约或崩溃恢复框架。
+- 全局只维护一份标签列表；仅当前激活标签在有 WS 订阅者时启动 CDP screencast，切换标签先停止旧流再启动新流，无订阅者时停止推帧。慢客户端按未 ack 帧跳帧，缓冲超限时断开。
+- WS 先用现有 Bearer token 换取一次性短时 ticket，长期 token 不进入 URL；帧格式、输入消息与 ack 语义以 `src/http/contracts/browser.ts` 生成的 OpenAPI extension 为准。
+- snapshot 是服务端固定实现的可见结构投影，仅用于给模型提供标题、文本、元素角色与 ref；外部内容一律标记不可信，不提供任意 JavaScript evaluate。
 
 ## 生命周期
 
 1. 组装 repository/services，读取并校验持久域；重算 jobs、撤销旧 pending 审批，不恢复崩溃模型轮或旧 worker。所有实际执行源最后才启动。
 2. HTTP/协议复用已注入服务，不自行启动 scheduler。service.close 同步关门，新 HTTP 请求返回 503，hub/scheduler/subagent 不再创建或派发新工作。
 3. 先停调度、取消会话并结束工作区通知长连接，等待已发出的执行、通知、状态写入和已接纳 HTTP 请求收尾。关闭必须幂等，某个清理失败也不跳过其他实例。
-4. 进程入口停止接收连接并等待 close；mock 入口额外关闭 fake provider。初始化失败也必须清理本次已分配资源，不能遗留定时器、socket 或进程。
+4. 进程入口停止接收连接并等待 close；mock 入口额外关闭 fake provider，浏览器域结束 WS 订阅并优雅关闭 Chrome。初始化失败也必须清理本次已分配资源，不能遗留定时器、socket 或进程。
 
 ## 数据布局与校验
 
@@ -118,6 +127,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 | `subagents/*.md` | 实例级 role 覆盖，优先于内置 `assets/subagents/<role>.md` |
 | `skills/<name>/SKILL.md` | 实例级技能资产 |
 | `config.json` / `auth.key` / `agent/` | 必需配置、token 签名密钥与 pi 运行资源 |
+| `browser/profile/` | 系统 Chrome 持久 profile；与配置同级按敏感登录态保护，不给普通文件工具访问 |
 
 - pi `continueRecent` 与执行使用同一会话私有 cwd；重启仅恢复相同 cwd 的权威历史，不回退旧路径。sessions 初始化只 mkdir，不探测、搬移或删除旧 workspace 根文件与旧历史；已有数据需停服后单独备份处理。
 - `memory.json` 为 `{ memories: [...], identity: {...} }`，已有文档必须包含完整 identity；jobs/goals/actions/monitors 为裸数组。持久业务文档目前不写 `schemaVersion`，拒绝带版本的对象，等待显式版本 reader；不要与启动配置的 schemaVersion 混淆。

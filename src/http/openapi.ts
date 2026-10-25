@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { endpoints } from "./contracts/endpoints.js";
+import { browserWebSocketContract } from "./contracts/browser.js";
 import { serviceVersion, type ServiceVersion } from "../bootstrap/service-version.js";
 
 const defaultVersion = await serviceVersion;
@@ -110,6 +111,24 @@ const errorResponses = (
   return responses;
 };
 
+const websocketContracts = {
+  browser: {
+    ...browserWebSocketContract,
+    serverMessages: Object.fromEntries(
+      Object.entries(browserWebSocketContract.serverMessages).map(([name, schema]) => [
+        name,
+        { description: schema.description ?? "", schema: toSchema(schema, "output") },
+      ]),
+    ),
+    clientMessages: Object.fromEntries(
+      Object.entries(browserWebSocketContract.clientMessages).map(([name, schema]) => [
+        name,
+        { description: schema.description ?? "", schema: toSchema(schema, "input") },
+      ]),
+    ),
+  },
+};
+
 export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) => {
   const paths: Record<string, Record<string, unknown>> = {};
   for (const endpoint of endpoints) {
@@ -151,10 +170,11 @@ export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) =
         ...errorResponses(endpoint),
       };
     } else {
+      const contentType = endpoint.responseContentType ?? "application/json";
       operation.responses = {
         200: {
           description: "成功",
-          content: { "application/json": { schema: toSchema(endpoint.response, "output") } },
+          content: { [contentType]: { schema: toSchema(endpoint.response, "output") } },
         },
         ...errorResponses(endpoint),
       };
@@ -180,5 +200,6 @@ export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) =
     servers: [{ url: "/" }],
     components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer" } } },
     paths,
+    "x-websocket-contracts": websocketContracts,
   };
 };

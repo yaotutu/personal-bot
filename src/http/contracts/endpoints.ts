@@ -5,6 +5,7 @@ import * as activity from "./activities.js";
 import * as approval from "./approvals.js";
 import * as status from "./agent-status.js";
 import * as files from "./workspace-files.js";
+import * as browser from "./browser.js";
 import { sseEvents, SSE_EVENT_ORDER } from "./sse-events.js";
 import { workspaceEvents, WORKSPACE_SSE_DESCRIPTION } from "./workspace-events.js";
 
@@ -39,6 +40,8 @@ export type EndpointSpec = {
   query?: z.ZodType;
   /** 200 响应 schema（生成 io=output；契约测试对真实响应 safeParse） */
   response: z.ZodType;
+  /** 非 JSON 响应（当前仅调试页 HTML）；默认 application/json */
+  responseContentType?: "application/json" | "text/html";
   /**
    * 业务错误响应（如 409 冲突携带当前审批视图）。
    * 键为 HTTP 状态码；未登记的 4xx 仍由生成器补通用 {error} 形状。
@@ -526,5 +529,48 @@ export const endpoints: EndpointSpec[] = [
       description: WORKSPACE_SSE_DESCRIPTION,
       events: workspaceEvents,
     },
+  },
+  // ---- 真实浏览器 ----
+  {
+    operationId: "getBrowserDebugPage",
+    method: "get", path: "/browser", tag: "浏览器", summary: "打开服务端自带浏览器调试页",
+    hint: "免鉴权 HTML 页面。页面内先调用 POST /api/session 登录，再通过 REST 管理标签并换取一次性 WS ticket。该页面不是移动端产品，仅用于验证真实浏览器链路。",
+    auth: false, response: browser.browserDebugResponse, responseContentType: "text/html",
+  },
+  {
+    operationId: "listBrowserTabs",
+    method: "get", path: "/api/browser/tabs", tag: "浏览器", summary: "列出真实浏览器标签",
+    hint: "首次调用会懒启动系统 Chrome 并使用 DATA_DIR/browser/profile 持久 profile。返回全局标签列表；只有 active=true 的标签会推送帧。",
+    auth: true, response: browser.browserTabsResponse,
+  },
+  {
+    operationId: "createBrowserTab",
+    method: "post", path: "/api/browser/tabs", tag: "浏览器", summary: "新建浏览器标签",
+    hint: "可传初始 HTTP(S) URL；省略时打开 about:blank。私网目标默认被拒绝，需 tools.browser.allowPrivateTargets=true 才允许本机联调。",
+    auth: true, request: browser.createBrowserTabSchema, response: browser.browserTab,
+  },
+  {
+    operationId: "closeBrowserTab",
+    method: "delete", path: "/api/browser/tabs/:tabId", tag: "浏览器", summary: "关闭浏览器标签",
+    hint: "关闭指定标签；若关闭激活标签，剩余第一个标签会成为新的激活标签。标签不存在返回 404。",
+    auth: true, response: browser.browserTabsResponse,
+  },
+  {
+    operationId: "activateBrowserTab",
+    method: "post", path: "/api/browser/tabs/:tabId/activate", tag: "浏览器", summary: "激活浏览器标签",
+    hint: "全局只允许一个 active 标签。切换后旧标签停止 screencast，新标签在存在 WS 订阅者时重启 screencast。",
+    auth: true, response: browser.browserTab,
+  },
+  {
+    operationId: "navigateBrowserTab",
+    method: "post", path: "/api/browser/tabs/:tabId/navigation", tag: "浏览器", summary: "导航、后退、前进或刷新",
+    hint: "action=navigate 必须带 HTTP(S) url；back/forward/reload 不带 url。返回最新标签状态，页面标题和内容都是不可信外部数据。",
+    auth: true, request: browser.browserNavigationSchema, response: browser.browserTab,
+  },
+  {
+    operationId: "createBrowserWebSocketTicket",
+    method: "post", path: "/api/browser/ws-ticket", tag: "浏览器", summary: "换取一次性浏览器 WS ticket",
+    hint: "必须携带现有 Bearer token。返回的 ticket 60 秒过期且只能使用一次；WS 地址为 /ws/browser?ticket=...。完整二进制帧、ready/tabs/error、输入与 ack 协议见 OpenAPI 顶层 x-websocket-contracts.browser，OpenAPI 不把 WebSocket 伪装成普通 HTTP operation。",
+    auth: true, response: browser.browserTicketResponse,
   },
 ];
