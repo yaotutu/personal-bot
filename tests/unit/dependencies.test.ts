@@ -41,6 +41,41 @@ test("features depend only on features/shared and native IDs, never protocol, fi
   }
 });
 
+test("browser core and protocol adapters stay independently extractable", async () => {
+  const browserCoreFiles = [
+    ...(await listSources(join(sourceRoot, "features/browser"))),
+    ...(await listSources(join(sourceRoot, "adapters/browser"))),
+  ];
+  for (const file of browserCoreFiles) {
+    for (const dependency of importsOf(file, await readFile(file, "utf-8"))) {
+      if (["node:crypto", "node:dns/promises", "node:fs/promises", "node:net", "playwright-core"].includes(dependency)) continue;
+      assert.ok(dependency.startsWith("."), `${relative(sourceRoot, file)} imports external ${dependency}`);
+      const target = relative(sourceRoot, resolve(dirname(file), dependency));
+      assert.ok(
+        target.startsWith("features/browser/") || target.startsWith("shared/"),
+        `${relative(sourceRoot, file)} couples to non-browser target ${dependency}`,
+      );
+    }
+  }
+
+  const protocolFiles = [
+    join(sourceRoot, "http/routes/browser.ts"),
+    join(sourceRoot, "http/browser-websocket.ts"),
+  ];
+  for (const file of protocolFiles) {
+    for (const dependency of importsOf(file, await readFile(file, "utf-8"))) {
+      if (!dependency.startsWith(".")) continue;
+      const target = relative(sourceRoot, resolve(dirname(file), dependency));
+      assert.ok(
+        target.startsWith("features/browser/") ||
+        target.startsWith("http/contracts/browser") ||
+        target.startsWith("http/browser-debug-page"),
+        `${relative(sourceRoot, file)} couples browser transport to ${dependency}`,
+      );
+    }
+  }
+});
+
 test("unit and integration suites are explicitly discovered, bounded, and support files are not tests", async () => {
   const packageFile = JSON.parse(await readFile(resolve(sourceRoot, "../package.json"), "utf8"));
   assert.ok(packageFile.scripts.test.includes("tests/unit/*.test.ts"));

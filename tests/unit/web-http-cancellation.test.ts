@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { createServer, type ServerResponse } from "node:http";
 import { once, getEventListeners } from "node:events";
 import test, { type TestContext } from "node:test";
-import { createHttpWebTransport, resolvePublicHost, safePublicGet } from "../../src/adapters/web/http-transport.js";
+import { createHttpWebTransport, safePublicGet } from "../../src/adapters/web/http-transport.js";
+import { resolvePublicHost } from "../../src/shared/public-host.js";
 
 const config = { timeoutMs: 30_000, maxResponseBytes: 4096, allowPrivateTargets: true };
 const deferred = <T>() => {

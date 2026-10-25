@@ -149,7 +149,7 @@ chmod 600 .pi-muse/config.json
 
 浏览器域使用 `playwright-core` 驱动本机系统 Chrome，不下载浏览器。Chrome 懒启动，profile 固定在 `DATA_DIR/browser/profile/`；服务端调试页 `/browser` 与 Agent 的 `navigate` / `snapshot` / `act` / `tab` 工具共享同一实例和持久登录态。服务关闭时会结束 WS 订阅并优雅关闭 Chrome。
 
-默认只允许公网 HTTP(S)；需要访问本机测试页面时显式设置 `tools.browser.allowPrivateTargets: true`。浏览器不向模型暴露任意 JavaScript evaluate，也不返回 cookie、localStorage 或密码值；外部页面标题、文本与元素名称都按不可信数据处理。
+默认只允许公网 HTTP(S)；需要访问本机测试页面时显式设置 `tools.browser.allowPrivateTargets: true`。该地址规则只是与 web 工具共享的基础实现，浏览器域不依赖 `web_fetch`。浏览器不向模型暴露任意 JavaScript evaluate，也不返回 cookie、localStorage 或密码值；外部页面标题、文本与元素名称都按不可信数据处理。
 
 ## 错误策略
 

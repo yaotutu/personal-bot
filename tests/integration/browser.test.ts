@@ -68,7 +68,7 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
   }));
   apiServer = serve({ fetch: service.app.fetch, hostname: "127.0.0.1", port: 0 });
   if (!apiServer.listening) await once(apiServer, "listening");
-  detachWebSocket = attachBrowserWebSocket(apiServer as unknown as Server, service);
+  detachWebSocket = attachBrowserWebSocket(apiServer as unknown as Server, service.browser);
   const address = apiServer.address();
   assert.ok(address && typeof address !== "string");
   const base = `http://127.0.0.1:${address.port}`;

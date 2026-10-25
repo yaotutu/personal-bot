@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { chromium, type CDPSession, type Page } from "playwright-core";
-import { resolvePublicHost } from "../web/http-transport.js";
+import { resolvePublicHost } from "../../shared/public-host.js";
 import {
   BrowserError,
   type BrowserActInput,

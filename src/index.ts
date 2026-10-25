@@ -76,7 +76,7 @@ try {
   // once 同时处理监听失败；端口被占用时也释放已经创建的调度器。
   if (!server.listening) await once(server, "listening");
   // @hono/node-server 的返回类型覆盖 HTTP/2；本项目默认实际创建 HTTP/1.1 server。
-  detachBrowserWebSocket = attachBrowserWebSocket(server as unknown as Server, service);
+  detachBrowserWebSocket = attachBrowserWebSocket(server as unknown as Server, service.browser);
 } catch (error) {
   await service.close();
   throw error;

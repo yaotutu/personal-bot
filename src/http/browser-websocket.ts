@@ -1,7 +1,7 @@
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { ServiceContainer } from "../bootstrap/types.js";
+import type { BrowserService } from "../features/browser/browser-service.js";
 
 const writeUnauthorized = (socket: Duplex) => {
   socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
@@ -12,10 +12,12 @@ const writeUnauthorized = (socket: Duplex) => {
  * Hono 的 fetch 抽象不承载 HTTP upgrade；这里在 Node server 上挂 /ws/browser。
  * 长期 Bearer token 不进入 URL，只消费一次性的短时 ticket。
  */
-export const attachBrowserWebSocket = (server: Server, service: ServiceContainer) => {
+export const attachBrowserWebSocket = (
+  server: Server,
+  browser: BrowserService | undefined,
+) => {
   const sockets = new WebSocketServer({ noServer: true });
   const upgrade = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
-    let browser = service.browser;
     try {
       const url = new URL(request.url ?? "/", "http://localhost");
       if (url.pathname !== "/ws/browser" ||

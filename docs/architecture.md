@@ -100,6 +100,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - 全局只维护一份标签列表；仅当前激活标签在有 WS 订阅者时启动 CDP screencast，切换标签先停止旧流再启动新流，无订阅者时停止推帧。慢客户端按未 ack 帧跳帧，缓冲超限时断开。
 - WS 先用现有 Bearer token 换取一次性短时 ticket，长期 token 不进入 URL；帧格式、输入消息与 ack 语义以 `src/http/contracts/browser.ts` 生成的 OpenAPI extension 为准。
 - snapshot 是服务端固定实现的可见结构投影，仅用于给模型提供标题、文本、元素角色与 ref；外部内容一律标记不可信，不提供任意 JavaScript evaluate。
+- 浏览器核心只依赖 `features/browser`、`adapters/browser` 与基础 shared 工具；REST/WS 是薄协议适配，pi 工具是薄入口适配。禁止 browser 引用 `web_fetch`、conversation 或应用组装层，保证后续可以整体抽成独立浏览器服务。
 
 ## 生命周期
 

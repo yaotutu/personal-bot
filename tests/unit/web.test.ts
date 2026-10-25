@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWebService, UNTRUSTED_CONTENT_BANNER } from "../../src/features/web/web-service.js";
-import { parseBingRssResults, parseDuckDuckGoResults, resolvePublicHost, safePublicGet } from "../../src/adapters/web/http-transport.js";
+import { parseBingRssResults, parseDuckDuckGoResults, safePublicGet } from "../../src/adapters/web/http-transport.js";
+import { resolvePublicHost } from "../../src/shared/public-host.js";
 import type { FetchedWebPage, WebSearchResult, WebTransport } from "../../src/features/web/types.js";
 
 const service = (transport: Partial<WebTransport>) =>

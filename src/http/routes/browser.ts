@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { HttpDependencies } from "../../bootstrap/types.js";
+import type { BrowserService } from "../../features/browser/browser-service.js";
 import { BrowserError } from "../../features/browser/types.js";
 import {
   browserNavigationSchema,
@@ -9,9 +9,8 @@ import { browserDebugPage } from "../browser-debug-page.js";
 
 /** 浏览器 REST 只做契约校验与受控错误投影；WS 升级由 Node server 适配层处理。 */
 export const createBrowserRoutes = (
-  dependencies: Pick<HttpDependencies, "browser">,
+  browser: BrowserService | undefined,
 ) => {
-  const { browser } = dependencies;
   const app = new Hono();
 
   const error = (caught: unknown): {

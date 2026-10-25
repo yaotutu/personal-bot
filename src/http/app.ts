@@ -85,7 +85,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   });
   // 先鉴权，再挂载业务/运行协议，最后处理未知 API；顺序是现有安全边界。
   app.route("/", createWorkspaceEventRoutes(dependencies.workspaceEvents));
-  app.route("/", createBrowserRoutes(dependencies));
+  app.route("/", createBrowserRoutes(dependencies.browser));
   app.route("/api/spaces", createSpaceRoutes(dependencies));
   app.route("/", createWorkspaceRoutes(dependencies));
   app.route("/", runtimeRoutes);

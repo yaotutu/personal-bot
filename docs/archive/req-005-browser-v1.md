@@ -16,7 +16,7 @@
 
 - `pnpm typecheck` 通过。
 - `node --import tsx --test --test-timeout=90000 tests/integration/browser.test.ts` 通过，覆盖真实系统 Chrome、REST、WS JPEG 多帧、点击/输入、标签切换、一次性 ticket 与 Agent 工具。
-- `pnpm test` 通过，529/529。
+- `pnpm test` 通过，530/530（含浏览器独立抽取边界测试）。
 - `pnpm test:e2e` 通过，39/39。
 - `pnpm check` 通过（typecheck、test、E2E、Web build 与 diff check）。
 - 实际打开当前版本 `/docs`，左侧出现“浏览器”分组，页面无脚本错误。
