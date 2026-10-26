@@ -86,5 +86,7 @@ test("mobile browser profile provides a portrait desktop without changing the de
   assert.match(page, /viewport-fit=cover/);
   assert.match(page, /safe-area-inset/);
   assert.match(page, /keysyms\.lookup/);
+  assert.match(page, /values\.get\('password'\)/);
+  assert.match(page, /rfb\.sendCredentials\(\{ password \}\)/);
   assert.doesNotMatch(page, /--headless|browser-address|address-bar/);
 });

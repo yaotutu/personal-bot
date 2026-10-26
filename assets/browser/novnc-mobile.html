@@ -229,6 +229,11 @@
       return `${protocol}://${host}${port}/${path}`;
     }
 
+    function connectionPassword() {
+      const values = settings();
+      return values.get('password') ?? values.get('passwd') ?? '';
+    }
+
     function setStatus(text, tone = 'normal', autoHide = false) {
       clearTimeout(statusTimer);
       status.textContent = text;
@@ -277,8 +282,14 @@
     }
 
     function onCredentialsRequired() {
-      setStatus('VNC 服务要求密码，当前部署未配置密码登录', 'error');
-      connectButton.hidden = false;
+      const password = connectionPassword();
+      if (!password || !rfb) {
+        setStatus('VNC 服务要求密码，请在链接中添加 password 参数', 'error');
+        connectButton.hidden = false;
+        return;
+      }
+      setStatus('正在验证 VNC 密码');
+      rfb.sendCredentials({ password });
     }
 
     function onDesktopName(event) {

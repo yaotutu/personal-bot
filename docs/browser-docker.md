@@ -38,11 +38,15 @@ http://<任意主机或域名>:17890/browser
 http://<任意主机或域名>:6080/vnc.html?autoconnect=1&resize=scale
 ```
 
-手机可以直接使用移动版页面。它默认连接当前地址上的 `/websockify`，也支持通过查询参数覆盖 `path`、`host` 或 `port`：
+手机可以直接使用移动版页面。它默认连接当前地址上的 `/websockify`，也支持通过查询参数覆盖 `path`、`host` 或 `port`。如果以后给 x11vnc 配置密码，可在查询或 `#` 片段中附带 `password`：
 
 ```text
 http://<任意主机或域名>:6080/pimuse-mobile.html
+http://<任意主机或域名>:6080/pimuse-mobile.html?password=<VNC密码>
+http://<任意主机或域名>:6080/pimuse-mobile.html#password=<VNC密码>
 ```
+
+当前 Compose 入口仍以 `-nopw` 启动，默认没有 VNC 密码。
 
 宿主机端口可改，不需要改代码。例如把 API 映射到 `18890`、GUI 映射到 `16080`：
 
