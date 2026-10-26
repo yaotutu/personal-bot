@@ -1,0 +1,20 @@
+services:
+  pi-muse-browser:
+    build:
+      context: .
+      platform: linux/amd64
+    image: pi-muse-browser
+    restart: unless-stopped
+    stop_grace_period: 30s
+    shm_size: 1gb
+    environment:
+      BROWSER_SCREEN_SIZE: ${BROWSER_SCREEN_SIZE:-1440x900x24}
+    ports:
+      - "${PI_MUSE_BROWSER_PORT:-17890}:17890"
+      - "${PI_MUSE_BROWSER_NOVNC_PORT:-6080}:6080"
+    volumes:
+      - pi-muse-browser-data:/app/.pi-muse
+      - ./.pi-muse/config.json:/app/browser-config.json:ro
+
+volumes:
+  pi-muse-browser-data:

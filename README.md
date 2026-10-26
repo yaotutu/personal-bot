@@ -10,7 +10,7 @@
 - **身份与记忆**：SOUL/USER 身份文本、名字与语气每轮注入；长期记忆存放在 `memory.json` 并按需检索（`memory_search`），支持对话工具或 HTTP 显式增改删，以及按 2 小时周期运行的 Dream 后台记忆整理（主会话默认开启，非主会话全局建议与未声明用途的会话指令进待确认列表）。
 - **会话设置与文件区**：会话专属指令、技能开关、私有工作目录，以及显式 scope 的私有/共享工作区 HTTP 文件管理。技能与规则不能扩大工具权限。
 - **查询与文件工具**：时间、网页搜索与抓取、Open-Meteo 天气、文件读取与检索；`write` / `edit` 每次都需完整预览和人工审批，`bash` 不开放。
-- **真实浏览器**：始终带 GUI 的系统 Chrome + CDP 帧流，服务端 `/browser` 调试页与 Agent 的 `navigate` / `snapshot` / `act` / `tab` 工具共享同一持久 profile，不提供 headless 模式。
+- **真实浏览器**：始终带 GUI 的系统 Chrome + CDP 帧流，服务端 `/browser` 调试页与 Agent 的 `navigate` / `snapshot` / `act` / `tab` 工具共享同一持久 profile，不提供 headless 模式；Docker 部署可用 Xvfb/x11vnc/noVNC 直接查看和接管完整窗口。
 - **提醒、目标与监控**：一次性或每日提醒、目标与里程碑、网页变化或关键词命中监控。定时提醒在来源会话执行，监控只抓取页面、不启动模型轮。
 - **子代理**：主模型可调用 subagent，以单个、并行或链式方式处理独立子任务，结果回到父对话。单次最多 8 项，最多 4 项并发；不是后台任务队列，子代理权限只能收窄父会话上限。
 
@@ -121,6 +121,16 @@ pnpm start
 - [健康检查](http://127.0.0.1:17890/api/health)：服务状态、模型配置状态与版本身份。
 
 外部客户端通过 HTTP 和 AG-UI SSE 接入。鉴权、增量聊天、取消、审批和工作区通知的完整规则以部署版本的 `/docs` 与 `/openapi.json` 为准，不依赖历史适配稿或聊天说明。`/api/events` 是状态变更通知，不是运行续接或手机系统推送。
+
+## 浏览器 Docker 工作站
+
+浏览器模块提供独立容器定义：真实 Google Chrome 在 Xvfb 中带 GUI 运行，`/browser` 提供产品化视口帧流和输入，noVNC 提供完整 Chrome 窗口的观察与接管。入口地址仍由实际访问地址决定，不绑定固定主机名。
+
+```sh
+docker compose -f compose.browser.yaml up --build -d
+```
+
+启动后访问 `http://<任意可达地址>:17890/browser` 和 `http://<任意可达地址>:6080/vnc.html?autoconnect=1&resize=scale`。配置、端口映射、数据卷和反向代理细节见 [真实浏览器 Docker 与 noVNC 使用说明](docs/browser-docker.md)。
 
 ## 存储与安全边界
 

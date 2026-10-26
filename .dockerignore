@@ -1,0 +1,13 @@
+.git
+.gitignore
+.zcode
+.zcodeignore
+.env
+.pi-muse
+.pi-muse-backups
+node_modules
+web/node_modules
+dist
+web/dist
+*.log
+*.tsbuildinfo
