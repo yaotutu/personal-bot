@@ -13,7 +13,7 @@
     {
       "state": "idle",
       "status": "success",
-      "human_review_status": "pending",
+      "human_review_status": "direction_basically_approved; final production acceptance pending",
       "source_image": "base.png",
       "model": "MiniMax-Hailuo-2.3",
       "api_host": "api.minimaxi.com",
@@ -43,7 +43,7 @@
     {
       "state": "thinking",
       "status": "success",
-      "human_review_status": "pending",
+      "human_review_status": "direction_basically_approved; final production acceptance pending",
       "source_image": "keyframes/thinking.png",
       "model": "MiniMax-Hailuo-2.3",
       "api_host": "api.minimaxi.com",
@@ -73,7 +73,7 @@
     {
       "state": "working",
       "status": "success",
-      "human_review_status": "pending",
+      "human_review_status": "direction_basically_approved; final production acceptance pending",
       "source_image": "keyframes/working.png",
       "model": "MiniMax-Hailuo-2.3",
       "api_host": "api.minimaxi.com",
@@ -100,5 +100,11 @@
       "loop_status": "not_verified; first and last frames are similar but not identical, so do not claim a seamless loop",
       "temporal_png_frames_exported": false
     }
-  ]
+  ],
+  "asset_path_base": "..",
+  "user_review": {
+    "date": "2026-10-26",
+    "status": "direction_basically_approved",
+    "production_acceptance": "pending"
+  }
 }

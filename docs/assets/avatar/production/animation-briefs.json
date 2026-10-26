@@ -1,6 +1,6 @@
 {
   "status": "partially_generated",
-  "selected_identity_reference": "../penguin-style-g-ice-blue.png",
+  "selected_identity_reference": "reference.png",
   "important": "Briefs describe targets, not acceptance. Three executed first-draft clips are recorded in video-generation-log.json; five remain pending. Source PNGs are independent keyframes, not a temporal sequence.",
   "delivery_targets": {
     "video_preview": "MP4, silent",
@@ -132,5 +132,6 @@
   ],
   "generated_count": 3,
   "pending_count": 5,
-  "generation_log": "video-generation-log.json"
+  "generation_log": "production/video-generation-log.json",
+  "asset_path_base": ".."
 }

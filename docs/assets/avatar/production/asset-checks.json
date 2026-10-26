@@ -108,14 +108,21 @@
       "sha256": "3eab02ef859b1fd584d2832d6b022e44fc956d12527f25a9a7a5ce24f2a5e2d7",
       "alpha_min": 0.0,
       "alpha_max": 1.0
+    },
+    {
+      "file": "reference.png",
+      "width": 1254,
+      "height": 1254,
+      "bytes": 1758432,
+      "sha256": "16611d6d081d4c89265f103d5d5ff676eaa4a801610c206a58c213b01efbccf3"
     }
   ],
   "errors": [],
-  "user_approval_of_derived_poses": "pending",
+  "user_approval_of_derived_poses": "direction_approved_2026-10-26; final per_asset_acceptance_pending",
   "continuous_videos_generated": 3,
   "runtime_tests": "not run: no implementation changes; videos are design masters only",
   "technical_checks": "passed: PNG properties and hashes; MP4 codec, dimensions, frame count, duration, silent-stream count, and hashes; preview dimensions and hashes",
-  "visual_quality": "first draft; three clips and all derived poses still require human review for character drift, action quality, looping, and opaque white background handling",
+  "visual_quality": "User basically approved the overall direction on 2026-10-26; final loop, edge, icon and runtime acceptance remains pending.",
   "videos": [
     {
       "file": "videos/idle-hailuo-768p.mp4",
@@ -179,5 +186,6 @@
       "bytes": 514180,
       "sha256": "34bab7d6243b6d1f8b3d959248e470e0bc5db969c0c4558c593ec181da456442"
     }
-  ]
+  ],
+  "asset_path_base": ".."
 }

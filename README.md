@@ -16,7 +16,7 @@
 
 </div>
 
-![Pi Muse mobile app](docs/assets/showcase.png)
+![Pi Muse mobile app](docs/assets/screenshots/showcase.png)
 
 ## 界面
 
@@ -34,7 +34,7 @@ Pi Muse 是客户端优先的项目。独立客户端可以承载更多信息，
 - **记忆**：保存偏好和重要信息，需要时检索，也可以启用后台整理。
 
 <p align="center">
-  <img src="docs/assets/session.png" width="92%" alt="运行状态与会话面板">
+  <img src="docs/assets/screenshots/session.png" width="92%" alt="运行状态与会话面板">
 </p>
 
 <p align="center">

@@ -1,18 +1,17 @@
 {
-  "character": "Pi Muse ice-blue penguin G",
-  "selected_identity_reference": "../penguin-style-g-ice-blue.png",
-  "package_status": "video_first_draft_partial",
+  "character": "Pi Muse ice-blue penguin",
+  "selected_identity_reference": "reference.png",
+  "package_status": "direction_approved_partial_delivery",
   "implementation_changes": false,
   "original_reference_modified": false,
   "state_count": 8,
   "continuous_animation_count": 3,
   "quality_notes": [
-    "Generated poses are first drafts pending user review.",
-    "Composition, scale and lighting are not guaranteed frame-accurate across independent generations.",
-    "Transparent outputs have alpha; edge cleanup and isolated specks require further review before production use.",
-    "Three Hailuo clips are opaque 768x768 MP4 first drafts with a white background; they do not provide alpha-channel animation.",
-    "The three clips have not passed human visual review, seamless-loop acceptance, client runtime testing, or temporal PNG frame export.",
-    "Icon PNGs are high-resolution design masters, not platform-sized validated launcher exports."
+    "User basically approved the character and animation direction on 2026-10-26; final per-asset acceptance remains separate.",
+    "Independent static generations can differ in composition, scale and lighting; transparent fur edges require review.",
+    "Three Hailuo clips are opaque white-background MP4s, not transparent animations or verified seamless loops.",
+    "No client runtime acceptance or temporal PNG export has been performed.",
+    "Icons are design masters, not validated platform-sized launcher exports."
   ],
   "icons": {
     "opaque_master": "icons/icon-master.png",
@@ -143,5 +142,26 @@
       "preview_file": null
     }
   ],
-  "video_generation_log": "video-generation-log.json"
+  "video_generation_log": "production/video-generation-log.json",
+  "user_review": {
+    "date": "2026-10-26",
+    "status": "direction_basically_approved",
+    "scope": "Selected identity and current animation approach; not a claim of production-ready loops, alpha output, icons or runtime acceptance."
+  },
+  "next_generation": {
+    "earliest_planned_date": "2026-10-27",
+    "condition": "Resume after daily quota is available and user continues; not automatically scheduled.",
+    "next_batch": [
+      "responding",
+      "waiting-approval",
+      "success"
+    ],
+    "following_batch": [
+      "error",
+      "stopped"
+    ],
+    "daily_clip_limit_user_reported": 3,
+    "manual_queue": "../../product/google-video-queue.md",
+    "preferred_generator": "Gemini web manual generation while available; Hailuo API remains the connected fallback"
+  }
 }

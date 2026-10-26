@@ -2,7 +2,7 @@
 
 更新日期：2026-10-26。
 
-当前阶段：用户已选定 G 款冰蓝小企鹅，并授权继续准备资源。[资源包](../assets/avatar/penguin-g/README.md)已包含透明基准、八个状态的静态初版及两个图标母版；MiniMax Hailuo 2.3 已生成待机、思考、工作三条白底 MP4 初稿，另五条待生成。没有时序 PNG 帧包，循环与背景处理尚未验收。
+当前阶段：用户基本认可冰蓝小企鹅与当前动画方案。已有待机、思考、工作三条 Hailuo 白底 MP4 初稿；回复、等待确认、完成、失败、停止可通过 Gemini 网页手动补充。没有时序 PNG 帧包，循环与背景处理尚未验收。
 
 ## 1. 用途与范围
 
@@ -10,18 +10,18 @@
 
 本项工作只负责资源清单与素材准备，不负责修改服务端协议、客户端状态映射或动画播放器。资源清单应以现有客户端能拿到的状态为依据。
 
-角色方向已明确为可爱的小企鹅，参考 Muse 的柔和、亲近的质感。用户要求更可爱、浅色系，不要很深的颜色，并已选定 G 款。后续图标和动作以 G 款原图作为形象参考，不再回到深蓝、深灰方案，也不继续沿用旧毛绒角色作为新资源的默认形象。
+角色方向已明确为可爱的小企鹅，参考 Muse 的柔和、亲近的质感。用户要求更可爱、浅色系，不要很深的颜色，并已选定冰蓝小企鹅。后续图标和动作以选定原图作为形象参考，不再回到深蓝、深灰方案，也不继续沿用旧毛绒角色作为新资源的默认形象。
 
-### 已选主要形象：G 款冰蓝小企鹅
+### 当前方案与续作方式
 
-[查看角色原图](../assets/avatar/penguin-style-g-ice-blue.png)。
+用户已选定冰蓝小企鹅，并于 2026-10-26 基本认可当前静态与 Hailuo 动画方向。不再重新筛选风格，也不再维护 A—H 候选编号；未采用的候选图和提示词已删除，避免误用。
 
-- 浅冰蓝色头背与翅膀，奶白色脸部与腹部，整体保持明亮、低饱和。
-- 圆润的大头与身体、短翅膀、头顶小绒毛，以及浅橙色小嘴和脚。
-- 柔软细绒的立体质感，不改成深色、硬质亮面公仔或二维手绘。
-- 后续制作使用这张原图作为参考，保持脸部轮廓、眼睛、绒毛、配色和身体比例一致；可以按动作增加电脑等道具，但不换一套角色。
+- 选定原图：[reference.png](../assets/avatar/reference.png)，1254×1254、暖白背景。
+- 透明基准：[base.png](../assets/avatar/base.png)，兼作待机静态参考。
+- 图标母版：[icon-master.png](../assets/avatar/icons/icon-master.png)、[foreground-master.png](../assets/avatar/icons/foreground-master.png)。
+- 视频母版：[videos/](../assets/avatar/videos/)；制作与校验记录在[production/](../assets/avatar/production/)。
 
-选定的是角色造型，不代表所有派生资源已经审定。原图为 1254×1254 的暖白背景 PNG，保持不变；已另外生成[带透明通道的基准初版](../assets/avatar/penguin-g/base.png)。本项不替换 App 中的旧头像和图标。
+用户还可用 Google AI Pro 的 Gemini 网页「生成视频」补充素材。手动生成清单见[Google 手动视频清单](google-video-queue.md)；操作时上传该清单指定的参考图，下载后按清单文件名放入 `docs/assets/avatar/videos/`。这解决了每天三条 Hailuo 的额度限制，但仍由用户手动上传和下载，不是已接入自动化服务。
 
 ## 2. 已有的状态能力
 
@@ -42,14 +42,14 @@
 
 | 资源名 | 角色状态 | 现有状态依据 | 动作方向，待定稿 | 播放需求 | 资源情况 |
 | --- | --- | --- | --- | --- | --- |
-| `idle` | 待机 | 已同步且没有活动运行；终态反馈结束后也可回到这里 | 自然眨眼、轻微转头和身体起伏 | 循环 | [静态初版](../assets/avatar/penguin-g/base.png)已生成；[动画初稿](../assets/avatar/penguin-g/videos/idle-hailuo-768p.mp4)已生成，白底／循环待验收 |
-| `thinking` | 思考／等待模型 | `preparing`、`waiting_model` | 暂停手上动作，抬头或轻微歪头 | 循环 | [静态初版](../assets/avatar/penguin-g/keyframes/thinking.png)已生成；[动画初稿](../assets/avatar/penguin-g/videos/thinking-hailuo-768p.mp4)已生成，白底／循环待验收 |
-| `responding` | 正在回复 | `responding` | 输入内容，偶尔看向用户；与工作动作保持区别 | 循环 | [静态初版](../assets/avatar/penguin-g/keyframes/responding.png)已生成；动画未生成 |
-| `working` | 正在工作 | `executing_tool`、`waiting_subagents`、`finalizing` | 专注操作电脑，头部、手部和身体有连续动作 | 循环 | [静态初版](../assets/avatar/penguin-g/keyframes/working.png)已生成；[动画初稿](../assets/avatar/penguin-g/videos/working-hailuo-768p.mp4)已生成，白底／循环待验收 |
-| `waiting-approval` | 等待确认 | `waiting_approval`，并有实际待审批信息 | 停下工作，抬头看向用户，保持等待姿态 | 循环 | [静态初版](../assets/avatar/penguin-g/keyframes/waiting-approval.png)已生成；动画未生成 |
-| `success` | 本轮执行成功 | `status=succeeded`，不等于所有目标或整项工作都已完成 | 简短点头或完成手势 | 播放一次，再回待机 | [静态初版](../assets/avatar/penguin-g/keyframes/success.png)已生成；动画未生成 |
-| `error` | 本轮执行失败 | `status=failed` | 停下动作，轻微困惑，不使用强烈惊恐表情 | 播放一次，再保持静态或回待机，待确认 | [静态初版](../assets/avatar/penguin-g/keyframes/error.png)已生成；动画未生成 |
-| `stopped` | 执行已停止 | `status=cancelled` | 收住当前动作，回到待机；不要表现成失败 | 播放一次，再回待机 | [静态初版](../assets/avatar/penguin-g/keyframes/stopped.png)已生成；动画未生成 |
+| `idle` | 待机 | 已同步且没有活动运行；终态反馈结束后也可回到这里 | 自然眨眼、轻微转头和身体起伏 | 循环 | [静态初版](../assets/avatar/base.png)已生成；[动画初稿](../assets/avatar/videos/idle-hailuo-768p.mp4)已生成，白底／循环待验收 |
+| `thinking` | 思考／等待模型 | `preparing`、`waiting_model` | 暂停手上动作，抬头或轻微歪头 | 循环 | [静态初版](../assets/avatar/keyframes/thinking.png)已生成；[动画初稿](../assets/avatar/videos/thinking-hailuo-768p.mp4)已生成，白底／循环待验收 |
+| `responding` | 正在回复 | `responding` | 输入内容，偶尔看向用户；与工作动作保持区别 | 循环 | [静态初版](../assets/avatar/keyframes/responding.png)已生成；动画未生成 |
+| `working` | 正在工作 | `executing_tool`、`waiting_subagents`、`finalizing` | 专注操作电脑，头部、手部和身体有连续动作 | 循环 | [静态初版](../assets/avatar/keyframes/working.png)已生成；[动画初稿](../assets/avatar/videos/working-hailuo-768p.mp4)已生成，白底／循环待验收 |
+| `waiting-approval` | 等待确认 | `waiting_approval`，并有实际待审批信息 | 停下工作，抬头看向用户，保持等待姿态 | 循环 | [静态初版](../assets/avatar/keyframes/waiting-approval.png)已生成；动画未生成 |
+| `success` | 本轮执行成功 | `status=succeeded`，不等于所有目标或整项工作都已完成 | 简短点头或完成手势 | 播放一次，再回待机 | [静态初版](../assets/avatar/keyframes/success.png)已生成；动画未生成 |
+| `error` | 本轮执行失败 | `status=failed` | 停下动作，轻微困惑，不使用强烈惊恐表情 | 播放一次，再保持静态或回待机，待确认 | [静态初版](../assets/avatar/keyframes/error.png)已生成；动画未生成 |
+| `stopped` | 执行已停止 | `status=cancelled` | 收住当前动作，回到待机；不要表现成失败 | 播放一次，再回待机 | [静态初版](../assets/avatar/keyframes/stopped.png)已生成；动画未生成 |
 
 八个状态已有各自可单独查看的静态参考，待机复用基准图。它们是生图工具独立生成的画面，不能作为时序动画帧；最终播放所需的静态帧是否改为从实际动画选取，仍需在短片完成后决定。
 
@@ -63,58 +63,25 @@
 - 系统减少动画、页面不可见或应用进入后台：是播放条件，不是新的角色动作素材。
 - 聆听、语音口型、睡眠等：当前不在本次资源范围内，不为尚未确定的功能提前制作。
 
-## 5. 已有素材与缺口
+## 5. 当前素材与缺口
 
-| 素材 | 位置或归属 | 当前情况 |
+| 素材 | 位置 | 当前情况 |
 | --- | --- | --- |
-| 透明角色基准与八个状态静态参考 | [资源包说明](../assets/avatar/penguin-g/README.md)、[清单](../assets/avatar/penguin-g/manifest.json) | 静态初版已生成；有透明通道，边缘、尺度和派生姿势仍待审阅；不是动画 |
-| 企鹅图标母版与透明前景母版 | [图标母版](../assets/avatar/penguin-g/icons/icon-master.png)、[透明前景](../assets/avatar/penguin-g/icons/foreground-master.png) | 已生成初版；尚未按各平台尺寸、安全区导出并验证 |
-| 主要形象：G 款冰蓝小企鹅 | [PNG 原图](../assets/avatar/penguin-style-g-ice-blue.png)、[完整提示词中的 G 项](../assets/avatar/penguin-light-style-prompts.txt) | 用户已选定；1254×1254、暖白背景，非透明成品，不是动画 |
-| 小企鹅 E、F、H 浅色方案 | 下方浅色方案表及[完整提示词](../assets/avatar/penguin-light-style-prompts.txt) | 未选用，保留探索记录，不作为后续默认形象 |
-| 小企鹅 A—D 旧方案 | 下方历史风格表及[完整提示词](../assets/avatar/penguin-style-prompts.txt) | 用户认为不好看且不希望使用深色，未采纳；保留原图，不继续据此批量制作 |
-| 小企鹅角色基准图 V1 | [PNG 原图](../assets/avatar/penguin-reference-v1.png)、[完整生成提示词](../assets/avatar/penguin-reference-v1-prompt.txt) | 此前深蓝色方案，1254×1254，有透明通道；保留记录，不再作为当前默认候选 |
-| 当前客户端旧头像 | 移动端 `assets/images/muse-companion.png` | 旧毛绒角色；本轮未替换 App 资源，不是企鹅定稿 |
-| 旧应用图标及 Android 前景、背景、单色图、favicon | 移动端独立 worktree `pi-muse-mobile-assets` 的 `assets/*-mascot.png`，分支 `avatar-motion-assets` | 旧毛绒角色的候选，提交 `41a6c0c`；不是本轮企鹅图标，不计入动作数量 |
-| 旧待机四格分镜 | 此前生成的毛绒角色概念草稿，尚无纳入仓库的交付文件 | 不是企鹅动作素材；未验证帧间一致性和循环效果，不算可用动画 |
-| 八类连续角色动作 | [图生视频制作提示词](../assets/avatar/penguin-g/animation-briefs.json) | 待机、思考、工作已生成 Hailuo 白底 MP4 初稿；另五条待生成；时序 PNG 帧未导出，循环未验收 |
+| 选定角色与透明基准 | [avatar/](../assets/avatar/README.md) | 已保留；原图内容未改，统一命名为 `reference.png` |
+| 八个状态静态参考 | [keyframes/](../assets/avatar/keyframes/) | 已齐；边缘与跨姿势一致性仍需精修 |
+| 图标母版 | [icons/](../assets/avatar/icons/) | 两个母版已保留；平台尺寸和安全区未导出 |
+| 连续动作 | [videos/](../assets/avatar/videos/) | 待机、思考、工作已有初稿；其余五条待手动生成 |
+| 制作与校验记录 | [production/](../assets/avatar/production/) | 已保留；后续放入新文件后需重新校验并更新记录 |
+| Gemini 手动生成清单 | [Google 手动视频清单](google-video-queue.md) | 剩余五条状态的提示词、上传图、目标文件名 |
+| 当前客户端旧头像 | 移动端仓库资源 | 未替换；不属于本 README 资源包 |
 
-现有图标和缩放／光环实现不作为角色动作资源已经完成的证明。生成工具中的临时产物，也不作为正式素材路径。
-
-### E—H 浅色方案与选择结果
-
-本轮统一使用柔软短绒、圆润身体、小嘴与短翅膀，先比较浅色造型；配暖白背景便于查看，不冒充已经抠好的透明角色基准图。
-
-| 编号 | 配色与造型 | 选择结果 | 文件 |
-| --- | --- | --- | --- |
-| E | 奶白与浅暖灰，正面圆润站姿 | 未选用 | [PNG](../assets/avatar/penguin-style-e-cream.png) |
-| F | 奶白与浅薄荷绿，轻微歪头 | 未选用 | [PNG](../assets/avatar/penguin-style-f-mint.png) |
-| G | 奶白与浅冰蓝，头顶小绒毛，翅膀略张开 | 已选为主要形象 | [PNG](../assets/avatar/penguin-style-g-ice-blue.png) |
-| H | 奶白与浅蜜桃色，歪头姿态 | 未选用 | [PNG](../assets/avatar/penguin-style-h-peach.png) |
-
-G 款已选定。派生静态初版均以 G 款原图为参考，保留其原有造型特征；其余方案不删除。本项未替换 App 资源，三条连续动画初稿见资源包。
-
-### 上一轮 A—D（未采纳）
-
-先同时提供不同风格，再由用户挑选方向。不能因为先生成了某张图，就默认该图成为角色定稿。
-
-| 编号 | 风格 | 文件 |
-| --- | --- | --- |
-| A | 灰白毛绒玩偶，细密绒毛和较大的眼睛 | [PNG](../assets/avatar/penguin-style-a-plush.png) |
-| B | 哑光黏土，深蓝色身体、简洁五官 | [PNG](../assets/avatar/penguin-style-b-clay.png) |
-| C | 蓝绿色潮玩公仔，光滑材质和亮面高光 | [PNG](../assets/avatar/penguin-style-c-vinyl.png) |
-| D | 二维手绘绘本，铅笔／水粉纹理和歪头姿态 | [PNG](../assets/avatar/penguin-style-d-illustration.png) |
-
-本组未获采纳，仅保留风格探索记录，没有进行动画、多视角一致性或小尺寸验证。
-
-### 此前的企鹅基准图 V1
-
-深蓝色头背与翅膀、奶白色脸部与腹部、橙色小嘴和脚，短绒材质；全身站立，不加电脑、耳机和服饰。本图只保留为此前探索记录，尚未进行多视角、连续动作和小尺寸可读性验证。
+废弃风格稿、旧企鹅初稿和未引用截图已删除。当前资源只保留一个角色方案，避免后续生成时混用形象。
 
 ## 6. 媒体格式与交付规格
 
 **当前实际交付为静态 PNG、三条白底 MP4 初稿及其抽帧预览。** 静态角色与图标母版均为 1254×1254；除不透明图标母版外，角色静态图与图标前景具有透明通道。视频为 768×768，抽帧预览为 1152×768；均未经过客户端尺寸导出或运行时集成。
 
-待机、思考、工作均请求 6 秒、768P，实测为 768×768、24fps、141 帧、5.875 秒的无声 H.264 MP4。透明参考图在视频中变为不透明白底；首尾不同，尚非验收过的无缝循环。完整参数、任务与哈希见[视频生成记录](../assets/avatar/penguin-g/video-generation-log.json)。其他提示词中的约 4 秒循环、约 2 秒结束动作仍为制作目标。
+待机、思考、工作均请求 6 秒、768P，实测为 768×768、24fps、141 帧、5.875 秒的无声 H.264 MP4。透明参考图在视频中变为不透明白底；首尾不同，尚非验收过的无缝循环。完整参数、任务与哈希见[视频生成记录](../assets/avatar/production/video-generation-log.json)。其他提示词中的约 4 秒循环、约 2 秒结束动作仍为制作目标。
 
 已通过用户提供的 MiniMax 凭据调用国内 API `api.minimaxi.com`，完成三个任务的提交、状态查询和下载，不需要额外接入 Runway。按用户说明的每天三条额度，本轮不再提交新任务；未核对账户余额或计费归属。密钥不写入仓库、生成记录或客户端。
 
@@ -133,7 +100,7 @@ G 款已选定。派生静态初版均以 G 款原图为参考，保留其原有
 ## 7. 剩余交付
 
 1. 审阅派生静态初版，特别是不同姿势的角色尺度、透明细毛边缘与少量散点；有透明通道不等于已经完成边缘精修。
-2. 先审阅待机、思考、工作三条视频，再按后续可用额度制作回复、等待确认、完成、失败、停止五条动作，不再重新筛选角色风格。
+2. 按 [Google 手动视频清单](google-video-queue.md) 补齐回复、等待确认、完成、失败、停止五条视频；如果页面额度不足，优先回复、等待确认、完成。
 3. 检查动作自然度、角色一致性、首尾衔接，以及透明背景交付能力，再导出时序帧和 MP4 预览。
 4. 根据最终使用平台导出图标尺寸与安全区版本；当前只有母版，没有正式安装包验证结果。
 5. 在本页和资源包清单中更新实际完成的文件；未生成的动画路径保持为空，不预填不存在的交付文件。
