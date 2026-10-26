@@ -13,13 +13,13 @@
 | [idle 待机](assets/avatar/idle/README.md) | 已有 Hailuo 初稿 |
 | [thinking 思考](assets/avatar/thinking/README.md) | 已有 Hailuo 初稿 |
 | [responding 回复](assets/avatar/responding/README.md) | 待生成；当前静态图待用户反馈 |
-| [working 工作](assets/avatar/working/README.md) | 旧 Hailuo 状态不清楚；新版参考图候选已生成，新视频待重做 |
+| [working 工作](assets/avatar/working/README.md) | 待生成；当前参考图已按状态辨识要求重做 |
 | [waiting-approval 等待确认](assets/avatar/waiting-approval/README.md) | 待生成 |
 | [success 完成](assets/avatar/success/README.md) | 待生成 |
-| [error 失败](assets/avatar/error/README.md) | 新版参考图候选已生成；视频待生成 |
+| [error 失败](assets/avatar/error/README.md) | 待生成；当前参考图已按状态辨识要求重做 |
 | [stopped 停止](assets/avatar/stopped/README.md) | 待生成 |
 
-当前先审阅 `error/error-v2.png` 和 `working/working-v2.png` 两张状态辨识候选，不急着批量生成视频。其余六种动作本轮没有重做，不把本轮调整当作八种状态均已达标。确认后需补齐五个未生成动作的视频，并重做旧的工作视频。
+当前先审阅 `error/error.png` 和 `working/working.png` 两张状态辨识候选，不急着批量生成视频。其余六种动作本轮没有重做，不把本轮调整当作八种状态均已达标。确认后需补齐六个尚无视频的动作。
 
 ## 状态辨识标准
 
@@ -53,10 +53,10 @@
 
 ## 共同规格与限制
 
-- 后续视频统一要求正方形 `1:1`，文件像素宽高相等、无黑边，角色和道具完整留在画面内。本轮新增失败／工作的两张参考图候选，重写这两个动作的视频提示词；没有生成或转换新视频。
-- 仅 `idle`、`thinking`、`working` 有视频；另外五个动作没有视频。现有视频共三条，于 2026-10-26 由 MiniMax Hailuo 2.3 图生视频生成，请求 6 秒、768P；凭据未记录。
-- 原有 11 张 PNG 的历史测量均为 1254x1254；`reference.png` 和 `icon-master.png` 为不透明底，八张状态静态图和图标前景有透明通道。本轮另新增两张 1254x1254 RGBA PNG 候选，合计 13 张，原有文件未覆盖。
-- 三条 MP4 的历史测量均为 768x768、24fps、141 帧、5.875 秒、无音轨；本轮只提取工作、思考视频的每秒一帧做静态对照，没有把该抽样当作完整播放或循环验收。
+- 后续视频统一要求正方形 `1:1`，文件像素宽高相等、无黑边，角色和道具完整留在画面内。本轮重做失败／工作的两张参考图并重写对应提示词；没有生成或转换新视频。
+- 仅 `idle`、`thinking` 有视频；另外六个动作没有视频。现有两条视频于 2026-10-26 由 MiniMax Hailuo 2.3 图生视频生成，请求 6 秒、768P；凭据未记录。
+- 11 张 PNG 的历史测量均为 1254x1254；`reference.png` 和 `icon-master.png` 为不透明底，八张状态静态图和图标前景有透明通道。失败和工作当前各只保留一张重做后的参考图，不保留旧稿或多版本文件。
+- 两条 MP4 的历史测量均为 768x768、24fps、141 帧、5.875 秒、无音轨；本轮只提取思考视频的每秒一帧做静态对照，没有把该抽样当作完整播放或循环验收。工作视频因状态不清楚已删除，目录中不保留多版本素材。
 - 八张状态静态图是独立生成的初版参考，不是时序动画帧，不能把多张 PNG 拼接后宣称为连续动画。待机复用 `idle/base.png`。
 - 三条既有视频是白底 H.264 初稿，透明参考图在生成后变为不透明白底；首尾不同，尚未验收为无缝循环。
 - 循环短片的约 4 秒自然回位和一次性短片的约 2 秒结束动作仍是制作目标。
