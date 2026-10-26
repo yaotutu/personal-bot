@@ -29,6 +29,8 @@ COPY . .
 RUN pnpm build
 
 COPY assets/browser/novnc-mobile.html /usr/share/novnc/pimuse-mobile.html
+COPY assets/browser/novnc-responsive.js /usr/share/novnc/pimuse-responsive.js
+RUN node scripts/install-novnc-responsive-entry.mjs
 
 ENV NODE_ENV=production
 

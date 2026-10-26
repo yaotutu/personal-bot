@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 const root = join(import.meta.dirname, "../..");
 const read = (path: string) => readFile(join(root, path), "utf8");
+const exec = promisify(execFile);
 
 test("browser container keeps Chrome headed and exposes its real GUI through noVNC", async () => {
   const dockerfile = await read("Dockerfile");
@@ -60,6 +64,8 @@ test("mobile browser profile provides a portrait desktop without changing the de
   const page = await read("assets/browser/novnc-mobile.html");
 
   assert.match(dockerfile, /COPY assets\/browser\/novnc-mobile\.html \/usr\/share\/novnc\/pimuse-mobile\.html/);
+  assert.match(dockerfile, /COPY assets\/browser\/novnc-responsive\.js \/usr\/share\/novnc\/pimuse-responsive\.js/);
+  assert.match(dockerfile, /RUN node scripts\/install-novnc-responsive-entry\.mjs/);
   assert.match(compose, /^  pi-muse-browser:\n    platform: linux\/amd64$/m);
   assert.match(compose, /BROWSER_SCREEN_SIZE: \$\{BROWSER_SCREEN_SIZE:-1440x900x24\}/);
   assert.match(compose, /\$\{PI_MUSE_BROWSER_PORT:-17890\}:17890/);
@@ -88,5 +94,26 @@ test("mobile browser profile provides a portrait desktop without changing the de
   assert.match(page, /keysyms\.lookup/);
   assert.match(page, /values\.get\('password'\)/);
   assert.match(page, /rfb\.sendCredentials\(\{ password \}\)/);
+  assert.match(page, /<script src="pimuse-responsive\.js"><\/script>/);
   assert.doesNotMatch(page, /--headless|browser-address|address-bar/);
+});
+
+test("responsive entry injects a mobile redirect without replacing desktop vnc.html", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pimuse-novnc-"));
+  const target = join(directory, "vnc.html");
+  try {
+    await writeFile(target, "<!doctype html><html><head><title>noVNC</title></head><body></body></html>");
+    await exec(process.execPath, [join(root, "scripts/install-novnc-responsive-entry.mjs")], {
+      env: { ...process.env, NOVNC_DIR: directory },
+    });
+    const first = await readFile(target, "utf8");
+    assert.match(first, /<script src="pimuse-responsive\.js"><\/script>/);
+    assert.match(first, /<title>noVNC<\/title>/);
+    await exec(process.execPath, [join(root, "scripts/install-novnc-responsive-entry.mjs")], {
+      env: { ...process.env, NOVNC_DIR: directory },
+    });
+    assert.equal(await readFile(target, "utf8"), first);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

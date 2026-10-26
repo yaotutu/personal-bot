@@ -38,7 +38,7 @@ http://<任意主机或域名>:17890/browser
 http://<任意主机或域名>:6080/vnc.html?autoconnect=1&resize=scale
 ```
 
-手机可以直接使用移动版页面。它默认连接当前地址上的 `/websockify`，也支持通过查询参数覆盖 `path`、`host` 或 `port`。如果以后给 x11vnc 配置密码，可在查询或 `#` 片段中附带 `password`：
+桌面和手机共用 `vnc.html` 入口：视口宽度不超过 700px 时自动切到移动页，恢复桌面宽度后自动回到官方 noVNC。移动页默认连接当前地址上的 `/websockify`，也支持通过查询参数覆盖 `path`、`host` 或 `port`。如果以后给 x11vnc 配置密码，可在查询或 `#` 片段中附带 `password`：
 
 ```text
 http://<任意主机或域名>:6080/pimuse-mobile.html
