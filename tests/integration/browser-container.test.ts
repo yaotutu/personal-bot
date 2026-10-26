@@ -53,3 +53,38 @@ test("browser container keeps Chrome headed and exposes its real GUI through noV
   assert.match(dockerignore, /^\.pi-muse$/m);
   assert.match(dockerignore, /^node_modules$/m);
 });
+
+test("mobile browser profile provides a portrait desktop without changing the desktop service", async () => {
+  const compose = await read("compose.browser.yaml");
+  const dockerfile = await read("Dockerfile");
+  const page = await read("assets/browser/novnc-mobile.html");
+
+  assert.match(dockerfile, /COPY assets\/browser\/novnc-mobile\.html \/usr\/share\/novnc\/pimuse-mobile\.html/);
+  assert.match(compose, /^  pi-muse-browser:\n    platform: linux\/amd64$/m);
+  assert.match(compose, /BROWSER_SCREEN_SIZE: \$\{BROWSER_SCREEN_SIZE:-1440x900x24\}/);
+  assert.match(compose, /\$\{PI_MUSE_BROWSER_PORT:-17890\}:17890/);
+  assert.match(compose, /\$\{PI_MUSE_BROWSER_NOVNC_PORT:-6080\}:6080/);
+  assert.match(compose, /pi-muse-browser-data:\/app\/\.pi-muse/);
+
+  assert.match(compose, /^  pi-muse-browser-mobile:\n    profiles:\n      - mobile$/m);
+  assert.match(compose, /BROWSER_SCREEN_SIZE: \$\{PI_MUSE_BROWSER_MOBILE_SCREEN_SIZE:-720x1280x24\}/);
+  assert.match(compose, /\$\{PI_MUSE_BROWSER_MOBILE_PORT:-18891\}:17890/);
+  assert.match(compose, /\$\{PI_MUSE_BROWSER_MOBILE_NOVNC_PORT:-16081\}:6080/);
+  assert.match(compose, /pi-muse-browser-mobile-data:\/app\/\.pi-muse/);
+  assert.doesNotMatch(compose, /localhost|\b127\.0\.0\.1\b/);
+
+  // 移动页仍直连完整远端桌面，不生成第二套浏览器外壳或地址栏。
+  assert.match(page, /import RFB from '\.\/core\/rfb\.js'/);
+  assert.match(page, /import Keyboard from '\.\/core\/input\/keyboard\.js'/);
+  assert.match(page, /import KeyTable from '\.\/core\/input\/keysym\.js'/);
+  assert.match(page, /import keysyms from '\.\/core\/input\/keysymdef\.js'/);
+  assert.match(page, /const path = \(values\.get\('path'\) \|\| 'websockify'\)/);
+  assert.match(page, /rfb\.scaleViewport = true/);
+  assert.match(page, /rfb\.clipViewport = false/);
+  assert.match(page, /rfb\.viewOnly = false/);
+  assert.match(page, /touch-action: none/);
+  assert.match(page, /viewport-fit=cover/);
+  assert.match(page, /safe-area-inset/);
+  assert.match(page, /keysyms\.lookup/);
+  assert.doesNotMatch(page, /--headless|browser-address|address-bar/);
+});

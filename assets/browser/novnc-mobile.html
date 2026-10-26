@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Pi Muse 真实浏览器</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --panel: rgba(15, 18, 25, 0.88);
+      --panel-strong: rgba(15, 18, 25, 0.96);
+      --border: rgba(255, 255, 255, 0.18);
+      --text: #f3f6fb;
+      --muted: rgba(243, 246, 251, 0.72);
+      --accent: #4d9fff;
+      --danger: #ff7070;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #05070b;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overscroll-behavior: none;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      position: fixed;
+    }
+
+    #screen {
+      position: absolute;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
+      background: #05070b;
+    }
+
+    #screen canvas {
+      display: block;
+      touch-action: none;
+    }
+
+    .status {
+      position: fixed;
+      left: 50%;
+      top: calc(8px + env(safe-area-inset-top));
+      transform: translateX(-50%);
+      z-index: 10;
+      max-width: calc(100vw - 96px);
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--panel);
+      color: var(--text);
+      font: 600 12px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      text-align: center;
+      pointer-events: none;
+      transition: opacity 160ms ease;
+    }
+
+    .status[data-tone="error"] {
+      border-color: rgba(255, 112, 112, 0.7);
+      color: var(--danger);
+      pointer-events: auto;
+    }
+
+    .status[data-hidden="true"] { opacity: 0; }
+
+    .controls-toggle {
+      position: fixed;
+      right: calc(8px + env(safe-area-inset-right));
+      top: calc(8px + env(safe-area-inset-top));
+      z-index: 12;
+      width: 44px;
+      height: 44px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--panel);
+      color: var(--text);
+      font: 600 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      opacity: 0.72;
+    }
+
+    .controls-toggle[aria-expanded="true"] {
+      background: var(--panel-strong);
+      border-color: rgba(77, 159, 255, 0.8);
+      color: var(--accent);
+      opacity: 1;
+    }
+
+    .controls {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 11;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 6px;
+      padding: 8px calc(8px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
+      border-top: 1px solid var(--border);
+      background: var(--panel-strong);
+      backdrop-filter: blur(16px);
+    }
+
+    .controls[hidden] { display: none; }
+
+    .key {
+      min-width: 0;
+      height: 44px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.09);
+      color: var(--text);
+      font: 600 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .key:active { background: rgba(77, 159, 255, 0.35); }
+    .key-wide { grid-column: span 2; }
+
+    .connect {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      z-index: 20;
+      transform: translate(-50%, -50%);
+      min-width: 150px;
+      min-height: 44px;
+      border: 1px solid rgba(77, 159, 255, 0.75);
+      border-radius: 999px;
+      background: rgba(77, 159, 255, 0.18);
+      color: var(--text);
+      font: 700 14px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    #keyboard-input {
+      position: fixed;
+      left: 0;
+      bottom: 0;
+      width: 1px;
+      height: 1px;
+      min-width: 1px;
+      min-height: 1px;
+      border: 0;
+      padding: 0;
+      opacity: 0.01;
+      background: transparent;
+      color: transparent;
+      caret-color: transparent;
+      font-size: 16px;
+      z-index: -1;
+      pointer-events: none;
+    }
+
+    @media (min-width: 700px) {
+      .controls { max-width: 620px; margin-inline: auto; border-radius: 14px 14px 0 0; }
+    }
+  </style>
+</head>
+<body>
+  <div id="screen" aria-label="真实 Chrome 桌面"></div>
+  <div id="status" class="status" role="status" aria-live="polite">正在连接真实浏览器</div>
+  <button id="controls-toggle" class="controls-toggle" type="button" aria-expanded="false" aria-controls="controls">按键</button>
+  <div id="controls" class="controls" hidden>
+    <button class="key key-wide" type="button" data-key="keyboard">键盘</button>
+    <button class="key" type="button" data-key="enter">Enter</button>
+    <button class="key" type="button" data-key="backspace">⌫</button>
+    <button class="key" type="button" data-key="tab">Tab</button>
+    <button class="key" type="button" data-key="escape">Esc</button>
+    <button class="key" type="button" data-key="left">←</button>
+    <button class="key" type="button" data-key="up">↑</button>
+    <button class="key" type="button" data-key="down">↓</button>
+    <button class="key" type="button" data-key="right">→</button>
+  </div>
+  <button id="connect" class="connect" type="button" hidden>重新连接</button>
+  <textarea id="keyboard-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="send" aria-hidden="true" tabindex="-1"></textarea>
+
+  <script type="module">
+    import RFB from './core/rfb.js';
+    import Keyboard from './core/input/keyboard.js';
+    import KeyTable from './core/input/keysym.js';
+    import keysyms from './core/input/keysymdef.js';
+
+    const screen = document.getElementById('screen');
+    const status = document.getElementById('status');
+    const connectButton = document.getElementById('connect');
+    const controlsToggle = document.getElementById('controls-toggle');
+    const controls = document.getElementById('controls');
+    const keyboardInput = document.getElementById('keyboard-input');
+    const defaultKeyboardLength = 100;
+    let lastKeyboardInput;
+    let rfb;
+    let statusTimer;
+
+    function settings() {
+      const hash = new URLSearchParams(window.location.hash.slice(1));
+      const query = new URLSearchParams(window.location.search);
+      const merged = new URLSearchParams(hash);
+      for (const [key, value] of query) if (!merged.has(key)) merged.set(key, value);
+      return merged;
+    }
+
+    function websocketUrl() {
+      const values = settings();
+      const host = values.get('host') || window.location.hostname;
+      const rawPort = values.get('port') ?? window.location.port;
+      const path = (values.get('path') || 'websockify').replace(/^\/+/, '');
+      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      const port = rawPort ? `:${rawPort}` : '';
+      return `${protocol}://${host}${port}/${path}`;
+    }
+
+    function setStatus(text, tone = 'normal', autoHide = false) {
+      clearTimeout(statusTimer);
+      status.textContent = text;
+      status.dataset.tone = tone;
+      status.dataset.hidden = 'false';
+      if (autoHide) statusTimer = setTimeout(() => {
+        status.dataset.hidden = 'true';
+      }, 1600);
+    }
+
+    function disconnect() {
+      if (!rfb) return;
+      rfb.removeEventListener('connect', onConnected);
+      rfb.removeEventListener('disconnect', onDisconnected);
+      rfb.removeEventListener('credentialsrequired', onCredentialsRequired);
+      rfb.removeEventListener('desktopname', onDesktopName);
+      rfb.disconnect();
+      rfb = undefined;
+    }
+
+    function connect() {
+      disconnect();
+      screen.replaceChildren();
+      connectButton.hidden = true;
+      setStatus('正在连接真实浏览器');
+      rfb = new RFB(screen, websocketUrl());
+      rfb.addEventListener('connect', onConnected);
+      rfb.addEventListener('disconnect', onDisconnected);
+      rfb.addEventListener('credentialsrequired', onCredentialsRequired);
+      rfb.addEventListener('desktopname', onDesktopName);
+      rfb.viewOnly = false;
+      rfb.scaleViewport = true;
+      rfb.clipViewport = false;
+      rfb.focusOnClick = true;
+    }
+
+    function onConnected() {
+      setStatus('已连接', 'normal', true);
+    }
+
+    function onDisconnected(event) {
+      const clean = event.detail?.clean === true;
+      setStatus(clean ? '连接已断开' : '连接中断，请点击重新连接', 'error');
+      connectButton.hidden = false;
+      rfb = undefined;
+    }
+
+    function onCredentialsRequired() {
+      setStatus('VNC 服务要求密码，当前部署未配置密码登录', 'error');
+      connectButton.hidden = false;
+    }
+
+    function onDesktopName(event) {
+      if (event.detail?.name) setStatus(`已连接：${event.detail.name}`, 'normal', true);
+    }
+
+    function resetKeyboardInput() {
+      keyboardInput.value = '_'.repeat(defaultKeyboardLength - 1);
+      lastKeyboardInput = keyboardInput.value;
+    }
+
+    function sendKeyboardInput() {
+      if (!rfb) return;
+      const newValue = keyboardInput.value || '';
+      if (!lastKeyboardInput) resetKeyboardInput();
+      const oldValue = lastKeyboardInput;
+      let newLength = newValue.length;
+      try {
+        newLength = Math.max(keyboardInput.selectionStart ?? 0, newValue.length);
+      } catch {
+        // Android Chrome 可能禁用 selectionStart；此时使用长度即可。
+      }
+      let inputs = newLength - oldValue.length;
+      let backspaces = inputs < 0 ? -inputs : 0;
+      for (let i = 0; i < Math.min(oldValue.length, newLength); i += 1) {
+        if (newValue.charAt(i) === oldValue.charAt(i)) continue;
+        inputs = newLength - i;
+        backspaces = oldValue.length - i;
+        break;
+      }
+      for (let i = 0; i < backspaces; i += 1) rfb.sendKey(KeyTable.XK_BackSpace, 'Backspace');
+      for (let i = newLength - inputs; i < newLength; i += 1) {
+        rfb.sendKey(keysyms.lookup(newValue.charCodeAt(i)));
+      }
+      if (newLength > defaultKeyboardLength * 2) resetKeyboardInput();
+      else if (newLength < 1) resetKeyboardInput();
+      else lastKeyboardInput = newValue;
+    }
+
+    const physicalKeyboard = new Keyboard(keyboardInput);
+    physicalKeyboard.onkeyevent = (keysym, code, down) => rfb?.sendKey(keysym, code, down);
+
+    function openKeyboard() {
+      resetKeyboardInput();
+      keyboardInput.focus({ preventScroll: true });
+    }
+
+    const keyMap = {
+      enter: [KeyTable.XK_Return, 'Enter'],
+      backspace: [KeyTable.XK_BackSpace, 'Backspace'],
+      tab: [KeyTable.XK_Tab, 'Tab'],
+      escape: [KeyTable.XK_Escape, 'Escape'],
+      left: [KeyTable.XK_Left, 'ArrowLeft'],
+      up: [KeyTable.XK_Up, 'ArrowUp'],
+      down: [KeyTable.XK_Down, 'ArrowDown'],
+      right: [KeyTable.XK_Right, 'ArrowRight'],
+    };
+
+    controls.addEventListener('click', (event) => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      if (button.dataset.key === 'keyboard') {
+        openKeyboard();
+        return;
+      }
+      const key = keyMap[button.dataset.key];
+      if (!key || !rfb) return;
+      rfb.sendKey(key[0], key[1]);
+      if (document.activeElement === keyboardInput) return;
+      rfb.focus();
+    });
+
+    controlsToggle.addEventListener('click', () => {
+      const expanded = controlsToggle.getAttribute('aria-expanded') === 'true';
+      controlsToggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      controls.hidden = expanded;
+    });
+
+    keyboardInput.addEventListener('input', sendKeyboardInput);
+    keyboardInput.addEventListener('blur', () => physicalKeyboard._allKeysUp?.());
+    connectButton.addEventListener('click', connect);
+    document.addEventListener('gesturestart', (event) => event.preventDefault());
+    window.addEventListener('resize', () => {
+      if (rfb) rfb.scaleViewport = true;
+    });
+
+    physicalKeyboard.grab();
+    connect();
+  </script>
+</body>
+</html>

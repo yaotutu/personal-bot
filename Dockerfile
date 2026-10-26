@@ -28,6 +28,8 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 
+COPY assets/browser/novnc-mobile.html /usr/share/novnc/pimuse-mobile.html
+
 ENV NODE_ENV=production
 
 RUN groupadd --gid 10001 pimuse \

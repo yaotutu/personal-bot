@@ -16,5 +16,25 @@ services:
       - pi-muse-browser-data:/app/.pi-muse
       - ./.pi-muse/config.json:/app/browser-config.json:ro
 
+  pi-muse-browser-mobile:
+    profiles:
+      - mobile
+    platform: linux/amd64
+    build:
+      context: .
+    image: pi-muse-browser-mobile
+    restart: unless-stopped
+    stop_grace_period: 30s
+    shm_size: 1gb
+    environment:
+      BROWSER_SCREEN_SIZE: ${PI_MUSE_BROWSER_MOBILE_SCREEN_SIZE:-720x1280x24}
+    ports:
+      - "${PI_MUSE_BROWSER_MOBILE_PORT:-18891}:17890"
+      - "${PI_MUSE_BROWSER_MOBILE_NOVNC_PORT:-16081}:6080"
+    volumes:
+      - pi-muse-browser-mobile-data:/app/.pi-muse
+      - ./.pi-muse/config.json:/app/browser-config.json:ro
+
 volumes:
   pi-muse-browser-data:
+  pi-muse-browser-mobile-data:

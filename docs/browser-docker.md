@@ -8,11 +8,12 @@
 用户浏览器
   ├── /browser       -> Node API/CDP 视口帧流与受控输入
   └── /vnc.html      -> websockify/noVNC -> x11vnc -> Xvfb -> Chrome 窗口
+  └── /pimuse-mobile.html -> 针对手机的 noVNC 页面，仍是同一个完整远端桌面
 Agent
   └── 进程内 BrowserService -> Playwright/CDP -> 同一个 Chrome
 ```
 
-`/browser` 适合产品化标签与视口操作；noVNC 适合观察和接管完整 Chrome 窗口，包括地址栏、标签条、右键菜单、下载气泡等原生浏览器 UI。两者操作的是同一个 Chrome 实例和同一份持久 profile。
+`/browser` 适合产品化标签与视口操作；noVNC 适合观察和接管完整 Chrome 窗口，包括地址栏、标签条、右键菜单、下载气泡等原生浏览器 UI。两者操作的是同一个 Chrome 实例和同一份持久 profile。移动版页面只做触控、缩放和软键盘适配，不添加自定义浏览器外壳或地址栏。
 
 ## 启动
 
@@ -37,6 +38,12 @@ http://<任意主机或域名>:17890/browser
 http://<任意主机或域名>:6080/vnc.html?autoconnect=1&resize=scale
 ```
 
+手机可以直接使用移动版页面。它默认连接当前地址上的 `/websockify`，也支持通过查询参数覆盖 `path`、`host` 或 `port`：
+
+```text
+http://<任意主机或域名>:6080/pimuse-mobile.html
+```
+
 宿主机端口可改，不需要改代码。例如把 API 映射到 `18890`、GUI 映射到 `16080`：
 
 ```sh
@@ -46,6 +53,27 @@ docker compose -f compose.browser.yaml up -d
 ```
 
 如使用反向代理，API 域名需要转发 `/api`、`/browser`、`/ws/browser`，其中 WebSocket Upgrade 头必须保留；noVNC 域名需要转发 HTTP 和 `/websockify` WebSocket。
+
+### 手机竖屏实例
+
+Compose 里提供独立的 `mobile` profile。它使用 `720x1280x24` 虚拟屏幕和独立 Chrome profile volume，不影响默认桌面实例；默认宿主端口为 API `18891`、noVNC `16081`：
+
+```sh
+docker compose -f compose.browser.yaml --profile mobile up -d pi-muse-browser-mobile
+```
+
+访问：
+
+```text
+http://<任意主机或域名>:18891/api/health
+http://<任意主机或域名>:16081/pimuse-mobile.html
+```
+
+两个实例可以同时运行。需要同时重建时执行：
+
+```sh
+docker compose -f compose.browser.yaml --profile mobile up --build -d
+```
 
 ## 数据与生命周期
 
