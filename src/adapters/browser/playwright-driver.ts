@@ -196,16 +196,27 @@ export const createPlaywrightBrowserDriver = (config: DriverConfig): BrowserDriv
     if (context) return;
     starting ??= (async () => {
       await mkdir(config.profileDir, { recursive: true, mode: 0o700 });
+      // Docker 的 noVNC 通道展示整台 X 屏幕；让 Chrome 按屏幕尺寸占满，不叠一层固定视口。
+      const windowSize = process.env.BROWSER_WINDOW_SIZE;
+      const [windowWidth, windowHeight] = windowSize?.split("x") ?? [];
       const launched = await chromium.launchPersistentContext(config.profileDir, {
         // 产品要求固定使用带 GUI 的真实 Chrome；Docker 部署由 Xvfb 提供显示，不回退 headless。
         headless: false,
-        viewport: VIEWPORT,
+        viewport: windowSize ? null : VIEWPORT,
         // Linux 容器默认禁止 Chrome 创建 namespace sandbox；这里保持真实 GUI，
         // 不引入 headless 或远程渲染替代。
         args: [
           "--disable-dev-shm-usage",
           // Linux 容器默认禁止 Chrome 创建 namespace sandbox；本机 macOS 不放宽。
           ...(process.platform === "linux" ? ["--no-sandbox"] : []),
+          ...(windowSize
+            ? [
+                "--window-position=0,0",
+                `--window-size=${windowWidth},${windowHeight}`,
+                "--hide-crash-restore-bubble",
+                "--test-type",
+              ]
+            : []),
         ],
         ...(config.executablePath
           ? { executablePath: config.executablePath }

@@ -21,6 +21,10 @@ test("browser container keeps Chrome headed and exposes its real GUI through noV
   assert.doesNotMatch(entrypoint, /--headless/);
   assert.match(entrypoint, /install -d -m 1777 \/tmp\/\.X11-unix/);
   assert.match(entrypoint, /HOME=\/home\/pimuse/);
+  assert.match(entrypoint, /BROWSER_WINDOW_SIZE/);
+  assert.match(entrypoint, /session\.screen0\.toolbar\.visible: false/);
+  assert.match(entrypoint, /chmod 0444 "\$fluxbox_init"/);
+  assert.match(entrypoint, /SingletonLock/);
 
   assert.match(entrypoint, /Xvfb "\$display" -screen 0 "\$screen_size" -ac -nolisten tcp/);
   assert.match(entrypoint, /x11vnc/);
@@ -30,6 +34,8 @@ test("browser container keeps Chrome headed and exposes its real GUI through noV
   assert.match(entrypoint, /export DISPLAY="\$display"/);
   assert.match(entrypoint, /node dist\/index\.js/);
   assert.match(await read("src/adapters/browser/playwright-driver.ts"), /--no-sandbox/);
+  assert.match(await read("src/adapters/browser/playwright-driver.ts"), /--window-position=0,0/);
+  assert.match(await read("src/adapters/browser/playwright-driver.ts"), /--hide-crash-restore-bubble/);
   assert.match(entrypoint, /api\/browser\/tabs/);
   assert.match(entrypoint, /Unable to start the real Chrome window/);
   assert.match(entrypoint, /trap cleanup EXIT INT TERM/);

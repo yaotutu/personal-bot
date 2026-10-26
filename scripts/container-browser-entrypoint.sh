@@ -6,6 +6,7 @@ set -eu
 config_source="${BROWSER_CONFIG_SOURCE:-/app/browser-config.json}"
 display_number="${BROWSER_DISPLAY_NUMBER:-0}"
 screen_size="${BROWSER_SCREEN_SIZE:-1440x900x24}"
+window_size="${BROWSER_WINDOW_SIZE:-${screen_size%x*}}"
 vnc_port="${BROWSER_VNC_PORT:-5900}"
 novnc_port="${BROWSER_NOVNC_PORT:-6080}"
 children=""
@@ -26,6 +27,8 @@ case "$novnc_port" in
 esac
 echo "$screen_size" | grep -Eq '^[0-9]+x[0-9]+x[0-9]+$' \
   || fail "BROWSER_SCREEN_SIZE must look like 1440x900x24"
+echo "$window_size" | grep -Eq '^[0-9]+x[0-9]+$' \
+  || fail "BROWSER_WINDOW_SIZE must look like 1440x900"
 
 # Docker 以 root 进入只做两件事：把只读挂载的配置放进可写 volume、修正数据属主，
 # 然后立即降权到 pimuse。浏览器、X server 和 Node 服务都不以 root 运行。
@@ -88,7 +91,14 @@ while [ "$i" -lt 100 ]; do
 done
 [ "$ready" -eq 1 ] || fail "Xvfb did not become ready"
 
-fluxbox --display "$display" >/tmp/fluxbox.log 2>&1 &
+fluxbox_init=/tmp/pi-muse-fluxbox-init
+cat >"$fluxbox_init" <<'EOF'
+session.styleFile: /usr/share/fluxbox/styles/Squared_for_Debian
+session.screen0.toolbar.visible: false
+session.screen0.toolbar.autoHide: true
+EOF
+chmod 0444 "$fluxbox_init"
+fluxbox --display "$display" -rc "$fluxbox_init" >/tmp/fluxbox.log 2>&1 &
 children="$children $!"
 x11vnc \
   -display "$display" \
@@ -117,6 +127,11 @@ done
 [ "$novnc_ready" -eq 1 ] || fail "noVNC did not become ready; see /tmp/websockify.log"
 
 export DISPLAY="$display"
+export BROWSER_WINDOW_SIZE="$window_size"
+# 容器重建会硬终止旧 Chrome；这些 singleton 文件只表示旧进程锁，不代表浏览数据。
+rm -f /app/.pi-muse/browser/profile/SingletonCookie \
+  /app/.pi-muse/browser/profile/SingletonLock \
+  /app/.pi-muse/browser/profile/SingletonSocket
 echo "pi-muse browser container ready: API port 17890, noVNC port ${novnc_port}, display ${display}"
 node dist/index.js &
 node_pid=$!
