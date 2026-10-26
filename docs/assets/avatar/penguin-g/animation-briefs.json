@@ -1,8 +1,7 @@
 {
-  "status": "not_generated",
-  "reason": "No connected continuous-video generator. Runway was discovered but is not installed/connected. A connection suggestion was shown on 2026-10-25; latest check on 2026-10-26 still returned installed=false.",
+  "status": "partially_generated",
   "selected_identity_reference": "../penguin-style-g-ice-blue.png",
-  "important": "These are production briefs, not executed video tasks or completed animations. Source PNGs are independent keyframes, not a temporal PNG sequence.",
+  "important": "Briefs describe targets, not acceptance. Three executed first-draft clips are recorded in video-generation-log.json; five remain pending. Source PNGs are independent keyframes, not a temporal sequence.",
   "delivery_targets": {
     "video_preview": "MP4, silent",
     "animation_master": "continuous character animation; derive temporal PNG frames only from an actual clip",
@@ -20,10 +19,12 @@
       "loop": true,
       "duration_hint_seconds": 4,
       "prompt": "Animate only the selected pale ice-blue and cream Pi Muse penguin shown in the reference media. Preserve crown tuft, face mask, eye size, peach beak and feet, fine soft down, light palette and body proportions. Use a locked eye-level camera: no camera pan, zoom, cuts, reframing or whole-image pulse. The penguin itself must move naturally, with small coherent head, eyelid, flipper and body motion. No morphing, extra limbs, new clothing, text, logos, symbols or audio. Keep the character entirely inside the frame, and do not change the laptop geometry when present. Begin and end in the neutral standing reference pose. The penguin breathes subtly through its chest and shoulders, blinks naturally once, gently glances toward the viewer and returns. Feet stay planted; do not make the entire image scale up and down. Make a seamless loop.",
-      "video_file": null,
+      "video_file": "videos/idle-hailuo-768p.mp4",
       "temporal_png_frames": null,
-      "mp4_preview": null,
-      "status": "pending_video_connection"
+      "mp4_preview": "videos/idle-hailuo-768p.mp4",
+      "status": "generated_first_draft",
+      "preview_contact_sheet": "previews/idle-contact-sheet.png",
+      "generated_duration_seconds": 5.875
     },
     {
       "state": "thinking",
@@ -34,10 +35,12 @@
       "loop": true,
       "duration_hint_seconds": 4,
       "prompt": "Animate only the selected pale ice-blue and cream Pi Muse penguin shown in the reference media. Preserve crown tuft, face mask, eye size, peach beak and feet, fine soft down, light palette and body proportions. Use a locked eye-level camera: no camera pan, zoom, cuts, reframing or whole-image pulse. The penguin itself must move naturally, with small coherent head, eyelid, flipper and body motion. No morphing, extra limbs, new clothing, text, logos, symbols or audio. Keep the character entirely inside the frame, and do not change the laptop geometry when present. Standing with one flipper near the beak, the penguin makes a small thoughtful head tilt, looks slightly upward, blinks, then returns to the exact starting pose. Keep it calm and friendly, not sad. Move the head and flipper organically without changing the facial design. Seamless loop.",
-      "video_file": null,
+      "video_file": "videos/thinking-hailuo-768p.mp4",
       "temporal_png_frames": null,
-      "mp4_preview": null,
-      "status": "pending_video_connection"
+      "mp4_preview": "videos/thinking-hailuo-768p.mp4",
+      "status": "generated_first_draft",
+      "preview_contact_sheet": "previews/thinking-contact-sheet.png",
+      "generated_duration_seconds": 5.875
     },
     {
       "state": "responding",
@@ -51,7 +54,7 @@
       "video_file": null,
       "temporal_png_frames": null,
       "mp4_preview": null,
-      "status": "pending_video_connection"
+      "status": "pending_generation"
     },
     {
       "state": "working",
@@ -62,10 +65,12 @@
       "loop": true,
       "duration_hint_seconds": 4,
       "prompt": "Animate only the selected pale ice-blue and cream Pi Muse penguin shown in the reference media. Preserve crown tuft, face mask, eye size, peach beak and feet, fine soft down, light palette and body proportions. Use a locked eye-level camera: no camera pan, zoom, cuts, reframing or whole-image pulse. The penguin itself must move naturally, with small coherent head, eyelid, flipper and body motion. No morphing, extra limbs, new clothing, text, logos, symbols or audio. Keep the character entirely inside the frame, and do not change the laptop geometry when present. The seated penguin concentrates on the laptop screen, typing with small alternating flipper movements, making a gentle focused head movement and a natural blink. It does not turn to address the viewer. Keep the same laptop shape, face visible and feet planted. Seamless working loop.",
-      "video_file": null,
+      "video_file": "videos/working-hailuo-768p.mp4",
       "temporal_png_frames": null,
-      "mp4_preview": null,
-      "status": "pending_video_connection"
+      "mp4_preview": "videos/working-hailuo-768p.mp4",
+      "status": "generated_first_draft",
+      "preview_contact_sheet": "previews/working-contact-sheet.png",
+      "generated_duration_seconds": 5.875
     },
     {
       "state": "waiting-approval",
@@ -79,7 +84,7 @@
       "video_file": null,
       "temporal_png_frames": null,
       "mp4_preview": null,
-      "status": "pending_video_connection"
+      "status": "pending_generation"
     },
     {
       "state": "success",
@@ -93,7 +98,7 @@
       "video_file": null,
       "temporal_png_frames": null,
       "mp4_preview": null,
-      "status": "pending_video_connection"
+      "status": "pending_generation"
     },
     {
       "state": "error",
@@ -107,7 +112,7 @@
       "video_file": null,
       "temporal_png_frames": null,
       "mp4_preview": null,
-      "status": "pending_video_connection"
+      "status": "pending_generation"
     },
     {
       "state": "stopped",
@@ -122,7 +127,10 @@
       "video_file": null,
       "temporal_png_frames": null,
       "mp4_preview": null,
-      "status": "pending_video_connection"
+      "status": "pending_generation"
     }
-  ]
+  ],
+  "generated_count": 3,
+  "pending_count": 5,
+  "generation_log": "video-generation-log.json"
 }

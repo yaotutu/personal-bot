@@ -1,15 +1,17 @@
 {
   "character": "Pi Muse ice-blue penguin G",
   "selected_identity_reference": "../penguin-style-g-ice-blue.png",
-  "package_status": "static_first_draft_only",
+  "package_status": "video_first_draft_partial",
   "implementation_changes": false,
   "original_reference_modified": false,
   "state_count": 8,
-  "continuous_animation_count": 0,
+  "continuous_animation_count": 3,
   "quality_notes": [
     "Generated poses are first drafts pending user review.",
     "Composition, scale and lighting are not guaranteed frame-accurate across independent generations.",
     "Transparent outputs have alpha; edge cleanup and isolated specks require further review before production use.",
+    "Three Hailuo clips are opaque 768x768 MP4 first drafts with a white background; they do not provide alpha-channel animation.",
+    "The three clips have not passed human visual review, seamless-loop acceptance, client runtime testing, or temporal PNG frame export.",
     "Icon PNGs are high-resolution design masters, not platform-sized validated launcher exports."
   ],
   "icons": {
@@ -27,10 +29,10 @@
       "terminal_status_mapping": [],
       "loop_target": true,
       "static_status": "generated_first_draft",
-      "animation_status": "pending_video_connection",
-      "animation_file": null,
+      "animation_status": "generated_first_draft",
+      "animation_file": "videos/idle-hailuo-768p.mp4",
       "png_sequence": null,
-      "preview_file": null
+      "preview_file": "previews/idle-contact-sheet.png"
     },
     {
       "state": "thinking",
@@ -43,10 +45,10 @@
       "terminal_status_mapping": [],
       "loop_target": true,
       "static_status": "generated_first_draft",
-      "animation_status": "pending_video_connection",
-      "animation_file": null,
+      "animation_status": "generated_first_draft",
+      "animation_file": "videos/thinking-hailuo-768p.mp4",
       "png_sequence": null,
-      "preview_file": null
+      "preview_file": "previews/thinking-contact-sheet.png"
     },
     {
       "state": "responding",
@@ -58,7 +60,7 @@
       "terminal_status_mapping": [],
       "loop_target": true,
       "static_status": "generated_first_draft",
-      "animation_status": "pending_video_connection",
+      "animation_status": "pending_generation",
       "animation_file": null,
       "png_sequence": null,
       "preview_file": null
@@ -75,10 +77,10 @@
       "terminal_status_mapping": [],
       "loop_target": true,
       "static_status": "generated_first_draft",
-      "animation_status": "pending_video_connection",
-      "animation_file": null,
+      "animation_status": "generated_first_draft",
+      "animation_file": "videos/working-hailuo-768p.mp4",
       "png_sequence": null,
-      "preview_file": null
+      "preview_file": "previews/working-contact-sheet.png"
     },
     {
       "state": "waiting-approval",
@@ -90,7 +92,7 @@
       "terminal_status_mapping": [],
       "loop_target": true,
       "static_status": "generated_first_draft",
-      "animation_status": "pending_video_connection",
+      "animation_status": "pending_generation",
       "animation_file": null,
       "png_sequence": null,
       "preview_file": null
@@ -105,7 +107,7 @@
       ],
       "loop_target": false,
       "static_status": "generated_first_draft",
-      "animation_status": "pending_video_connection",
+      "animation_status": "pending_generation",
       "animation_file": null,
       "png_sequence": null,
       "preview_file": null
@@ -120,7 +122,7 @@
       ],
       "loop_target": false,
       "static_status": "generated_first_draft",
-      "animation_status": "pending_video_connection",
+      "animation_status": "pending_generation",
       "animation_file": null,
       "png_sequence": null,
       "preview_file": null
@@ -135,10 +137,11 @@
       ],
       "loop_target": false,
       "static_status": "generated_first_draft",
-      "animation_status": "pending_video_connection",
+      "animation_status": "pending_generation",
       "animation_file": null,
       "png_sequence": null,
       "preview_file": null
     }
-  ]
+  ],
+  "video_generation_log": "video-generation-log.json"
 }

@@ -2,7 +2,7 @@
 
 更新日期：2026-10-26。
 
-这份资源包目前包含透明角色基准、八个状态的静态初版和两个图标母版。**还没有连续动画、MP4 预览或按时间顺序导出的 PNG 帧序列。** 不要把这里的独立关键帧拼起来当作完成的动画。
+这份资源包目前包含透明角色基准、八个状态的静态初版、两个图标母版，以及待机、思考、工作三个状态的 Hailuo 连续动画初稿。其余五个状态还没有视频，时序 PNG 帧序列尚未导出。不要把独立关键帧拼起来当作完成的动画。
 
 用户选定的形象原图是 [penguin-style-g-ice-blue.png](../penguin-style-g-ice-blue.png)，本包没有修改原图，也没有修改 App 的代码、配置或现有资源引用。
 
@@ -31,12 +31,32 @@
 - 姿势和图标均为初版，待用户审阅；不能把用户选定 G 款角色理解为已审定所有派生图。
 - 本包没有运行时播放验收，不提供伪造循环、淡入淡出或静态画面录屏来替代角色动画。
 
-## 动画交接
+## 连续动画初稿
+
+2026-10-26 使用 MiniMax Hailuo 2.3 图生视频，三个任务均成功并已下载。请求参数为 6 秒、768P；实测均为 768×768、24fps、141 帧、5.875 秒，无音轨。视频为 AI 生成素材。
+
+| 状态 | MP4 | 抽帧预览 |
+| --- | --- | --- |
+| 待机 | [idle-hailuo-768p.mp4](videos/idle-hailuo-768p.mp4) | [idle-contact-sheet.png](previews/idle-contact-sheet.png) |
+| 思考 | [thinking-hailuo-768p.mp4](videos/thinking-hailuo-768p.mp4) | [thinking-contact-sheet.png](previews/thinking-contact-sheet.png) |
+| 工作 | [working-hailuo-768p.mp4](videos/working-hailuo-768p.mp4) | [working-contact-sheet.png](previews/working-contact-sheet.png) |
+
+预览按从左到右、从上到下排列，采样帧为 0、28、56、84、112、140；不是完整时序帧包。
+
+- 输出为不透明白底 H.264 MP4，没有保留参考 PNG 的透明通道。
+- 首尾帧不同，尚未验收为无缝循环；提示词要求循环不等于输出已满足。
+- 已抽帧初看，但尚未完成完整播放审阅或获得用户认可。待机抽帧中闭眼表现偏白，需重点确认是否可接受；工作动作偏轻，需播放确认小尺寸可读性。
+- 本轮提交了三个有效任务，按用户提供的每日三条额度停止继续生成；未查询账户实际余额或计费归属。
+- 只交付资源，没有修改客户端代码、替换现有头像或进行运行时播放验收。
+
+## 资源交接
 
 - [manifest.json](manifest.json)：八个状态的静态文件、状态依据及动画进度。
 - [animation-briefs.json](animation-briefs.json)：八段连续动作的图生视频参考与提示词。时长、帧率是制作目标，不是已经生成的文件参数，也不是可直接执行的某个服务 API 请求。
 - [generation-prompts.json](generation-prompts.json)：本包十张静态图实际使用的完整生图提示词、参考文件和来源校验值。
+- [video-generation-log.json](video-generation-log.json)：三个视频的任务 ID、实测参数、执行提示词和校验值；不含 API Key 或临时下载链接。
+- [asset-checks.json](asset-checks.json)：静态图、视频和抽帧预览的技术检查。
 
-目前没有已连接的连续视频生成工具。已查到 Runway 提供图生视频能力，并给出过连接入口；2026-10-26 核对仍未安装／连接，因此八段动画均记录为 `pending_video_connection`，动画路径为空。
+本轮已通过 MiniMax 国内 API `api.minimaxi.com` 跑通生成、查询和下载，不需要另接 Runway。剩余回复、等待确认、完成、失败、停止五个状态仍待生成。
 
-连接视频工具后，再按这些参考制作真正的连续动作，检查角色一致性、自然运动、首尾衔接和透明背景交付能力。只有实际生成并检查过的短片，才能导出时序 PNG 帧和 MP4 预览。
+先审阅这三条短片的动作和角色一致性，再决定后续批次与循环、背景处理方案。视频初稿不等于可直接上线的透明动画。

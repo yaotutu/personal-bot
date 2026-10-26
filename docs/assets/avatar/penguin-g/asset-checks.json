@@ -1,5 +1,5 @@
 {
-  "scope": "static assets only; not animation or runtime acceptance",
+  "scope": "static assets, generated video masters, and contact-sheet previews; no runtime acceptance",
   "files": [
     {
       "file": "base.png",
@@ -112,8 +112,72 @@
   ],
   "errors": [],
   "user_approval_of_derived_poses": "pending",
-  "continuous_videos_generated": 0,
-  "runtime_tests": "not run: no implementation changes",
-  "technical_checks": "passed: PNG size, real alpha range, file paths and source hashes",
-  "visual_quality": "first draft; edge specks and cross-pose alignment still require review"
+  "continuous_videos_generated": 3,
+  "runtime_tests": "not run: no implementation changes; videos are design masters only",
+  "technical_checks": "passed: PNG properties and hashes; MP4 codec, dimensions, frame count, duration, silent-stream count, and hashes; preview dimensions and hashes",
+  "visual_quality": "first draft; three clips and all derived poses still require human review for character drift, action quality, looping, and opaque white background handling",
+  "videos": [
+    {
+      "file": "videos/idle-hailuo-768p.mp4",
+      "codec": "h264",
+      "width": 768,
+      "height": 768,
+      "fps": "24/1",
+      "frame_count": 141,
+      "duration_seconds": 5.875,
+      "audio_streams": 0,
+      "bytes": 256422,
+      "sha256": "ea55c4acb01a68238a94d7d7e356c6943ab7f360700438a82df86dc87e188c0f",
+      "alpha_channel": false
+    },
+    {
+      "file": "videos/thinking-hailuo-768p.mp4",
+      "codec": "h264",
+      "width": 768,
+      "height": 768,
+      "fps": "24/1",
+      "frame_count": 141,
+      "duration_seconds": 5.875,
+      "audio_streams": 0,
+      "bytes": 202088,
+      "sha256": "7a62ff55a2d44d3c0abbd9442fcc5f0edd11c02a26a8ae535a344f28771998ab",
+      "alpha_channel": false
+    },
+    {
+      "file": "videos/working-hailuo-768p.mp4",
+      "codec": "h264",
+      "width": 768,
+      "height": 768,
+      "fps": "24/1",
+      "frame_count": 141,
+      "duration_seconds": 5.875,
+      "audio_streams": 0,
+      "bytes": 245820,
+      "sha256": "4f1a78a6a08ac436b4fc4f5d23275aca3a63dac639161f91c3d060ba21293437",
+      "alpha_channel": false
+    }
+  ],
+  "previews": [
+    {
+      "file": "previews/idle-contact-sheet.png",
+      "width": 1152,
+      "height": 768,
+      "bytes": 508713,
+      "sha256": "c5d9c3e939c67c995a510b8caccd83d18ba80032b137de7ae404a3f67206ce35"
+    },
+    {
+      "file": "previews/thinking-contact-sheet.png",
+      "width": 1152,
+      "height": 768,
+      "bytes": 455007,
+      "sha256": "86e1d55992a8e5eafe90113233c4db7eb745e93f59e0f40482eee5e971dc3ae5"
+    },
+    {
+      "file": "previews/working-contact-sheet.png",
+      "width": 1152,
+      "height": 768,
+      "bytes": 514180,
+      "sha256": "34bab7d6243b6d1f8b3d959248e470e0bc5db969c0c4558c593ec181da456442"
+    }
+  ]
 }
