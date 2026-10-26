@@ -121,6 +121,11 @@
 
     .controls[hidden] { display: none; }
 
+    body[data-toolbar="hidden"] .status,
+    body[data-toolbar="hidden"] .controls-toggle,
+    body[data-toolbar="hidden"] .controls,
+    body[data-toolbar="hidden"] .connect { display: none !important; }
+
     .key {
       min-width: 0;
       height: 44px;
@@ -197,9 +202,9 @@
 
   <script type="module">
     import RFB from './core/rfb.js';
-    import Keyboard from './core/input/keyboard.js';
     import KeyTable from './core/input/keysym.js';
-    import keysyms from './core/input/keysymdef.js';
+    import { createViewerBridge } from './viewer-bridge.js';
+    import { createViewerControls } from './viewer-controls.js';
 
     const screen = document.getElementById('screen');
     const status = document.getElementById('status');
@@ -207,10 +212,12 @@
     const controlsToggle = document.getElementById('controls-toggle');
     const controls = document.getElementById('controls');
     const keyboardInput = document.getElementById('keyboard-input');
-    const defaultKeyboardLength = 100;
-    let lastKeyboardInput;
+    const sentinel = '_'.repeat(99);
+    let lastKeyboardInput = sentinel;
     let rfb;
     let statusTimer;
+    let composing = false;
+    let reconnectPending = false;
 
     function settings() {
       const hash = new URLSearchParams(window.location.hash.slice(1));
@@ -245,97 +252,79 @@
       }, 1600);
     }
 
-    function disconnect() {
-      if (!rfb) return;
-      rfb.removeEventListener('connect', onConnected);
-      rfb.removeEventListener('disconnect', onDisconnected);
-      rfb.removeEventListener('credentialsrequired', onCredentialsRequired);
-      rfb.removeEventListener('desktopname', onDesktopName);
-      rfb.disconnect();
-      rfb = undefined;
-    }
-
     function connect() {
-      disconnect();
+      if (rfb) rfb.disconnect();
       screen.replaceChildren();
       connectButton.hidden = true;
       setStatus('正在连接真实浏览器');
-      rfb = new RFB(screen, websocketUrl());
-      rfb.addEventListener('connect', onConnected);
-      rfb.addEventListener('disconnect', onDisconnected);
-      rfb.addEventListener('credentialsrequired', onCredentialsRequired);
-      rfb.addEventListener('desktopname', onDesktopName);
-      rfb.viewOnly = false;
-      rfb.scaleViewport = true;
-      rfb.clipViewport = false;
-      rfb.focusOnClick = true;
+      const next = new RFB(screen, websocketUrl());
+      rfb = next;
+      next.addEventListener('connect', () => {
+        if (rfb !== next) return;
+        setStatus('已连接', 'normal', true);
+      });
+      next.addEventListener('disconnect', (event) => {
+        if (rfb !== next) return;
+        const clean = event.detail?.clean === true;
+        setStatus(clean ? '连接已断开' : '连接中断，请点击重新连接', 'error');
+        connectButton.hidden = false;
+        rfb = undefined;
+        if (reconnectPending) {
+          reconnectPending = false;
+          bridge.dispatch('connect').catch(showError);
+        }
+      });
+      next.addEventListener('credentialsrequired', () => onCredentialsRequired(next));
+      next.addEventListener('desktopname', (event) => {
+        if (rfb === next && event.detail?.name) setStatus(`已连接：${event.detail.name}`, 'normal', true);
+      });
+      next.viewOnly = controlsAdapter.getState().viewOnly;
+      next.scaleViewport = controlsAdapter.getState().viewportMode === 'scale';
+      next.clipViewport = controlsAdapter.getState().viewportMode === 'clip';
+      next.focusOnClick = document.activeElement !== keyboardInput;
+      controlsAdapter.bindRfb(next);
     }
 
-    function onConnected() {
-      setStatus('已连接', 'normal', true);
-    }
-
-    function onDisconnected(event) {
-      const clean = event.detail?.clean === true;
-      setStatus(clean ? '连接已断开' : '连接中断，请点击重新连接', 'error');
-      connectButton.hidden = false;
-      rfb = undefined;
-    }
-
-    function onCredentialsRequired() {
+    function onCredentialsRequired(target) {
       const password = connectionPassword();
-      if (!password || !rfb) {
+      if (!password || rfb !== target) {
         setStatus('VNC 服务要求密码，请在链接中添加 password 参数', 'error');
         connectButton.hidden = false;
         return;
       }
       setStatus('正在验证 VNC 密码');
-      rfb.sendCredentials({ password });
-    }
-
-    function onDesktopName(event) {
-      if (event.detail?.name) setStatus(`已连接：${event.detail.name}`, 'normal', true);
+      target.sendCredentials({ password });
     }
 
     function resetKeyboardInput() {
-      keyboardInput.value = '_'.repeat(defaultKeyboardLength - 1);
-      lastKeyboardInput = keyboardInput.value;
+      keyboardInput.value = sentinel;
+      lastKeyboardInput = sentinel;
     }
 
+    function showError(error) {
+      setStatus(error?.message || '操作失败', 'error');
+    }
+
+    // input 是 IME 文本的唯一发送入口。组合期间不发送中间值，末尾按 Unicode code point 比较。
     function sendKeyboardInput() {
-      if (!rfb) return;
-      const newValue = keyboardInput.value || '';
-      if (!lastKeyboardInput) resetKeyboardInput();
-      const oldValue = lastKeyboardInput;
-      let newLength = newValue.length;
-      try {
-        newLength = Math.max(keyboardInput.selectionStart ?? 0, newValue.length);
-      } catch {
-        // Android Chrome 可能禁用 selectionStart；此时使用长度即可。
+      if (composing) return;
+      const before = Array.from(lastKeyboardInput);
+      const after = Array.from(keyboardInput.value);
+      let prefix = 0;
+      while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix += 1;
+      let suffix = 0;
+      while (suffix < before.length - prefix && suffix < after.length - prefix &&
+        before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix += 1;
+      const removed = before.length - prefix - suffix;
+      const inserted = after.slice(prefix, after.length - suffix).join('');
+      lastKeyboardInput = keyboardInput.value;
+      if (removed || inserted) {
+        try {
+          for (let index = 0; index < removed; index += 1) bridge.dispatch('key.send', { keysym: KeyTable.XK_BackSpace, code: 'Backspace' }).catch(showError);
+          if (inserted) bridge.dispatch('text.send', { text: inserted }).catch(showError);
+        } catch (error) { showError(error); }
       }
-      let inputs = newLength - oldValue.length;
-      let backspaces = inputs < 0 ? -inputs : 0;
-      for (let i = 0; i < Math.min(oldValue.length, newLength); i += 1) {
-        if (newValue.charAt(i) === oldValue.charAt(i)) continue;
-        inputs = newLength - i;
-        backspaces = oldValue.length - i;
-        break;
-      }
-      for (let i = 0; i < backspaces; i += 1) rfb.sendKey(KeyTable.XK_BackSpace, 'Backspace');
-      for (let i = newLength - inputs; i < newLength; i += 1) {
-        rfb.sendKey(keysyms.lookup(newValue.charCodeAt(i)));
-      }
-      if (newLength > defaultKeyboardLength * 2) resetKeyboardInput();
-      else if (newLength < 1) resetKeyboardInput();
-      else lastKeyboardInput = newValue;
-    }
-
-    const physicalKeyboard = new Keyboard(keyboardInput);
-    physicalKeyboard.onkeyevent = (keysym, code, down) => rfb?.sendKey(keysym, code, down);
-
-    function openKeyboard() {
-      resetKeyboardInput();
-      keyboardInput.focus({ preventScroll: true });
+      if (after.length > 200 || after.length === 0) resetKeyboardInput();
     }
 
     const keyMap = {
@@ -349,18 +338,35 @@
       right: [KeyTable.XK_Right, 'ArrowRight'],
     };
 
+    const controlsAdapter = createViewerControls({
+      viewportMode: 'scale',
+      connect,
+      disconnect() { rfb?.disconnect(); },
+      reconnect() { reconnectPending = true; rfb?.disconnect(); },
+      toolbar(visible) { document.body.dataset.toolbar = visible ? 'visible' : 'hidden'; },
+      keyboard(visible) {
+        if (visible) { resetKeyboardInput(); keyboardInput.focus({ preventScroll: true }); }
+        else keyboardInput.blur();
+      },
+      keyboardVisible() { return document.activeElement === keyboardInput; },
+    });
+    const bridge = createViewerBridge(controlsAdapter);
+    document.body.dataset.toolbar = controlsAdapter.getState().toolbarVisible ? 'visible' : 'hidden';
+
+    // 触摸工具按钮期间维持隐藏输入框焦点，避免按键条意外收起系统键盘。
+    controls.addEventListener('pointerdown', (event) => {
+      if (event.target.closest('button') && document.activeElement === keyboardInput) event.preventDefault();
+    });
     controls.addEventListener('click', (event) => {
       const button = event.target.closest('button');
       if (!button) return;
       if (button.dataset.key === 'keyboard') {
-        openKeyboard();
+        bridge.dispatch('keyboard.set', { visible: document.activeElement !== keyboardInput }).catch(showError);
         return;
       }
       const key = keyMap[button.dataset.key];
-      if (!key || !rfb) return;
-      rfb.sendKey(key[0], key[1]);
-      if (document.activeElement === keyboardInput) return;
-      rfb.focus();
+      if (!key) return;
+      bridge.dispatch('key.send', { keysym: key[0], code: key[1] }).catch(showError);
     });
 
     controlsToggle.addEventListener('click', () => {
@@ -369,16 +375,28 @@
       controls.hidden = expanded;
     });
 
+    keyboardInput.addEventListener('compositionstart', () => { composing = true; });
+    keyboardInput.addEventListener('compositionend', () => { composing = false; sendKeyboardInput(); });
     keyboardInput.addEventListener('input', sendKeyboardInput);
-    keyboardInput.addEventListener('blur', () => physicalKeyboard._allKeysUp?.());
-    connectButton.addEventListener('click', connect);
-    document.addEventListener('gesturestart', (event) => event.preventDefault());
-    window.addEventListener('resize', () => {
-      if (rfb) rfb.scaleViewport = true;
+    keyboardInput.addEventListener('focus', () => {
+      if (rfb) rfb.focusOnClick = false;
+      controlsAdapter.update({ keyboardVisible: true });
     });
-
-    physicalKeyboard.grab();
-    connect();
+    keyboardInput.addEventListener('blur', () => {
+      if (rfb) rfb.focusOnClick = true;
+      controlsAdapter.update({ keyboardVisible: false });
+    });
+    keyboardInput.addEventListener('keydown', (event) => {
+      const named = { Enter: 'enter', Backspace: 'backspace', Tab: 'tab', Escape: 'escape',
+        ArrowLeft: 'left', ArrowUp: 'up', ArrowDown: 'down', ArrowRight: 'right' }[event.key];
+      if (!named || event.isComposing) return;
+      event.preventDefault();
+      const key = keyMap[named];
+      bridge.dispatch('key.send', { keysym: key[0], code: key[1] }).catch(showError);
+    });
+    connectButton.addEventListener('click', () => bridge.dispatch('reconnect').catch(showError));
+    document.addEventListener('gesturestart', (event) => event.preventDefault());
+    bridge.dispatch('connect').catch(showError);
   </script>
 </body>
 </html>

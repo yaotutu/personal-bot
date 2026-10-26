@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>noVNC 外部工具条演示</title>
+  <style>
+    :root { font: 14px/1.4 system-ui, sans-serif; color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #10141b; color: #f4f6fa; }
+    header { padding: 12px; background: #1c2531; display: grid; gap: 10px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    input, select, button { font: inherit; padding: 8px 10px; border-radius: 6px; border: 1px solid #536174; background: #263244; color: inherit; }
+    button { cursor: pointer; }
+    button:hover { background: #34465e; }
+    input[type="text"] { min-width: 140px; }
+    #viewer-url { flex: 1; min-width: 220px; }
+    #message { min-height: 1.4em; color: #9fc8ff; }
+    #message[data-error="true"] { color: #ff9f9f; }
+    #frame-wrap { height: calc(100dvh - 220px); min-height: 360px; background: #05070b; }
+    iframe { display: block; width: 100%; height: 100%; border: 0; }
+    small { color: #b7c2d0; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="row">
+      <label for="viewer-url">同源 viewer 路径</label>
+      <input id="viewer-url" type="text" value="./vnc.html" autocomplete="off" spellcheck="false">
+      <button id="load" type="button">加载</button>
+      <strong id="connection">未加载</strong>
+    </div>
+    <div class="row">
+      <button data-command="toolbar.set" data-visible="true">显示内置栏</button>
+      <button data-command="toolbar.set" data-visible="false">隐藏内置栏</button>
+      <button data-command="connect">连接</button>
+      <button data-command="disconnect">断开</button>
+      <button data-command="reconnect">重连</button>
+      <button data-command="focus">聚焦画面</button>
+      <button id="focus-address" type="button">聚焦地址栏</button>
+      <button id="fullscreen" type="button">全屏</button>
+    </div>
+    <div class="row">
+      <button data-key="enter">Enter</button>
+      <button data-key="backspace">退格</button>
+      <button data-key="tab">Tab</button>
+      <button data-key="escape">Esc</button>
+      <input id="text" type="text" placeholder="要发送的文字">
+      <button id="send-text" type="button">发送文字</button>
+      <input id="clipboard" type="text" placeholder="VNC 剪贴板内容">
+      <button id="send-clipboard" type="button">设置剪贴板</button>
+      <select id="viewport" aria-label="视口模式">
+        <option value="scale">缩放适配</option>
+        <option value="clip">裁切</option>
+        <option value="native">原始尺寸</option>
+      </select>
+      <button id="set-viewport" type="button">应用视口</button>
+    </div>
+    <div id="message" role="status" aria-live="polite">加载后等待 viewer ready 事件。</div>
+    <small>此页仅演示可替换的外部工具条。全屏由宿主按钮直接进入 iframe 容器；跨窗口消息不能保证保留用户手势。手机软键盘也须在 viewer 内直接触发，状态只代表输入框焦点。</small>
+  </header>
+  <div id="frame-wrap"><iframe id="viewer" title="真实 noVNC 桌面" allow="fullscreen" allowfullscreen></iframe></div>
+  <script type="module">
+    const frame = document.getElementById('viewer');
+    const wrap = document.getElementById('frame-wrap');
+    const message = document.getElementById('message');
+    const connection = document.getElementById('connection');
+    const pending = new Map();
+    let serial = 0;
+    let ready = false;
+
+    function feedback(text, error = false) {
+      message.textContent = text;
+      message.dataset.error = String(error);
+    }
+
+    function viewerUrl() {
+      const raw = document.getElementById('viewer-url').value.trim() || './vnc.html';
+      if (raw.startsWith('//') || /^[a-z][\w+.-]*:/i.test(raw)) throw new Error('请输入同源相对路径，不填写 IP 或完整 URL');
+      const url = new URL(raw, location.href);
+      if (url.origin !== location.origin) throw new Error('viewer 必须与演示页同源');
+      url.searchParams.set('autoconnect', '1');
+      url.searchParams.set('resize', 'scale');
+      url.searchParams.set('toolbar', 'hidden');
+      url.searchParams.set('layout', 'desktop');
+      return url;
+    }
+
+    function load() {
+      let url;
+      try { url = viewerUrl(); } catch (error) { feedback(error.message, true); return; }
+      for (const item of pending.values()) item.reject(new Error('viewer 已重新加载'));
+      pending.clear();
+      ready = false;
+      connection.textContent = '正在加载';
+      frame.src = url.href;
+      feedback('等待 viewer ready 事件。');
+    }
+
+    function command(name, args = {}) {
+      if (!ready || !frame.contentWindow) return Promise.reject(new Error('viewer 尚未就绪'));
+      const id = `demo-${++serial}`;
+      return new Promise((resolve, reject) => {
+        pending.set(id, { resolve, reject });
+        frame.contentWindow.postMessage({ channel: 'pi-muse-viewer', version: 1, type: 'command', id, command: name, args }, location.origin);
+      });
+    }
+
+    function run(name, args = {}) {
+      command(name, args).then((result) => {
+        if (result?.connection) connection.textContent = result.connection;
+        feedback(`${name} 已完成`);
+      }).catch((error) => feedback(`${name}：${error.message}`, true));
+    }
+
+    window.addEventListener('message', (event) => {
+      if (event.source !== frame.contentWindow || event.origin !== location.origin) return;
+      const data = event.data;
+      if (!data || data.channel !== 'pi-muse-viewer' || data.version !== 1) return;
+      if (data.type === 'event') {
+        if (data.event === 'ready') ready = true;
+        if (data.event === 'ready' || data.event === 'state') {
+          connection.textContent = data.data?.connection ?? '未知';
+          if (data.event === 'ready') feedback('viewer 已就绪');
+        }
+        if (data.event === 'clipboard') feedback(`远端剪贴板：${data.data?.text ?? ''}`);
+      } else if (data.type === 'result' && pending.has(data.id)) {
+        const item = pending.get(data.id);
+        pending.delete(data.id);
+        if (data.ok) item.resolve(data.result);
+        else item.reject(new Error(`${data.error?.code ?? 'OPERATION_FAILED'}：${data.error?.message ?? '操作失败'}`));
+      }
+    });
+
+    document.getElementById('load').addEventListener('click', load);
+    document.querySelectorAll('[data-command]').forEach((button) => button.addEventListener('click', () => {
+      const args = button.dataset.command === 'toolbar.set' ? { visible: button.dataset.visible === 'true' } : {};
+      run(button.dataset.command, args);
+    }));
+    const keysyms = { enter: [0xff0d, 'Enter'], backspace: [0xff08, 'Backspace'], tab: [0xff09, 'Tab'], escape: [0xff1b, 'Escape'] };
+    document.querySelectorAll('[data-key]').forEach((button) => button.addEventListener('click', () => {
+      const [keysym, code] = keysyms[button.dataset.key];
+      run('key.send', { keysym, code });
+    }));
+    document.getElementById('send-text').addEventListener('click', () => run('text.send', { text: document.getElementById('text').value }));
+    document.getElementById('focus-address').addEventListener('click', () => {
+      run('key.send', { keysym: 0xffe3, code: 'ControlLeft', down: true });
+      run('key.send', { keysym: 0x6c, code: 'KeyL' });
+      run('key.send', { keysym: 0xffe3, code: 'ControlLeft', down: false });
+    });
+    document.getElementById('send-clipboard').addEventListener('click', () => run('clipboard.set', { text: document.getElementById('clipboard').value }));
+    document.getElementById('set-viewport').addEventListener('click', () => run('viewport.set', { mode: document.getElementById('viewport').value }));
+    document.getElementById('fullscreen').addEventListener('click', () => {
+      const action = document.fullscreenElement ? document.exitFullscreen() : wrap.requestFullscreen();
+      Promise.resolve(action).catch((error) => feedback(`全屏：${error.message}`, true));
+    });
+    load();
+  </script>
+</body>
+</html>

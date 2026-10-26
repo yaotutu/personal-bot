@@ -30,6 +30,10 @@ RUN pnpm build
 
 COPY assets/browser/novnc-mobile.html /usr/share/novnc/pimuse-mobile.html
 COPY assets/browser/novnc-responsive.js /usr/share/novnc/pimuse-responsive.js
+COPY assets/browser/viewer-bridge.js /usr/share/novnc/viewer-bridge.js
+COPY assets/browser/viewer-controls.js /usr/share/novnc/viewer-controls.js
+COPY assets/browser/viewer-desktop.js /usr/share/novnc/viewer-desktop.js
+COPY assets/browser/viewer-bridge-demo.html /usr/share/novnc/viewer-bridge-demo.html
 RUN node scripts/install-novnc-responsive-entry.mjs
 
 ENV NODE_ENV=production

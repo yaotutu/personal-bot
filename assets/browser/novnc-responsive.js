@@ -4,8 +4,12 @@
   const path = window.location.pathname;
   const onDesktopPage = path.endsWith('/vnc.html') || path.endsWith('/vnc_lite.html');
   const onMobilePage = path.endsWith('/pimuse-mobile.html');
+  const query = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.slice(1));
+  const layout = query.get('layout') ?? hash.get('layout') ?? 'auto';
 
   function syncPage() {
+    if (layout === 'desktop' || layout === 'mobile') return;
     if (onDesktopPage && mobileViewport.matches) {
       window.location.replace(`./pimuse-mobile.html${window.location.search}${window.location.hash}`);
     } else if (onMobilePage && !mobileViewport.matches) {
