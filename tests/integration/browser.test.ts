@@ -94,7 +94,16 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
   const debug = await fetch(base + "/browser");
   assert.equal(debug.status, 200);
   assert.match(debug.headers.get("content-type") ?? "", /text\/html/);
-  assert.match(await debug.text(), /<canvas id="canvas"/);
+  const debugHtml = await debug.text();
+  assert.match(debugHtml, /<canvas id="canvas"/);
+  // 入口必须跟随实际访问地址：任意主机名、域名或反向代理地址都可复用同一页面。
+  assert.match(debugHtml, /location\.host/);
+  assert.doesNotMatch(debugHtml, /127\.0\.0\.1:17890|localhost:17890/);
+  const arbitraryHostDebug = await fetch(base + "/browser", {
+    headers: { host: "browser-anywhere.example.test" },
+  });
+  assert.equal(arbitraryHostDebug.status, 200);
+  assert.match(await arbitraryHostDebug.text(), /<canvas id="canvas"/);
 
   const openApi = await fetch(base + "/openapi.json").then((response) => response.json()) as {
     paths: Record<string, Record<string, { responses?: { "200"?: { content?: Record<string, unknown> } } }>>;

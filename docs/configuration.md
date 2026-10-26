@@ -147,6 +147,8 @@ chmod 600 .pi-muse/config.json
 
 浏览器域使用 `playwright-core` 驱动本机系统 Chrome，不下载浏览器，且固定以带 GUI 的真实窗口启动；不提供 headless 模式。Chrome 懒启动，profile 固定在 `DATA_DIR/browser/profile/`；服务端调试页 `/browser` 与 Agent 的 `navigate` / `snapshot` / `act` / `tab` 工具共享同一实例和持久登录态。服务关闭时会结束 WS 订阅并优雅关闭 Chrome。Docker 部署时应搭配 Xvfb/X11 等显示服务，而不是回退 headless。
 
+`/browser` 不内置服务地址，会按当前访问地址调用相对 REST API，并使用同源的 `ws://` 或 `wss://` 连接帧流。因此本机地址、局域网 IP、域名和反向代理地址都可以直接访问；HTTPS 反代需要同时转发 `/ws/browser` 并保留 Upgrade 头。
+
 默认只允许公网 HTTP(S)；需要访问本机测试页面时显式设置 `tools.browser.allowPrivateTargets: true`。该地址规则只是与 web 工具共享的基础实现，浏览器域不依赖 `web_fetch`。浏览器不向模型暴露任意 JavaScript evaluate，也不返回 cookie、localStorage 或密码值；外部页面标题、文本与元素名称都按不可信数据处理。
 
 ## 错误策略

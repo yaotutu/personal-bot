@@ -106,7 +106,7 @@ export const browserWebSocketContract = {
   summary: "真实浏览器帧流与输入协议",
   description:
     "先以 Bearer token 调用 POST /api/browser/ws-ticket 获取一次性 60 秒 ticket，再用 " +
-    "ws://<host>/ws/browser?ticket=<ticket> 升级。ticket 使用一次后立即删除，不把长期 token 放 URL。 " +
+    "当前访问地址对应的 ws://<host>/ws/browser?ticket=<ticket> 或 wss://<host>/ws/browser?ticket=<ticket> 升级。页面不内置服务地址，本机地址、局域网地址、域名和反向代理地址均可；HTTPS 反向代理下应转发 wss。ticket 使用一次后立即删除，不把长期 token 放 URL。 " +
     "服务端先发送 ready，随后在标签状态变化时发送 tabs。帧为二进制：4 字节大端 metadataLength + UTF-8 JSON metadata + JPEG 字节。 " +
     "客户端必须绘制帧后发送 {type:'frame_ack',frameId,sessionId}；慢客户端会被跳帧，缓冲超过 2MiB 会断开。 " +
     "仅当前激活标签推帧；切换标签时旧标签停止 screencast、新标签重启。没有订阅者时不推流。",
