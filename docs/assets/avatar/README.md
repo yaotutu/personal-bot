@@ -15,9 +15,7 @@ avatar/
   keyframes/          其余七个状态的静态参考
   icons/              两个图标母版
   videos/             已生成的三条 MP4
-  previews/           视频抽帧预览
-  production/         制作提示词、任务记录、校验数据
-  manifest.json       状态、资源路径与下一批次
+  manifest.json       状态、资源路径、来源与校验摘要
 ```
 
 后续制作安排见[虚拟形象方案](../../product/avatar.md)，这里不另维护一份计划。
@@ -41,7 +39,7 @@ avatar/
 
 ## 检查范围与限制
 
-- 已检查 PNG 文件存在、尺寸、透明通道和来源校验值，记录在 [asset-checks.json](production/asset-checks.json)。
+- PNG 尺寸、透明通道、视频解码和来源摘要在 [manifest.json](manifest.json) 中统一记录。
 - 已做初步形象和动作方向检查，但各图是独立生成的静态画面，不能保证角色位置、尺度、光照逐帧一致。
 - 透明边缘仍有细毛白边和少量散点需要进一步审图；有透明通道不等于已经完成抠图边缘精修。
 - 用户基本认可整体方向；不等于每张图标、透明边缘和运行时效果均已完成验收。
@@ -51,13 +49,11 @@ avatar/
 
 2026-10-26 使用 MiniMax Hailuo 2.3 图生视频，三个任务均成功并已下载。请求参数为 6 秒、768P；实测均为 768×768、24fps、141 帧、5.875 秒，无音轨。视频为 AI 生成素材。
 
-| 状态 | MP4 | 抽帧预览 |
-| --- | --- | --- |
-| 待机 | [idle-hailuo-768p.mp4](videos/idle-hailuo-768p.mp4) | [idle-contact-sheet.png](previews/idle-contact-sheet.png) |
-| 思考 | [thinking-hailuo-768p.mp4](videos/thinking-hailuo-768p.mp4) | [thinking-contact-sheet.png](previews/thinking-contact-sheet.png) |
-| 工作 | [working-hailuo-768p.mp4](videos/working-hailuo-768p.mp4) | [working-contact-sheet.png](previews/working-contact-sheet.png) |
-
-预览按从左到右、从上到下排列，采样帧为 0、28、56、84、112、140；不是完整时序帧包。
+| 状态 | MP4 |
+| --- | --- |
+| 待机 | [idle-hailuo-768p.mp4](videos/idle-hailuo-768p.mp4) |
+| 思考 | [thinking-hailuo-768p.mp4](videos/thinking-hailuo-768p.mp4) |
+| 工作 | [working-hailuo-768p.mp4](videos/working-hailuo-768p.mp4) |
 
 - 输出为不透明白底 H.264 MP4，没有保留参考 PNG 的透明通道。
 - 首尾帧不同，尚未验收为无缝循环；提示词要求循环不等于输出已满足。
@@ -67,13 +63,8 @@ avatar/
 
 ## 资源交接
 
-- [manifest.json](manifest.json)：八个状态的静态文件、状态依据及动画进度。
-- [animation-briefs.json](production/animation-briefs.json)：八段动作的制作目标；实际执行参数以视频记录为准。
-- [generation-prompts.json](production/generation-prompts.json)：选定原图与十张派生静态图的生成提示词。
-- [video-generation-log.json](production/video-generation-log.json)：任务 ID、实测参数、执行提示词与校验值；不含密钥或临时下载链接。
-- [asset-checks.json](production/asset-checks.json)：静态图、视频与预览的技术检查。
-
-`production/` 中 JSON 的资源路径统一相对 `avatar/` 根目录解析，`asset_path_base` 为 `..`。
+- [manifest.json](manifest.json)：状态映射、资源路径、MiniMax 任务来源和校验摘要。
+- [Google 手动视频清单](../../product/google-video-queue.md)：剩余五个状态的完整提示词和目标文件名。
 
 本轮已通过 MiniMax 国内 API `api.minimaxi.com` 跑通生成、查询和下载，不需要另接 Runway。剩余回复、等待确认、完成、失败、停止五个状态仍待生成。
 

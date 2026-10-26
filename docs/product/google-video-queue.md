@@ -147,7 +147,7 @@ Use the uploaded image as the exact first frame and preserve this identity exact
 
 ## 下载后的整理
 
-1. 先只放置 MP4，不改 `manifest.json` 或校验文件。
+1. 先只放置 MP4，不改 `manifest.json`。
 2. 告诉我“Gemini 视频已放入”，再由仓库任务统一检查时长、比例、音轨、画面动作、哈希和清单。
 3. 若页面下载为 WebM 或其他格式，先保留原始下载文件并命名成类似 `responding-gemini-v1.original.webm`，同时告知我；不要手工改名冒充 MP4。
 4. 本页只记录手动生成队列，不作为生成完成的证明。

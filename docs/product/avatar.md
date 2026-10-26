@@ -19,7 +19,7 @@
 - 选定原图：[reference.png](../assets/avatar/reference.png)，1254×1254、暖白背景。
 - 透明基准：[base.png](../assets/avatar/base.png)，兼作待机静态参考。
 - 图标母版：[icon-master.png](../assets/avatar/icons/icon-master.png)、[foreground-master.png](../assets/avatar/icons/foreground-master.png)。
-- 视频母版：[videos/](../assets/avatar/videos/)；制作与校验记录在[production/](../assets/avatar/production/)。
+- 视频母版：[videos/](../assets/avatar/videos/)；来源与校验摘要在[manifest.json](../assets/avatar/manifest.json)。
 
 用户还可用 Google AI Pro 的 Gemini 网页「生成视频」补充素材。手动生成清单见[Google 手动视频清单](google-video-queue.md)；操作时上传该清单指定的参考图，下载后按清单文件名放入 `docs/assets/avatar/videos/`。这解决了每天三条 Hailuo 的额度限制，但仍由用户手动上传和下载，不是已接入自动化服务。
 
@@ -71,7 +71,7 @@
 | 八个状态静态参考 | [keyframes/](../assets/avatar/keyframes/) | 已齐；边缘与跨姿势一致性仍需精修 |
 | 图标母版 | [icons/](../assets/avatar/icons/) | 两个母版已保留；平台尺寸和安全区未导出 |
 | 连续动作 | [videos/](../assets/avatar/videos/) | 待机、思考、工作已有初稿；其余五条待手动生成 |
-| 制作与校验记录 | [production/](../assets/avatar/production/) | 已保留；后续放入新文件后需重新校验并更新记录 |
+| 来源与校验摘要 | [manifest.json](../assets/avatar/manifest.json) | 已保留；后续放入新文件后需重新校验并更新 |
 | Gemini 手动生成清单 | [Google 手动视频清单](google-video-queue.md) | 剩余五条状态的提示词、上传图、目标文件名 |
 | 当前客户端旧头像 | 移动端仓库资源 | 未替换；不属于本 README 资源包 |
 
@@ -79,9 +79,9 @@
 
 ## 6. 媒体格式与交付规格
 
-**当前实际交付为静态 PNG、三条白底 MP4 初稿及其抽帧预览。** 静态角色与图标母版均为 1254×1254；除不透明图标母版外，角色静态图与图标前景具有透明通道。视频为 768×768，抽帧预览为 1152×768；均未经过客户端尺寸导出或运行时集成。
+**当前实际交付为静态 PNG 和三条白底 MP4 初稿。** 静态角色与图标母版均为 1254×1254；除不透明图标母版外，角色静态图与图标前景具有透明通道。视频为 768×768；均未经过客户端尺寸导出或运行时集成。
 
-待机、思考、工作均请求 6 秒、768P，实测为 768×768、24fps、141 帧、5.875 秒的无声 H.264 MP4。透明参考图在视频中变为不透明白底；首尾不同，尚非验收过的无缝循环。完整参数、任务与哈希见[视频生成记录](../assets/avatar/production/video-generation-log.json)。其他提示词中的约 4 秒循环、约 2 秒结束动作仍为制作目标。
+待机、思考、工作均请求 6 秒、768P，实测为 768×768、24fps、141 帧、5.875 秒的无声 H.264 MP4。透明参考图在视频中变为不透明白底；首尾不同，尚非验收过的无缝循环。关键任务与哈希见[manifest.json](../assets/avatar/manifest.json)。其他提示词中的约 4 秒循环、约 2 秒结束动作仍为制作目标。
 
 已通过用户提供的 MiniMax 凭据调用国内 API `api.minimaxi.com`，完成三个任务的提交、状态查询和下载，不需要额外接入 Runway。按用户说明的每天三条额度，本轮不再提交新任务；未核对账户余额或计费归属。密钥不写入仓库、生成记录或客户端。
 
