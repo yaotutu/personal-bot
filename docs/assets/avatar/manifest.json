@@ -60,7 +60,17 @@
       "animation_status": "pending_generation",
       "animation_file": null,
       "png_sequence": null,
-      "video_prop_target": "Apple MacBook Pro; user confirmed brand authorisation is handled externally"
+      "video_prop_target": "Apple MacBook Pro; already present in the static reference; keep unchanged during animation",
+      "static_generation": {
+        "date": "2026-10-26",
+        "tool": "built-in image_gen",
+        "operation": "precise-object-edit of the existing responding keyframe",
+        "size": "1254x1254",
+        "format": "PNG RGBA",
+        "sha256": "8069e1c17d93f7581074323c6f78c2c839bf6a22937a0a5d2535a74f143cb286",
+        "prompt": "Edit only the generic silver laptop into a contemporary silver Apple MacBook Pro with a centred Apple logo on the display lid. Preserve the existing ice-blue fluffy baby penguin, cream face and belly, pink cheeks, dark eyes, peach-orange beak and feet, crown tufts, seated pose, head tilt, smile, flipper at the keyboard, framing and transparent background. Keep one correctly formed laptop on the lap, no extra objects, lettering or watermark.",
+        "review": "Agent visually reviewed identity, seated pose, laptop and logo; user review pending"
+      }
     },
     {
       "state": "working",
