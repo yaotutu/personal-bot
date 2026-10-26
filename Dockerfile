@@ -41,5 +41,5 @@ EXPOSE 17890 6080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:17890/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 
-COPY --chmod=0755 scripts/container-browser-entrypoint.sh /usr/local/bin/container-browser-entrypoint
+COPY scripts/container-browser-entrypoint.sh /usr/local/bin/container-browser-entrypoint
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/container-browser-entrypoint"]

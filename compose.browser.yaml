@@ -1,8 +1,8 @@
 services:
   pi-muse-browser:
+    platform: linux/amd64
     build:
       context: .
-      platform: linux/amd64
     image: pi-muse-browser
     restart: unless-stopped
     stop_grace_period: 30s

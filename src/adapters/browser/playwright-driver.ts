@@ -200,7 +200,13 @@ export const createPlaywrightBrowserDriver = (config: DriverConfig): BrowserDriv
         // 产品要求固定使用带 GUI 的真实 Chrome；Docker 部署由 Xvfb 提供显示，不回退 headless。
         headless: false,
         viewport: VIEWPORT,
-        args: ["--disable-dev-shm-usage"],
+        // Linux 容器默认禁止 Chrome 创建 namespace sandbox；这里保持真实 GUI，
+        // 不引入 headless 或远程渲染替代。
+        args: [
+          "--disable-dev-shm-usage",
+          // Linux 容器默认禁止 Chrome 创建 namespace sandbox；本机 macOS 不放宽。
+          ...(process.platform === "linux" ? ["--no-sandbox"] : []),
+        ],
         ...(config.executablePath
           ? { executablePath: config.executablePath }
           : { channel: "chrome" as const }),

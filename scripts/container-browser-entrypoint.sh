@@ -33,7 +33,12 @@ if [ "$(id -u)" -eq 0 ]; then
   [ -f "$config_source" ] || fail "Missing browser config file: $config_source"
   run_uid="$(id -u pimuse)"
   run_gid="$(id -g pimuse)"
+  # setpriv 只换 uid/gid，不切登录环境；Chrome 的 crashpad/profile 需要 pimuse 的 HOME。
+  HOME=/home/pimuse
+  USER=pimuse
+  export HOME USER
   mkdir -p /app/.pi-muse
+  install -d -m 1777 /tmp/.X11-unix
   install -o pimuse -g pimuse -m 0600 "$config_source" /app/.pi-muse/config.json
   chown -R pimuse:pimuse /app/.pi-muse
   exec setpriv \
