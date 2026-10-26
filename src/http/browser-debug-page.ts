@@ -75,6 +75,7 @@ export const browserDebugPage = `<!doctype html>
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
+  const sharedAccessKey = new URLSearchParams(location.search).get("accessKey") || new URLSearchParams(location.search).get("key") || "";
   const state = { token: sessionStorage.getItem("pi-muse-browser-token") || "", tabs: [], activeTabId: null, frame: null, socket: null, composing: false, lastMove: 0, lastPointer: null };
   const setStatus = (text) => { $("status").textContent = text; };
   const api = async (path, options = {}) => {
@@ -182,7 +183,16 @@ export const browserDebugPage = `<!doctype html>
     event.preventDefault(); send({ type: "key_down", key: event.key });
   };
   stage.onkeyup = (event) => { if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey) send({ type: "key_up", key: event.key }); };
-  (async () => { if (!state.token) return; try { await refresh(); await connect(); } catch { } })();
+  (async () => {
+    if (sharedAccessKey && !state.token) $("accessKey").value = sharedAccessKey;
+    // 分享链接携带 accessKey/key 时直接登录；WS 仍只用一次性短时 ticket。
+    if (!state.token && sharedAccessKey) {
+      $("login").requestSubmit();
+      return;
+    }
+    if (!state.token) return;
+    try { await refresh(); await connect(); } catch { }
+  })();
 })();
 </script>
 </body>

@@ -98,6 +98,9 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
   assert.match(debugHtml, /<canvas id="canvas"/);
   // 入口必须跟随实际访问地址：任意主机名、域名或反向代理地址都可复用同一页面。
   assert.match(debugHtml, /location\.host/);
+  // 分享链接可直接携带 accessKey/key，打开后自动登录，不需要手工再输入一次。
+  assert.match(debugHtml, /new URLSearchParams\(location\.search\)\.get\("accessKey"\)/);
+  assert.match(debugHtml, /\$\(.*login.*\)\.requestSubmit\(\)/);
   assert.doesNotMatch(debugHtml, /127\.0\.0\.1:17890|localhost:17890/);
   const arbitraryHostDebug = await fetch(base + "/browser", {
     headers: { host: "browser-anywhere.example.test" },
