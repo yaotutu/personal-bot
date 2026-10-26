@@ -59,7 +59,8 @@
       "static_status": "generated_first_draft",
       "animation_status": "pending_generation",
       "animation_file": null,
-      "png_sequence": null
+      "png_sequence": null,
+      "video_prop_target": "Apple MacBook Pro; user confirmed brand authorisation is handled externally"
     },
     {
       "state": "working",

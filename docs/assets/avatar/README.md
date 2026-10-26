@@ -26,7 +26,7 @@ avatar/
 | --- | --- | --- |
 | 透明基准／待机静态画面 | [base.png](base.png) | 正面站姿；待机复用此图，不重复存储相同文件 |
 | 思考 | [thinking.png](keyframes/thinking.png) | 歪头，一侧翅膀靠近嘴部 |
-| 回复 | [responding.png](keyframes/responding.png) | 坐在电脑前，抬头面向用户 |
+| 回复 | [responding.png](keyframes/responding.png) | 坐在电脑前，抬头面向用户；视频目标道具为 Apple MacBook Pro |
 | 工作 | [working.png](keyframes/working.png) | 坐在电脑前，注意力朝向屏幕 |
 | 等待确认 | [waiting-approval.png](keyframes/waiting-approval.png) | 电脑保持打开，翅膀离开键盘，等待用户 |
 | 完成 | [success.png](keyframes/success.png) | 闭眼微笑，轻抬一侧翅膀；是动作表现参考，不代表已经播放过挥手 |
