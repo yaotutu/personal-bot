@@ -110,7 +110,41 @@ chmod 600 .pi-muse/config.json
 
 默认情况下，`.pi-muse/config.json` 所在的 `.pi-muse/` 同时也是实例数据目录。当前默认实例目录已统一为 `.pi-muse/`，旧目录不会被自动读取或迁移。也就是说 sessions、memory、jobs、workspace 和配置文件保持在同一个实例目录内。
 `runtime.dataDir: "."` 也表示该配置文件目录，与启动进程的 cwd 无关；若在 `.pi-muse/config.json` 中填 `".pi-muse"`，则会指向其下嵌套的 `.pi-muse/`，不是项目根目录下的同名目录。
-会话按 `sessions/<threadId>/` 保存，每个 thread 有独立 pi 会话；单用户可有多个 thread，subagent 内部 `subagent-<uuid>` 工作区与旧 worker 遗留的 `task-*` 目录都不显示在用户会话列表中。每个 thread 的工作目录固定为 `workspace/threads/<threadId>/`，共享区为 `workspace/shared/`；完整目录树见 README「存储与安全边界」。没有可配置的全局 workspace 回退，旧根文件和旧 cwd 历史不会自动迁移或清理。
+会话按 `sessions/<threadId>/` 保存，每个 thread 有独立 pi 会话；单用户可有多个 thread，subagent 内部 `subagent-<uuid>` 工作区与旧 worker 遗留的 `task-*` 目录都不显示在用户会话列表中。每个 thread 的工作目录固定为 `workspace/threads/<threadId>/`，共享区为 `workspace/shared/`；完整目录树见下方 [实例目录结构](#实例目录结构)。没有可配置的全局 workspace 回退，旧根文件和旧 cwd 历史不会自动迁移或清理。
+
+## 实例目录结构
+
+```text
+.pi-muse/
+├── config.json                         # 启动配置与凭据
+├── auth.key                            # token 签名密钥
+├── profile/                            # 全局用户画像、助手人设与记忆配置
+│   ├── SOUL.md                         # 助手人设自由文本
+│   ├── USER.md                         # 用户画像自由文本
+│   ├── DREAM.md                        # 全局 Dream 整理提示词
+│   └── memory.json                     # 长期记忆与身份设置（按需检索）
+├── jobs.json / goals.json / actions.json / monitors.json
+├── sessions/<threadId>/
+│   ├── *.jsonl                          # pi 权威历史
+│   ├── INSTRUCTIONS.md                  # 会话专属指令（含 ## 空间用途），按需存在
+│   ├── DREAM.md                         # 会话补充 Dream 提示词，按需存在
+│   ├── dream.json                       # 会话 Dream 开关、游标、最近结果与待决项，按需存在
+│   └── skills.json                      # 会话技能覆盖，按需存在
+├── workspace/
+│   ├── shared/                          # 用 shared/... 显式访问
+│   └── threads/<threadId>/              # 各会话私有文件区
+├── skills/<name>/SKILL.md                # 可选的实例技能
+├── subagents/<role>.md                  # 可选的实例角色覆盖
+└── agent/                               # pi 运行资源
+```
+
+内置技能和子代理角色位于仓库 `assets/skills/`、`assets/subagents/`，构建时复制到 `dist/assets/`，不放入实例目录。实例中的同名技能或角色可以覆盖内置定义，但不能绕过既有权限。
+
+## 数据存储与安全边界
+
+- **数据明文存储**：会话历史、用户档案、记忆、工作区与状态文件均为明文存储。实例目录、`auth.key`（签名密钥）及任何实例备份均包含敏感凭据与个人数据，必须按敏感数据严格保护权限（建议 `0700`/`0600`），切勿公开或上传。
+- **访问凭据有效性**：登录 Token 长期有效且可跨服务重启维持；更换 `server.accessKey` 并重启服务使配置生效后，旧 Token 全部失效。
+- **单进程独占与故障处理**：单进程独占一个 `DATA_DIR`。遇到文件损坏或格式非法时服务会明确报错，绝不通过静默删除损坏数据来恢复空态；须停止服务后通过有效备份离线恢复。
 
 ## 实例目录改名
 
