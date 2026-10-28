@@ -1,5 +1,6 @@
 import type { Config } from "../config/load-config.js";
 import type { ConversationHub } from "../features/conversation/conversation-hub.js";
+import type { MessageFeedbackRepository } from "../features/messages/types.js";
 import type { JobService } from "../features/jobs/job-service.js";
 import type { MemoryService } from "../features/memory/memory-service.js";
 import type { IdentityService } from "../features/identity/identity-service.js";
@@ -45,9 +46,10 @@ export type ServiceContainer = {
   dream: DreamService;
   dreamScheduler: DreamScheduler;
   browser?: BrowserService;
+  messageFeedbackRepository: MessageFeedbackRepository;
 };
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "dream" | "browser"
+  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "dream" | "browser" | "messageFeedbackRepository"
 >;

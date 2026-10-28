@@ -12,7 +12,11 @@ export const createConversationRoutes = (
     const spaceId = c.req.query("spaceId") || "local-main";
     try {
       const conversation = await conversationHub.findSpace(spaceId);
-      return c.json(conversation?.snapshot() ?? { messages: [], revision: "empty" });
+      return c.json(
+        conversation
+          ? await conversation.snapshot()
+          : { sessionId: null, messages: [], revision: "empty" },
+      );
     } catch (error) {
       if (error instanceof ConversationError && (error.code === "UNSUPPORTED_SPACE" || error.code === "UNSUPPORTED_THREAD"))
         return c.json({ error: "Invalid spaceId", code: "INVALID_SPACE_ID" }, 400);

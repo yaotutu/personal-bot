@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ApprovalViewDto } from "./approvals.js";
+import { messageFeedbackResponse, messageMetadataResponse } from "./messages.js";
 
 /**
  * 响应契约（zod v4）：每个端点 200 响应的形状，全部从现有路由投影提炼。
@@ -78,7 +79,7 @@ export const conversationAttachment = z.strictObject({
     dataBase64: z.string().describe("SDK 历史图片块的 Base64；仅作恢复预览，不在 custom entry 另存一份"),
   }).optional().describe("仅 kind=image 可有；按本条 SDK user message 的 image blocks 顺序关联，跳过文本附件"),
 });
-export const chatMessage = z.object({
+export const chatMessage = z.strictObject({
   id: z.string(),
   role: z.enum(["user", "assistant", "tool"]),
   content: z.string().optional().describe("文本内容；assistant 消息可为空（纯工具轮）"),
@@ -95,14 +96,24 @@ export const chatMessage = z.object({
     )
     .optional(),
   toolCallId: z.string().optional().describe("role=tool 时对应的调用 ID"),
+  isError: z.boolean().optional().describe("仅 role=tool；true 表示工具执行失败，不可反馈"),
   attachments: z.array(conversationAttachment).optional().describe("仅 role=user；按提交顺序返回元数据，文本正文不回灌到普通气泡"),
+  metadata: messageMetadataResponse.optional().describe("仅 role=user/assistant；PI 执行事实的业务投影，tool 不可评价所以不返回"),
+  feedback: messageFeedbackResponse.optional().describe("仅 role=user/assistant；当前反馈投影"),
 }).superRefine((message, context) => {
   if (message.role !== "user" && message.attachments)
     context.addIssue({ code: "custom", message: "attachments are only valid on user messages" });
   if (message.attachments?.some((attachment) => attachment.kind !== "image" && attachment.image))
     context.addIssue({ code: "custom", message: "only image attachments may include image data" });
+  if (message.role === "tool" && (message.metadata || message.feedback))
+    context.addIssue({ code: "custom", message: "tool messages cannot carry feedback metadata" });
+  if (message.role !== "tool" && (!message.metadata || !message.feedback))
+    context.addIssue({ code: "custom", message: "user and assistant messages require metadata and feedback" });
+  if (message.role !== "tool" && message.isError)
+    context.addIssue({ code: "custom", message: "isError is only valid on tool messages" });
 });
 export const conversationResponse = z.object({
+  sessionId: z.string().nullable().describe("当前空间绑定的 PI 会话 ID；合法但不存在/已删除空间为 null"),
   revision: z.string().describe("pi 当前叶子版本；空会话为 empty，发送时作为 expectedRevision"),
   messages: z.array(chatMessage).describe("服务端权威历史（含工具投影）；客户端不得回写"),
 });

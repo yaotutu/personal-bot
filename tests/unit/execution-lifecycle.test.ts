@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { TestContext } from "node:test";
 import { createConversation } from "../../src/features/conversation/conversation-service.js";
 import type { ConversationHistoryPort, ConversationExecution } from "../../src/features/conversation/ports.js";
 import type { ConversationNotification, ExecutionEvent } from "../../src/features/conversation/types.js";
@@ -7,6 +8,7 @@ import { createConversationHub } from "../../src/features/conversation/conversat
 import { createMonitorService } from "../../src/features/monitors/monitor-service.js";
 import { createMonitorScheduler } from "../../src/features/monitors/monitor-scheduler.js";
 import type { MonitorRepository } from "../../src/features/monitors/types.js";
+import { createMessageFeedbackFixture } from "../support/message-session.js";
 
 const deferred = <T = void>() => {
   let resolve!: (value: T) => void;
@@ -30,13 +32,14 @@ const repository = <T>(): { read: () => Promise<T[]>; update: <R>(change: (items
     },
   };
 };
-const conversationFixture = () => {
+const conversationFixture = async (t: TestContext) => {
   const facts: ConversationNotification[] = [];
   const calls: string[] = [];
   let listener: (event: ExecutionEvent) => void = () => {};
   const done = deferred();
   const history: ConversationHistoryPort = {
     history: () => facts.map((fact) => ({ id: fact.id, role: "assistant", content: fact.text })),
+    sessionId: () => "unit-session", messageFacts: () => [],
     records: () => ({ turns: [], results: new Map() }), checkpoint: () => null,
     appendTurn: () => { calls.push("turn"); }, omitTurn: () => {}, restoreIfNoUser: () => {},
     appendResult: (result) => { calls.push(result.status); },
@@ -49,12 +52,19 @@ const conversationFixture = () => {
     dispose: () => {}, syncContext: () => {},
     subscribe: (next) => { listener = next; return () => {}; },
   };
-  const conversation = createConversation({ configured: true, runTimeoutMs: 5000 }, { history, openSession: async () => session });
-  return { conversation, calls, facts, done, history, session };
+  const messageFeedback = await createMessageFeedbackFixture({
+    spaceId: "source", sessionId: "unit-session", facts: history.messageFacts,
+  });
+  t.after(messageFeedback.cleanup);
+  const conversation = createConversation(
+    { configured: true, runTimeoutMs: 5000 },
+    { history, messages: messageFeedback.messages, openSession: async () => session },
+  );
+  return { conversation, calls, facts, done, history, session, messages: messageFeedback.messages };
 };
 
-test("hub permanently closes, drains successful creations even if another rejects", async () => {
-  const fixture = conversationFixture();
+test("hub permanently closes, drains successful creations even if another rejects", async (t) => {
+  const fixture = await conversationFixture(t);
   let disposed = false;
   const good = deferred<typeof fixture.conversation>();
   const bad = deferred<typeof fixture.conversation>();
@@ -70,10 +80,10 @@ test("hub permanently closes, drains successful creations even if another reject
   assert.equal(hub.closeAll(), closing);
 });
 
-test("retained task source survives idle cache eviction but deletion closes its old generation", async () => {
-  const instances = new Map<string, ReturnType<typeof conversationFixture>>();
+test("retained task source survives idle cache eviction but deletion closes its old generation", async (t) => {
+  const instances = new Map<string, Awaited<ReturnType<typeof conversationFixture>>>();
   const hub = createConversationHub(async (id) => {
-    const fixture = conversationFixture(); instances.set(id, fixture); return fixture.conversation;
+    const fixture = await conversationFixture(t); instances.set(id, fixture); return fixture.conversation;
   }, async () => [...instances.keys()].map((id) => ({ id, updatedAt: new Date(0).toISOString() })));
   await hub.forThread("source");
   const retained = await hub.retainThread("source");
@@ -89,10 +99,13 @@ test("retained task source survives idle cache eviction but deletion closes its 
   await hub.closeAll();
 });
 
-test("trigger cancelled while session opens never starts prompt; closed coordinator rejects new runs", async () => {
-  const fixture = conversationFixture();
+test("trigger cancelled while session opens never starts prompt; closed coordinator rejects new runs", async (t) => {
+  const fixture = await conversationFixture(t);
   const opened = deferred<ConversationExecution>();
-  const conversation = createConversation({ configured: true, runTimeoutMs: 1 }, { history: fixture.history, openSession: () => opened.promise });
+  const conversation = createConversation(
+    { configured: true, runTimeoutMs: 1 },
+    { history: fixture.history, messages: fixture.messages, openSession: () => opened.promise },
+  );
   const pending = conversation.trigger("scheduled", "job");
   const closing = conversation.close();
   opened.resolve(fixture.session);
@@ -103,8 +116,8 @@ test("trigger cancelled while session opens never starts prompt; closed coordina
   await assert.rejects(conversation.run({ spaceId: "main", runId: "r", expectedRevision: "empty", message: { id: "u", content: "hello" } }, () => {}), { code: "SHUTDOWN" });
 });
 
-test("busy conversation queues factual notification without another model turn and deduplicates IDs", async () => {
-  const { conversation, calls, done, facts } = conversationFixture();
+test("busy conversation queues factual notification without another model turn and deduplicates IDs", async (t) => {
+  const { conversation, calls, done, facts } = await conversationFixture(t);
   const running = conversation.trigger("job", "job");
   await until(() => calls.includes("prompt"));
   const delivered = conversation.notify("monitor changed", "notification-1");

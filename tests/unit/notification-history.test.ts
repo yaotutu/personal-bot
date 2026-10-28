@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDataLayout, threadSessionsDir } from "../../src/adapters/storage/data-layout.js";
 import { createSessionHistory } from "../../src/adapters/pi/session-history.js";
+import { createMessageFeedbackRepository } from "../../src/adapters/storage/message-feedback-repository.js";
+import { createMessageFeedbackSession } from "../../src/features/messages/service.js";
 import { createConversation } from "../../src/features/conversation/conversation-service.js";
 import { TURN_ENTRY_TYPE } from "../../src/features/conversation/types.js";
 import { createNotificationMessage } from "../../src/adapters/pi/notification-message.js";
@@ -14,8 +16,15 @@ test("notification alone persists a new pi session and survives reopen without m
   t.after(() => rm(root, { recursive: true, force: true }));
   const layout = createDataLayout(root);
   const { history } = await createSessionHistory(layout, "source-thread");
+  const repository = createMessageFeedbackRepository(layout);
   const make = (port: typeof history) => createConversation({ configured: false, runTimeoutMs: 1000 }, {
     history: port,
+    messages: createMessageFeedbackSession({
+      spaceId: "source-thread",
+      sessionId: () => port.sessionId(),
+      facts: port.messageFacts,
+      repository,
+    }),
     openSession: async () => { assert.fail("notification must never open an execution session"); },
   });
   const first = make(history);

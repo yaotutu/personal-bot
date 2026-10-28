@@ -40,6 +40,15 @@ const metadataOf = (value: ReturnType<typeof normalizeConversationAttachments>[n
   size: value.size,
   sha256: value.sha256,
 });
+const messageMetadata = {
+  createdAt: "1970-01-01T00:00:00.000Z",
+  source: "chat",
+  runId: "run-id",
+  jobId: null,
+  notificationId: null,
+  feedbackAvailable: true,
+} as const;
+const emptyFeedback = { reaction: null, comments: [] } as const;
 
 test("attachment normalization validates canonical bytes, UTF-8 and image magic", () => {
   const image = png();
@@ -153,19 +162,29 @@ test("conversation identity binds ordered attachment metadata and wire schemas m
   const five = [1, 2, 3, 4, 5].map((index) => attachment({ id: `file_${index}`, name: `file_${index}.txt` }));
   assert.equal(runRequestSchema.safeParse({ ...input, message: { ...input.message, attachments: five } }).success, false);
   conversationResponse.parse({
+    sessionId: "session-id",
     revision: "leaf",
     messages: [{
       id: "user-id", role: "user", content: "hello",
+      metadata: messageMetadata, feedback: emptyFeedback,
       attachments: [{ ...metadataOf(validated.user.attachments![0]!), image: undefined }],
     }],
   });
   assert.equal(conversationResponse.safeParse({
+    sessionId: "session-id",
     revision: "leaf",
-    messages: [{ id: "assistant", role: "assistant", content: "answer", attachments: [{ ...metadataOf(validated.user.attachments![0]!) }] }],
+    messages: [{
+      id: "assistant", role: "assistant", content: "answer", metadata: messageMetadata, feedback: emptyFeedback,
+      attachments: [{ ...metadataOf(validated.user.attachments![0]!) }],
+    }],
   }).success, false);
   assert.equal(conversationResponse.safeParse({
+    sessionId: "session-id",
     revision: "leaf",
-    messages: [{ id: "user", role: "user", content: "", attachments: [{ ...metadataOf(validated.user.attachments![0]!), image: { mimeType: "image/png", dataBase64: "aGk=" } }] }],
+    messages: [{
+      id: "user", role: "user", content: "", metadata: messageMetadata, feedback: emptyFeedback,
+      attachments: [{ ...metadataOf(validated.user.attachments![0]!), image: { mimeType: "image/png", dataBase64: "aGk=" } }],
+    }],
   }).success, false);
 });
 

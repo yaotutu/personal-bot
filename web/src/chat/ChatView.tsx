@@ -341,7 +341,7 @@ export const ChatView = ({
           <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
             <h2 className="text-base font-semibold text-stone-800">重置当前会话</h2>
             <p className="mt-2 text-xs leading-relaxed text-stone-500">
-              重置将清空当前空间下的聊天历史，并生成全新的会话 ID。<br />
+              重置将清空当前空间的聊天历史及其消息反馈（喜欢、不喜欢、评论与操作记录），并生成全新的会话 ID。<br />
               <strong>空间的私有工作区文件、INSTRUCTIONS.md 指令、技能开关与 Dream 配置均完整保留。</strong>
             </p>
 

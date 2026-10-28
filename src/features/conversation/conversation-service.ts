@@ -4,6 +4,7 @@ import { ConversationError, rejectConversation } from "./errors.js";
 import { validateConversationInput } from "./validate-input.js";
 import type { ConversationDependencies, ConversationExecution } from "./ports.js";
 import type { CancelReason, ConversationEvent, ConversationInput, ConversationResult, ConversationTurn, ConversationNotification } from "./types.js";
+import type { MessageFeedbackSession } from "../messages/service.js";
 import { attachmentIdentity, buildConversationPrompt } from "./attachments.js";
 
 type ActiveRun = {
@@ -72,7 +73,17 @@ export function createConversation(
     if (!config.configured) rejectConversation("MODEL_NOT_CONFIGURED", "Configure the server model before sending");
     return validated;
   };
-  const snapshot = () => ({ messages: history(), revision: historyPort.checkpoint() ?? "empty" });
+  const snapshot = async () => {
+    // 反馈文件读取前先原子捕获 PI 事实，避免旧消息被配到新 revision。
+    const sessionId = historyPort.sessionId();
+    const messages = history();
+    const revision = historyPort.checkpoint() ?? "empty";
+    return {
+      sessionId,
+      messages: await dependencies.messages.project(messages),
+      revision,
+    };
+  };
   const executionStatus = (runId: string): AgentStatus | undefined => {
     if (active?.runId === runId && active.status) return active.status.snapshot();
     const saved = historyPort.agentStatuses?.().findLast((status) => status.runId === runId);
@@ -136,6 +147,7 @@ export function createConversation(
       }),
     };
     active = running;
+    dependencies.messages.setActiveRun(replay ? null : input.runId);
     const disconnected = () => {
       void cancel("DISCONNECTED").catch(() => undefined);
     };
@@ -160,6 +172,7 @@ export function createConversation(
       text: user.content as string,
       runId: input.runId,
       assistantId: "assistant-" + input.runId,
+      source: "chat",
       ...(user.attachments?.length ? { attachments: user.attachments.map(attachmentIdentity) } : {}),
     };
     let activity: ActivityRun | undefined;
@@ -194,7 +207,7 @@ export function createConversation(
         runId: input.runId,
       });
       if (replay) {
-        emit({ type: "history_snapshot", messages: history() });
+        emit({ type: "history_snapshot", messages: await dependencies.messages.project(history()) });
         status = "completed";
       } else {
         // 初始化或刚开始就停止时，不应先隐藏待重试的旧消息。先打开宿主，
@@ -294,6 +307,7 @@ export function createConversation(
         activity?.close();
         flushNotifications();
         active = undefined;
+        dependencies.messages.setActiveRun(null);
         release();
       }
     }
@@ -316,6 +330,7 @@ export function createConversation(
       }),
     };
     active = running;
+    dependencies.messages.setActiveRun(runId);
     const aborted = () => { void cancel("STOPPED", runId).catch(() => undefined); };
     options.signal?.addEventListener("abort", aborted, { once: true });
     // 只有后台 worker 显式提供 timeout；定时 jobs 保持既有的无客户端超时语义。
@@ -331,6 +346,8 @@ export function createConversation(
       text,
       runId,
       assistantId: "assistant-" + runId,
+      source: "job",
+      ...(options.jobId ? { jobId: options.jobId } : {}),
     };
     const sourceSpaceId = dependencies.spaceId ?? options.spaceId ?? "local-main";
     try {
@@ -380,16 +397,18 @@ export function createConversation(
         activity?.close();
         flushNotifications();
         active = undefined;
+        dependencies.messages.setActiveRun(null);
         release();
       }
     }
   };
   return {
-    sessionId: () => historyPort.sessionId?.() ?? dependencies.spaceId ?? "local-main",
+    sessionId: () => historyPort.sessionId(),
+    messages: dependencies.messages,
     executionStatus,
     activities: () => dependencies.activities?.details() ?? [],
     history,
-    snapshot,
+    snapshot: () => snapshot(),
     validate,
     run,
     trigger,

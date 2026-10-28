@@ -199,7 +199,7 @@ test("model conversation run pushes agent_status_updated events and disconnectin
 
   // 验证事件流断开不影响正在运行的会话
   const conversation = await service.conversationHub.forThread("local-main");
-  const revision = conversation.snapshot().revision;
+  const revision = (await conversation.snapshot()).revision;
   const frozenPromise = post(service, headers, "/api/conversation/run", {
     spaceId: "local-main", runId: randomUUID(), expectedRevision: revision,
     message: { id: randomUUID(), content: "freeze" },

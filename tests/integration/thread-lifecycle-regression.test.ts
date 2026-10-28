@@ -67,7 +67,7 @@ const fixture = async (t: TestContext) => {
   const snapshot = async (id: string) => {
     const response = await request(`/api/conversation?spaceId=${id}`);
     assert.equal(response.status, 200);
-    return response.json() as Promise<{ messages: { role: string; content?: string }[]; revision: string }>;
+    return response.json() as Promise<{ sessionId: string | null; messages: { role: string; content?: string }[]; revision: string }>;
   };
   const listed = async (id: string) => {
     const response = await request("/api/spaces");
@@ -94,7 +94,7 @@ const assertMissing = async (path: string) => assert.rejects(stat(path), { code:
 test("thread reads and late stop never create absent or deleted sessions, including during deletion", async (t) => {
   const h = await fixture(t);
   const id = "deleted-read";
-  assert.deepEqual(await h.snapshot(id), { messages: [], revision: "empty" });
+  assert.deepEqual(await h.snapshot(id), { sessionId: null, messages: [], revision: "empty" });
   assert.equal(await h.listed(id), false);
   await assertMissing(join(h.dir, "sessions", id));
   await assertMissing(join(h.dir, "workspace", "threads", id));
@@ -109,7 +109,7 @@ test("thread reads and late stop never create absent or deleted sessions, includ
   h.releaseGates.push(proceed.resolve);
   const deleting = h.request(`/api/spaces/${id}`, "DELETE");
   await entered.promise;
-  assert.deepEqual(await h.snapshot(id), { messages: [], revision: "empty" });
+  assert.deepEqual(await h.snapshot(id), { sessionId: null, messages: [], revision: "empty" });
   const stop = await h.request("/api/conversation/stop", "POST", { spaceId: id, runId: "old" });
   assert.deepEqual(await stop.json(), { stopped: false });
   for (const [path, body] of [
@@ -123,7 +123,7 @@ test("thread reads and late stop never create absent or deleted sessions, includ
   proceed.resolve();
   assert.equal((await deleting).status, 200);
   h.service().jobs.removeByOriginSpaceId = removeJobs;
-  assert.deepEqual(await h.snapshot(id), { messages: [], revision: "empty" });
+  assert.deepEqual(await h.snapshot(id), { sessionId: null, messages: [], revision: "empty" });
   await h.request("/api/conversation/stop", "POST", { spaceId: id, runId: "old" });
   assert.equal(await h.listed(id), false);
   await assertMissing(join(h.dir, "sessions", id));

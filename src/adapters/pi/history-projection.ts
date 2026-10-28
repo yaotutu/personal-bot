@@ -12,6 +12,7 @@ import {
   type ConversationTurn,
 } from "../../features/conversation/types.js";
 import type { ConversationAttachmentView } from "../../features/conversation/attachments.js";
+import type { MessageExecutionFact } from "../../features/messages/types.js";
 import type { DreamMessage } from "../../features/dream/types.js";
 import { notificationIdOf } from "./notification-message.js";
 
@@ -178,6 +179,75 @@ export const projectConversationHistory = (
     }
   }
   return messages;
+};
+
+/**
+ * 从同一 PI branch 投影可反馈的执行消息事实。这里只报告可验证来源：
+ * 新 turn 写入 source；notification 有服务端标记；旧数据 source=null。
+ */
+export const projectMessageFacts = (
+  branch: readonly SessionEntry[],
+): MessageExecutionFact[] => {
+  const omitted = new Set(
+    branch
+      .filter((x) => x.type === "context_edit" && x.replacement === null)
+      .map((x) => (x.type === "context_edit" ? x.targetId : "")),
+  );
+  const facts: MessageExecutionFact[] = [];
+  let turn: ConversationTurn | undefined;
+  let assistantFact: MessageExecutionFact | undefined;
+
+  const baseFact = (entry: SessionEntry, id: string, role: "user" | "assistant") => ({
+    id,
+    role,
+    createdAt: entry.timestamp,
+    source: turn?.source ?? null,
+    runId: turn?.runId ?? null,
+    jobId: turn?.jobId ?? null,
+    notificationId: null,
+    feedbackAvailable: true,
+  });
+
+  for (const entry of branch) {
+    if (entry.type === "custom" && entry.customType === TURN_ENTRY_TYPE) {
+      turn = entry.data as ConversationTurn;
+      assistantFact = undefined;
+    }
+    if (entry.type !== "message" || omitted.has(entry.id)) continue;
+    const { message } = entry;
+    if (message.role === "user") {
+      const id = turn?.userId ?? entry.id;
+      const content = turn?.text ?? textOf(message.content);
+      if (content || turn?.attachments?.length) facts.push(baseFact(entry, id, "user"));
+      assistantFact = undefined;
+      continue;
+    }
+    if (message.role !== "assistant") continue;
+    const notificationId = notificationIdOf(message);
+    if (notificationId) {
+      facts.push({
+        id: notificationId,
+        role: "assistant",
+        createdAt: entry.timestamp,
+        source: "notification",
+        runId: null,
+        jobId: null,
+        notificationId,
+        feedbackAvailable: true,
+      });
+      turn = undefined;
+      assistantFact = undefined;
+      continue;
+    }
+    const content = textOf(message.content);
+    const toolCalls = toolCallsOf(message);
+    if (!content && !toolCalls.length) continue;
+    if (!assistantFact) {
+      assistantFact = baseFact(entry, turn?.assistantId ?? entry.id, "assistant");
+      facts.push(assistantFact);
+    }
+  }
+  return facts;
 };
 
 /**

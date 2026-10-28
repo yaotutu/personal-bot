@@ -12,6 +12,7 @@ export type DataLayout = {
   profileDir: string;
   workspaceDir: string;
   sessionsDir: string;
+  messageFeedbackDir: string;
   agentDir: string;
   piAuthFile: string;
   memoryFile: string;
@@ -36,6 +37,7 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     profileDir,
     workspaceDir: join(root, "workspace"),
     sessionsDir: join(root, "sessions"),
+    messageFeedbackDir: join(root, "messages"),
     agentDir: join(root, "agent"),
     piAuthFile: join(root, "agent", "auth.json"),
     memoryFile: join(profileDir, "memory.json"),
@@ -57,6 +59,13 @@ export const createDataLayout = (dataDir: string): DataLayout => {
 export const spaceSessionsDir = (layout: DataLayout, spaceId: string) =>
   join(layout.sessionsDir, spaceId);
 export const threadSessionsDir = spaceSessionsDir;
+
+/** 反馈按空间和 PI session 双重隔离；reset 后旧 session 文件不再可寻址。 */
+export const messageFeedbackFile = (layout: DataLayout, spaceId: string, sessionId: string): string => {
+  if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId / Invalid threadId");
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(sessionId)) throw new Error("Invalid sessionId");
+  return join(layout.messageFeedbackDir, spaceId, `${sessionId}.json`);
+};
 
 /** 每个会话的技能覆盖文件：sessions/<threadId>/skills.json */
 export const spaceSkillsFile = (layout: DataLayout, spaceId: string) =>

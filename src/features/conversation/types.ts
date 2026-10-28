@@ -4,6 +4,7 @@ import type {
   ConversationPromptAttachment,
   ConversationAttachmentView,
 } from "./attachments.js";
+import type { MessageFeedback, ProjectedMessageMetadata } from "../messages/types.js";
 
 /** 会话控制条目与模型消息共同存放在 pi 权威历史中。 */
 export const TURN_ENTRY_TYPE = "personal-bot.turn";
@@ -16,6 +17,9 @@ export type ConversationTurn = {
   text: string;
   runId: string;
   assistantId: string;
+  /** 旧历史 custom entry 没有来源事实；投影时保持 null，不伪造。 */
+  source?: "chat" | "job";
+  jobId?: string;
   attachments?: ConversationAttachment[];
 };
 export type ConversationResult = {
@@ -66,7 +70,13 @@ export type ValidatedUserMessage = {
   content: string;
   attachments?: ConversationPromptAttachment[];
 };
-export type ConversationSnapshot = { messages: ConversationHistory; revision: string };
+export type ProjectedConversationHistory = ConversationHistory &
+  Array<{ metadata?: ProjectedMessageMetadata; feedback?: MessageFeedback }>;
+export type ConversationSnapshot = {
+  sessionId: string;
+  messages: ProjectedConversationHistory;
+  revision: string;
+};
 export type CancelReason = "STOPPED" | "DISCONNECTED" | "TIMEOUT" | "SHUTDOWN";
 
 /** pi adapter 清洗并归一化的事件，不复制 SDK 的完整事件/消息接口。 */

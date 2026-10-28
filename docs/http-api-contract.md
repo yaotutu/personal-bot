@@ -4,7 +4,7 @@
 
 ## 聊天
 
-1. `GET /api/conversation?spaceId=local-main` 返回 `{messages, revision}`。不存在、已删除或正在删除的合法 ID 返回空历史/revision=`empty`，不创建目录或重新进入列表；空间存在性以 `GET /api/spaces` 为准。
+1. `GET /api/conversation?spaceId=local-main` 返回 `{sessionId, messages, revision}`。user/assistant 消息带业务 `metadata` 与当前 `feedback`；工具结果只是执行投影。不存在、已删除或正在删除的合法 ID 返回 `{sessionId:null, messages:[], revision:"empty"}`，不创建目录或重新进入列表；空间存在性以 `GET /api/spaces` 为准。
 2. `POST /api/conversation/run` 提交 `{spaceId, runId, expectedRevision, message:{id,content,attachments?}}`，只提交一条用户消息，禁止全量历史/客户端工具输入。附件随消息一次性提交，不提供独立上传；最多 4 项，图片仅 PNG/JPEG/GIF/WebP，文本必须严格 UTF-8 且无 NUL，PDF/Office/压缩包等二进制拒绝。响应为 AG-UI SSE。
 3. 相同成功 runId 和原消息幂等重放；其他请求必须匹配 revision，冲突返回 HTTP 409。失败轮可用原 message ID、内容、附件顺序与字节 SHA-256 身份和最新 revision 重试，且只能重试最后用户消息。图片由当前单业务模型处理，服务端不自动切换视觉模型；历史 user 消息返回原文本、附件元数据及 SDK 图片块预览。
 4. `POST /api/conversation/stop` 提交 `{spaceId,runId}`，仅停止完全匹配的当前轮，等待取消及持久化完成；不匹配返回 `{stopped:false}`。断开 SSE 也取消所属轮。
@@ -13,6 +13,7 @@
 ## 空间与业务领域 REST API
 
 - **空间管理（Spaces）**：`GET /api/spaces` 列出所有空间信息（含 `spaceId`、`sessionId`、`title`、`createdAt` 等）；`DELETE /api/spaces/:spaceId` 级联删除空间历史、私有工作区、定时任务与监控；`POST /api/spaces/:spaceId/reset` 提供空间重置功能（清空当前会话历史、分配全新 `sessionId`、作废在途待审批，保留空间工作区、指令、技能与 Dream 配置，支持可选 `clearSchedules`）。前端迁移细节见 `docs/frontend-space-session-migration.md`。
+- **消息反馈（Message Feedback）**：以 `spaceId+sessionId+messageId` 读取/写入喜欢、不喜欢与多条评论；原始操作事件按消息过滤返回。反馈不触发模型、不追加聊天历史、不改变 revision；reset/delete 级联清理，旧 session 返回 409。
 - **工作台快照**：`GET /api/agent` 已彻底解耦，不再包含 jobs、monitors、memories 或 goals，仅返回助手身份信息 `{ identity }`。旧的 `/api/agent/tasks*`、`/api/agent/monitors*`、`/api/agent/memories*`、`/api/agent/goals*` 均已下线并返回 501。各业务领域通过独立顶级资源访问。
 - **人设与身份（Profile & Identity）**：
   - `GET /api/profile`：读取全局 `profile/SOUL.md`（助手灵魂定位）与 `profile/USER.md`（用户偏好画像）自由文本内容；未设置时返回空串。

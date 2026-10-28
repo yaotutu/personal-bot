@@ -38,6 +38,11 @@ test("POST /:spaceId/reset invokes clearPendingByOriginSpaceId when clearSchedul
   const mockDream = {
     resetSpace: async (_spaceId: string) => {},
   };
+  const mockMessageFeedbackRepository = {
+    removeSpace: async (spaceId: string) => {
+      calls.push(`removeFeedback:${spaceId}`);
+    },
+  };
   const mockHub = {
     spaces: async () => [],
     resetSpace: async (_spaceId: string, onReset: (hooks: { closeCurrent: () => Promise<void>; reopen: () => Promise<{ sessionId: () => string }> }) => Promise<unknown>) => {
@@ -61,6 +66,7 @@ test("POST /:spaceId/reset invokes clearPendingByOriginSpaceId when clearSchedul
     skills: {} as never,
     dream: mockDream,
     actions: mockActions,
+    messageFeedbackRepository: mockMessageFeedbackRepository,
   } as unknown as HttpDependencies);
 
   // 1. 重置 explicit space，clearSchedules: false -> 调用 clearPendingByOriginSpaceId
@@ -70,7 +76,7 @@ test("POST /:spaceId/reset invokes clearPendingByOriginSpaceId when clearSchedul
     body: JSON.stringify({ clearSchedules: false }),
   });
   assert.equal(res1.status, 200);
-  assert.deepEqual(calls, ["clearPending:custom-space"]);
+  assert.deepEqual(calls, ["removeFeedback:custom-space", "clearPending:custom-space"]);
 
   // 2. 重置 local-main，clearSchedules: false -> 调用 clearPendingByOriginSpaceId("local-main")
   calls.length = 0;
@@ -80,7 +86,7 @@ test("POST /:spaceId/reset invokes clearPendingByOriginSpaceId when clearSchedul
     body: JSON.stringify({ clearSchedules: false }),
   });
   assert.equal(res2.status, 200);
-  assert.deepEqual(calls, ["clearPending:local-main"]);
+  assert.deepEqual(calls, ["removeFeedback:local-main", "clearPending:local-main"]);
 
   // 3. 重置并清理调度，clearSchedules: true -> 调用 removeByOriginSpaceId
   calls.length = 0;
@@ -90,5 +96,5 @@ test("POST /:spaceId/reset invokes clearPendingByOriginSpaceId when clearSchedul
     body: JSON.stringify({ clearSchedules: true }),
   });
   assert.equal(res3.status, 200);
-  assert.deepEqual(calls, ["removeJobs:custom-space", "remove:custom-space"]);
+  assert.deepEqual(calls, ["removeFeedback:custom-space", "removeJobs:custom-space", "remove:custom-space"]);
 });

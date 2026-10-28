@@ -50,6 +50,7 @@ pnpm build                     # 服务端构建
 pnpm test                      # unit + integration
 pnpm test:e2e                  # 自动先 build，再串行执行真实 dist 进程套件
 pnpm test:live --config <path> --allow-live [--keep-artifacts]  # 显式真实模型验收
+node --import tsx tests/live/message-feedback.ts --allow-live --base-url <url> --token-file <path> --context-file <path> --phase record|verify
 pnpm check                     # typecheck + test + test:e2e + Web build + diff 检查
 ```
 
@@ -77,6 +78,11 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 - 不由 `pnpm test`、`pnpm check`、CI 或远程定时隐式触发；主 Agent 按任务范围主动执行，使用用户已给出的长期费用授权，不重复请示。保留 `--config` 与 `--allow-live` 作为命令级防误触门禁；不做模型/工具自动 retry，不为验收修改 pi 底层。
 - 默认 finally 清理；`--keep-artifacts` 保留合成测试 data 与脱敏 summary.json/traces，包含逐项结果、调用轨迹及版本身份，不保存真实配置、供应商鉴权头或 key。trace 落盘前将 key 替换为 `[REDACTED]`，上游失败仅返回受控 502，不返回供应商错误正文，不承诺保留任意错误 stack。
 - 以透明代理记录的真实 tool call / result / 时序和 HTTP、文件系统、状态证据判断，不以自然语言自述通过。价格/速率限制不可控，任何 FAIL 单独记录，不凑 N/N。
+
+### `tests/live/message-feedback.ts`
+
+- 专项连接已运行的真实后端与外部模型；`--base-url`、`--token-file`、`--context-file` 与 `--allow-live` 必须显式给出，token 只进请求头且不输出。
+- `--phase record` 创建独立空间并写入不含凭据的重启 context；主 Agent 重启后端后用同参数执行 `--phase verify` 验证持久化、后续真实模型、reset/delete 生命周期。失败不自动重试写入。
 
 ### `pnpm check`
 

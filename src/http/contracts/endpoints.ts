@@ -6,6 +6,7 @@ import * as approval from "./approvals.js";
 import * as status from "./agent-status.js";
 import * as files from "./workspace-files.js";
 import * as browser from "./browser.js";
+import * as message from "./messages.js";
 import { sseEvents, SSE_EVENT_ORDER } from "./sse-events.js";
 import { workspaceEvents, WORKSPACE_SSE_DESCRIPTION } from "./workspace-events.js";
 
@@ -82,14 +83,100 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "resetSpace",
     method: "post", path: "/api/spaces/:spaceId/reset", tag: "空间", summary: "重置空间会话（更换 session ID，清空会话历史并作废待审批，保留工作区与规则）",
-    hint: "清空当前空间的会话聊天历史并生成全新 session ID，当前空间的私有工作区文件、INSTRUCTIONS.md、技能开关与 Dream 配置均完整保留。若存在正在进行的运行或待审批操作，均安全取消；可选传入 clearSchedules: true 同时清理该空间绑定的定时任务与网页监控，默认 false 保留并转绑到新会话。",
+    hint: "清空当前空间的会话聊天历史并生成全新 session ID，同时清理该空间全部消息反馈事件；当前空间的私有工作区文件、INSTRUCTIONS.md、技能开关与 Dream 配置均完整保留。若存在正在进行的运行或待审批操作，均安全取消；可选传入 clearSchedules: true 同时清理该空间绑定的定时任务与网页监控，默认 false 保留并转绑到新会话。",
     auth: true, request: req.resetSpaceSchema, response: resp.resetSpaceResponse,
   },
   {
     operationId: "getConversation",
     method: "get", path: "/api/conversation", tag: "空间", summary: "读取会话权威历史",
-    hint: "刷新/恢复时同步历史用；历史只读，客户端不要回写。合法但不存在、已删除或正在删除的 ID 返回 200 {messages:[], revision:'empty'}，不创建会话或工作区，不使其出现在列表；非法 ID 返回 400。空历史不代表空间存在，存在性以 GET /api/spaces 为准。消息含工具投影（toolCalls 与 role=tool 消息按 toolCallId 关联）。role=user 只有 content 与可选 attachments；每项为 id/name/kind/mimeType/size/sha256，kind=image 还可带 image:{mimeType,dataBase64} 并按本条 SDK user 的 image blocks 顺序关联，文本正文不自动展开。文件/模型原始错误在进入模型上下文与历史前脱敏，文件缺失使用受控提示，不返回服务端绝对路径。",
+    hint: "刷新/恢复时同步历史用；历史只读，客户端不要回写。合法但不存在、已删除或正在删除的 ID 返回 200 {sessionId:null, messages:[], revision:'empty'}，不创建会话或工作区，不使其出现在列表；非法 ID 返回 400。空历史不代表空间存在，存在性以 GET /api/spaces 为准。消息含工具投影（toolCalls 与 role=tool 消息按 toolCallId 关联）；user/assistant 消息必带 metadata（PI entry 时间、chat/job/notification 可靠来源、run/job/notification 关联与 feedbackAvailable）和当前 feedback。role=user 还可有 attachments；每项为 id/name/kind/mimeType/size/sha256，kind=image 还可带 image:{mimeType,dataBase64} 并按本条 SDK user 的 image blocks 顺序关联，文本正文不自动展开。文件/模型原始错误在进入模型上下文与历史前脱敏，文件缺失使用受控提示，不返回服务端绝对路径。",
     auth: true, query: conversationQuery, response: resp.conversationResponse,
+  },
+  // ---- 消息反馈（独立业务层；不触发模型，不修改 PI 历史）----
+  {
+    operationId: "getMessageFeedback",
+    method: "get", path: "/api/spaces/:spaceId/messages/:messageId/feedback", tag: "消息反馈",
+    summary: "读取消息当前反馈",
+    hint:
+      "按 spaceId+sessionId+messageId 读取用户/助手消息的当前喜欢/不喜欢与全部评论。sessionId 必填；" +
+      "reset 后旧 sessionId 返回 409。空间不存在返回 404，非法参数返回 400。工具结果和未落盘/当前生成中的消息不可反馈，按目标不存在返回 404。本接口不触发模型、不追加聊天消息，也不改变对话 revision。",
+    auth: true, query: message.messageTargetSchema, response: message.messageFeedbackResponse,
+    errorResponses: {
+      400: { description: "非法 spaceId、messageId 或 sessionId", schema: resp.errorResponse },
+      404: { description: "空间或可反馈消息不存在", schema: resp.errorResponse },
+      409: { description: "sessionId 不是该空间当前会话，或空间正在删除", schema: resp.errorResponse },
+      503: { description: "服务正在关闭；本次反馈未保存", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "listMessageFeedbackEvents",
+    method: "get", path: "/api/spaces/:spaceId/messages/:messageId/feedback/events", tag: "消息反馈",
+    summary: "读取消息原始反馈事件",
+    hint:
+      "返回该消息的完整操作历史：reaction 变更/撤销、评论新增、编辑（旧新文本）与删除（删除前文本），均带服务端时间与 ID。事件只追加到 Pi Muse 反馈存储，不进入 PI branch 或模型上下文；空间 reset/delete 级联删除。",
+    auth: true, query: message.messageTargetSchema, response: message.messageFeedbackEventsResponse,
+    errorResponses: {
+      400: { description: "非法 spaceId、messageId 或 sessionId", schema: resp.errorResponse },
+      404: { description: "空间或可反馈消息不存在", schema: resp.errorResponse },
+      409: { description: "sessionId 不是该空间当前会话，或空间正在删除", schema: resp.errorResponse },
+      503: { description: "服务正在关闭；本次反馈未保存", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "setMessageReaction",
+    method: "put", path: "/api/spaces/:spaceId/messages/:messageId/feedback/reaction", tag: "消息反馈",
+    summary: "设置或撤销喜欢/不喜欢",
+    hint:
+      "reaction 为 like/dislike/null；like 与 dislike 互斥，null 撤销当前反应。重复设置当前值不追加事件。成功返回完整当前反馈。反馈不触发模型、不追加聊天消息，也不改变 expectedRevision；同一空间内以前已落盘消息可在流式运行期间反馈。",
+    auth: true, request: message.reactionRequestSchema, response: message.messageFeedbackResponse,
+    errorResponses: {
+      400: { description: "非法请求、reaction 或目标 ID", schema: resp.errorResponse },
+      404: { description: "空间、消息或评论不存在；工具/未落盘/当前生成中目标不可反馈", schema: resp.errorResponse },
+      409: { description: "sessionId 不是该空间当前会话，或空间正在删除", schema: resp.errorResponse },
+      503: { description: "服务正在关闭；本次反馈未保存", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "addMessageComment",
+    method: "post", path: "/api/spaces/:spaceId/messages/:messageId/feedback/comments", tag: "消息反馈",
+    summary: "新增消息评论",
+    hint:
+      "text 先 trim，必须非空且最多 4000 字符。支持多条评论；ID 与 createdAt/updatedAt 由服务端生成。成功返回完整当前反馈。",
+    auth: true, request: message.createCommentRequestSchema, response: message.messageFeedbackResponse,
+    errorResponses: {
+      400: { description: "非法请求、sessionId、messageId 或空/超长评论", schema: resp.errorResponse },
+      404: { description: "空间或可反馈消息不存在", schema: resp.errorResponse },
+      409: { description: "sessionId 不是该空间当前会话，或空间正在删除", schema: resp.errorResponse },
+      503: { description: "服务正在关闭；本次反馈未保存", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "editMessageComment",
+    method: "patch", path: "/api/spaces/:spaceId/messages/:messageId/feedback/comments/:commentId", tag: "消息反馈",
+    summary: "编辑消息评论",
+    hint:
+      "text 先 trim，必须非空且最多 4000 字符。成功返回完整当前反馈；原始事件保留编辑前后文本。相同文本不追加事件；评论不存在返回 404。",
+    auth: true, request: message.updateCommentRequestSchema, response: message.messageFeedbackResponse,
+    errorResponses: {
+      400: { description: "非法请求或空/超长评论", schema: resp.errorResponse },
+      404: { description: "空间、消息或评论不存在", schema: resp.errorResponse },
+      409: { description: "sessionId 不是该空间当前会话，或空间正在删除", schema: resp.errorResponse },
+      503: { description: "服务正在关闭；本次反馈未保存", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "deleteMessageComment",
+    method: "delete", path: "/api/spaces/:spaceId/messages/:messageId/feedback/comments/:commentId", tag: "消息反馈",
+    summary: "删除消息评论",
+    hint:
+      "删除当前评论并保留删除前文本的原始事件；重复删除返回 404，不冒充成功。sessionId 为查询参数。成功返回完整当前反馈。",
+    auth: true, query: message.messageTargetSchema, response: message.messageFeedbackResponse,
+    errorResponses: {
+      400: { description: "非法目标 ID 或 sessionId", schema: resp.errorResponse },
+      404: { description: "空间、消息或评论不存在", schema: resp.errorResponse },
+      409: { description: "sessionId 不是该空间当前会话，或空间正在删除", schema: resp.errorResponse },
+      503: { description: "服务正在关闭；本次反馈未保存", schema: resp.errorResponse },
+    },
   },
   {
     operationId: "getSpaceSkills",

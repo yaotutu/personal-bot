@@ -176,7 +176,7 @@ test("e2e: private workspaces stay isolated and deleted threads do not revive on
   terminalSuccess(await client.run("hello", "e2e-owner"));
   const remove = await client.json("/api/spaces/e2e-owner", undefined, "DELETE");
   assert.deepEqual(remove.removed, { jobs: 0, monitors: 0 });
-  assert.deepEqual(await client.history("e2e-owner"), { messages: [], revision: "empty" });
+  assert.deepEqual(await client.history("e2e-owner"), { sessionId: null, messages: [], revision: "empty" });
   assert.deepEqual(await client.json("/api/conversation/stop", { spaceId: "e2e-owner", runId: "late" }), { stopped: false });
   assert.ok(!(await client.json("/api/spaces")).spaces.some((space: { id: string }) => space.id === "e2e-owner"));
   await assert.rejects(stat(join(service.dataDir, "sessions/e2e-owner")), { code: "ENOENT" });

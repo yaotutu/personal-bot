@@ -1,6 +1,8 @@
 import type { StatusRun, AgentStatus } from "../workspace/agent-status.js";
 import type { ActivityOverview, ActivityRun } from "../activities/types.js";
 import type { ActivitySession } from "../activities/activity-session.js";
+import type { MessageFeedbackSession } from "../messages/service.js";
+import type { MessageExecutionFact } from "../messages/types.js";
 import type {
   ConversationHistory,
   ConversationNotification,
@@ -15,8 +17,10 @@ import type {
  * checkpoint/restore 仅用于 prompt 未写入新 user 时保住待重试的旧历史。
  */
 export type ConversationHistoryPort = {
-  sessionId?: () => string;
+  sessionId: () => string;
   history: () => ConversationHistory;
+  /** PI adapter 提供的可反馈消息事实；业务层不接触 SDK entry 类型。 */
+  messageFacts: () => readonly MessageExecutionFact[];
   records: () => ConversationRecords;
   checkpoint: () => string | null;
   omitTurn: (runId: string) => void;
@@ -56,4 +60,6 @@ export type ConversationDependencies = {
     listener: (change: { id: string; pending: boolean }) => void,
   ) => () => void;
   openSession: (context: { runId: string; activity?: ActivityRun; status?: StatusRun }) => Promise<ConversationExecution>;
+  /** PI 无关的消息业务层；负责 metadata/feedback 投影与独立反馈存储。 */
+  messages: MessageFeedbackSession;
 };

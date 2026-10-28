@@ -19,6 +19,12 @@ const describePathParam = (path: string, name: string): string => {
   if (name === "spaceId") {
     return "空间唯一标识；主空间固定为 local-main，其他空间由英文字母、数字、短横线与下划线组成";
   }
+  if (name === "messageId" && path.includes("/messages/")) {
+    return "可反馈的用户/助手消息稳定 ID；来自权威历史，不是工具结果或乐观流式消息";
+  }
+  if (name === "commentId") {
+    return "服务端生成的消息评论 UUID";
+  }
   if (name === "pendingId") {
     if (path.includes("/dream/")) {
       return "Dream 待决建议唯一标识（如 pd_...）";

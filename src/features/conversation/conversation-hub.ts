@@ -21,6 +21,8 @@ export type ConversationHub = {
   threads: () => Promise<Array<{ id: string; updatedAt: string }>>;
   /** 来源绑定、规则/技能保存与重置/删除共享短生命周期锁，不覆盖模型执行。 */
   withSpace: <T>(spaceId: string, change: (conversation: Conversation) => Promise<T>) => Promise<T>;
+  /** 只在空间确实存在时执行；查找到写入与 reset/delete 共享同一短生命周期锁。 */
+  withExistingSpace: <T>(spaceId: string, change: (conversation: Conversation) => Promise<T>) => Promise<T | undefined>;
   withThread: <T>(spaceId: string, change: (conversation: Conversation) => Promise<T>) => Promise<T>;
   resetSpace: <T>(spaceId: string, onReset: (hooks: SpaceResetHooks) => Promise<T>) => Promise<T>;
   deleteSpace: <T>(spaceId: string, remove: () => Promise<T>) => Promise<T>;
@@ -150,6 +152,15 @@ export const createConversationHub = (
       return serial(id, async () => {
         if (deleting.has(id)) rejectConversation("SPACE_DELETING", "Space is being deleted");
         return change(await open(id));
+      });
+    },
+    withExistingSpace(id, change) {
+      validateId(id);
+      if (deleting.has(id)) rejectConversation("SPACE_DELETING", "Space is being deleted");
+      return serial(id, async () => {
+        if (deleting.has(id)) rejectConversation("SPACE_DELETING", "Space is being deleted");
+        const conversation = await find(id);
+        return conversation ? change(conversation) : undefined;
       });
     },
     withThread(id, change) {

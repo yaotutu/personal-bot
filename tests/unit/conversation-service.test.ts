@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { TestContext } from "node:test";
 import { createConversation } from "../../src/features/conversation/conversation-service.js";
 import type { ConversationDependencies, ConversationExecution, ConversationHistoryPort } from "../../src/features/conversation/ports.js";
 import type { ConversationEvent, ExecutionEvent } from "../../src/features/conversation/types.js";
+import { createMessageFeedbackFixture } from "../support/message-session.js";
 
 /** 这里只替换 port 测生命周期，不模拟 agent loop；真实 pi/HTTP 仍由集成套件保护。 */
-const fixture = () => {
+const fixture = async (t: TestContext) => {
   const calls: string[] = [];
   let listener: (event: ExecutionEvent) => void = () => {};
   const history: ConversationHistoryPort = {
     history: () => [], records: () => ({ turns: [], results: new Map() }), checkpoint: () => "leaf",
+    sessionId: () => "unit-session", messageFacts: () => [],
     omitTurn: () => { calls.push("omit"); }, appendTurn: (turn) => { calls.push("turn:" + JSON.stringify(turn)); },
     appendNotification: (notification) => { calls.push("notification:" + notification.text); },
     appendResult: (result) => { calls.push(result.status); }, restoreIfNoUser: () => { calls.push("restore"); },
@@ -20,13 +23,17 @@ const fixture = () => {
     dispose: () => { calls.push("dispose"); }, syncContext: () => { calls.push("sync"); },
     subscribe: (next) => { listener = next; return () => { calls.push("unsubscribe"); }; },
   };
-  const dependencies: ConversationDependencies = { history, openSession: async () => session };
+  const messageFeedback = await createMessageFeedbackFixture({
+    spaceId: "local-main", sessionId: "unit-session", facts: history.messageFacts,
+  });
+  t.after(messageFeedback.cleanup);
+  const dependencies: ConversationDependencies = { history, messages: messageFeedback.messages, openSession: async () => session };
   return { calls, session, dependencies };
 };
 const input = { threadId: "local-main", runId: "run", expectedRevision: "leaf", message: { id: "user", content: "hello" } };
 
-test("coordinator finishes only after pi idle and persisted result and then releases its sole lock", async () => {
-  const { calls, dependencies } = fixture();
+test("coordinator finishes only after pi idle and persisted result and then releases its sole lock", async (t) => {
+  const { calls, dependencies } = await fixture(t);
   const conversation = createConversation({ configured: true, runTimeoutMs: 5000 }, dependencies);
   const events: ConversationEvent[] = [];
   await conversation.run(input, (event) => {
@@ -38,8 +45,8 @@ test("coordinator finishes only after pi idle and persisted result and then rele
   assert.deepEqual(calls.slice(-2), ["unsubscribe", "dispose"]);
 });
 
-test("coordinator records attachment metadata and passes images in the same SDK prompt", async () => {
-  const { calls, dependencies } = fixture();
+test("coordinator records attachment metadata and passes images in the same SDK prompt", async (t) => {
+  const { calls, dependencies } = await fixture(t);
   const conversation = createConversation({ configured: true, runTimeoutMs: 5000 }, dependencies);
   const png = Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -67,9 +74,9 @@ test("coordinator records attachment metadata and passes images in the same SDK 
 
 test("trigger has an explicit timeout only when requested and shares the lock with client runs", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  const { calls, dependencies } = fixture();
+  const { calls, dependencies, session } = await fixture(t);
   let release!: () => void;
-  const opened = new Promise<ConversationExecution>((resolve) => { release = () => resolve(fixture().session); });
+  const opened = new Promise<ConversationExecution>((resolve) => { release = () => resolve(session); });
   dependencies.openSession = () => opened;
   const conversation = createConversation({ configured: true, runTimeoutMs: 1 }, dependencies);
   const pending = conversation.trigger("scheduled", "job");
@@ -84,8 +91,8 @@ test("trigger has an explicit timeout only when requested and shares the lock wi
   assert.equal(conversation.isRunning(), false);
 });
 
-test("client early cancellation after opening never records a replacement turn", async () => {
-  const { calls, dependencies, session } = fixture();
+test("client early cancellation after opening never records a replacement turn", async (t) => {
+  const { calls, dependencies, session } = await fixture(t);
   let release!: () => void;
   dependencies.openSession = () => new Promise((resolve) => { release = () => resolve(session); });
   const conversation = createConversation({ configured: true, runTimeoutMs: 5000 }, dependencies);

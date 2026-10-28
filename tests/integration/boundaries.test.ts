@@ -284,7 +284,9 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
         assert.deepEqual(await jobsResponse.json(), { jobs: [] });
         const history = await authorized("/api/conversation");
         assert.equal(history.status, 200);
-        assert.deepEqual(await history.json(), { messages: [], revision: "empty" });
+        const initial = await history.json() as { sessionId: string; messages: unknown[]; revision: string };
+        assert.match(initial.sessionId, /^[0-9a-f-]{36}$/);
+        assert.deepEqual({ messages: initial.messages, revision: initial.revision }, { messages: [], revision: "empty" });
       },
     );
 
@@ -414,9 +416,9 @@ test("app: offline health, authentication and text-only HTTP boundaries", async 
           }),
         });
         assert.equal(response.status, 501);
-        assert.deepEqual(await (await authorized("/api/conversation")).json(), {
-          messages: [], revision: "empty",
-        });
+        const after = await (await authorized("/api/conversation")).json() as { sessionId: string; messages: unknown[]; revision: string };
+        assert.match(after.sessionId, /^[0-9a-f-]{36}$/);
+        assert.deepEqual({ messages: after.messages, revision: after.revision }, { messages: [], revision: "empty" });
       },
     );
 

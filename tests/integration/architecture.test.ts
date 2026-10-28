@@ -45,6 +45,7 @@ test("DataLayout describes the current paths without migrating legacy data", () 
     profileDir,
     workspaceDir: join(root, "workspace"),
     sessionsDir: join(root, "sessions"),
+    messageFeedbackDir: join(root, "messages"),
     agentDir: join(root, "agent"),
     piAuthFile: join(root, "agent", "auth.json"),
     memoryFile: join(profileDir, "memory.json"),
@@ -506,9 +507,9 @@ test("HTTP and pi tools use the same composed stores; conversation exposes no st
     method: "POST", headers, body: JSON.stringify({ text: "UI memory" }),
   })).status, 200);
   assert.equal(memoryWrites.mock.callCount(), 1);
-  const run = (content: string, id: string) => main.run({
+  const run = async (content: string, id: string) => main.run({
     spaceId: "local-main", runId: id,
-    expectedRevision: main.snapshot().revision, message: { id, content },
+    expectedRevision: (await main.snapshot()).revision, message: { id, content },
   }, () => {});
   await run("记住我喜欢喝茶", "memory-turn");
   assert.equal(memoryWrites.mock.callCount(), 2, "pi tool must share the UI writer");

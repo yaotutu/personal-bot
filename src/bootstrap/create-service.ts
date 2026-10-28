@@ -19,6 +19,8 @@ import { createActionRepository } from "../adapters/storage/action-repository.js
 import { createMonitorRepository } from "../adapters/storage/monitor-repository.js";
 import { createMemoryRepository } from "../adapters/storage/memory-repository.js";
 import { createSkillRepository } from "../adapters/storage/skill-repository.js";
+import { createMessageFeedbackSession } from "../features/messages/service.js";
+import { createMessageFeedbackRepository } from "../adapters/storage/message-feedback-repository.js";
 import { createHttpApp } from "../http/app.js";
 import { createDataLayout, ensureThreadLayout, threadSessionsDir } from "../adapters/storage/data-layout.js";
 import { createScheduler } from "../features/jobs/scheduler.js";
@@ -101,6 +103,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const actions = createActionService(createActionRepository(layout.actionsFile), { onChange: (action) => workspaceEvents.approvalChanged(action) });
   const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile));
   const skills = createSkillsService(createSkillRepository(layout));
+  const messageFeedbackRepository = createMessageFeedbackRepository(layout);
   const dreamRepository = createDreamRepository(layout);
 
   // 多会话：每个 thread 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
@@ -139,10 +142,17 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const conversationHub = createConversationHub(
     async (spaceId, initialSessionId) => {
       const { manager, history, activities } = await createSessionHistory(layout, spaceId, presentation, initialSessionId);
+      const messages = createMessageFeedbackSession({
+        spaceId,
+        sessionId: () => history.sessionId(),
+        facts: history.messageFacts,
+        repository: messageFeedbackRepository,
+      });
       return createConversation(config, {
         spaceId,
         history,
         activities,
+        messages,
         beginStatus: (input) => workspaceEvents.beginRun(input),
         publishActivity: (overview) => workspaceEvents.activityChanged(overview),
         cancelApprovals: async (ownerSpaceId, runId) => {
@@ -216,7 +226,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   );
   // 先完整读取/校验并恢复各域，再启动任何执行源。初始化失败不会遗留 interval。
   try {
-    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart()]);
+    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), messageFeedbackRepository.validateAll()]);
     await actions.cancelPending();
     workspaceEvents.seedApprovals(await actions.list());
   } catch (error) {
@@ -281,7 +291,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const workspaceFiles = createWorkspaceFileService(createWorkspaceFileStore(layout, workspaceCommits), {
     spaceExists: async (spaceId) => (await conversationHub.spaces()).some((space) => space.id === spaceId),
   });
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, browser };
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, browser, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。

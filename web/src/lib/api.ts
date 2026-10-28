@@ -23,6 +23,12 @@ import type {
   DeleteSpaceDto,
 } from "../../../src/http/contracts/responses.js";
 import type { RunRequestDto } from "../../../src/http/contracts/rest.js";
+import {
+  messageFeedbackEventsResponse,
+  messageFeedbackResponse,
+  type MessageFeedbackDto,
+  type MessageFeedbackEventsDto,
+} from "../../../src/http/contracts/messages.js";
 import { sseEventSchema, type SseEvent } from "../../../src/http/contracts/sse-events.js";
 import type { AgentStatusDto } from "../../../src/http/contracts/agent-status.js";
 import { pendingApprovalsResponse, type ApprovalViewDto } from "../../../src/http/contracts/approvals.js";
@@ -165,6 +171,82 @@ export const loadHistory = async (
   const response = await request(`/api/conversation?spaceId=${encodeURIComponent(spaceId)}`, { signal });
   if (!response.ok) throw new ApiError(response.status, "无法加载历史");
   return response.json();
+};
+
+const messageFeedbackBase = (spaceId: string, messageId: string) =>
+  `/api/spaces/${encodeURIComponent(spaceId)}/messages/${encodeURIComponent(messageId)}/feedback`;
+
+const feedbackFailure = async (response: Response, action: string): Promise<never> => {
+  const failure = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
+  throw new ApiError(response.status, failure?.error ?? `${action}失败`);
+};
+
+export const getMessageFeedback = async (
+  input: { spaceId: string; sessionId: string; messageId: string },
+  signal?: AbortSignal,
+): Promise<MessageFeedbackDto> => {
+  const response = await request(
+    `${messageFeedbackBase(input.spaceId, input.messageId)}?sessionId=${encodeURIComponent(input.sessionId)}`,
+    { signal },
+  );
+  if (!response.ok) await feedbackFailure(response, "读取反馈");
+  return messageFeedbackResponse.parse(await response.json());
+};
+
+export const getMessageFeedbackEvents = async (
+  input: { spaceId: string; sessionId: string; messageId: string },
+  signal?: AbortSignal,
+): Promise<MessageFeedbackEventsDto> => {
+  const response = await request(
+    `${messageFeedbackBase(input.spaceId, input.messageId)}/events?sessionId=${encodeURIComponent(input.sessionId)}`,
+    { signal },
+  );
+  if (!response.ok) await feedbackFailure(response, "读取反馈历史");
+  return messageFeedbackEventsResponse.parse(await response.json());
+};
+
+export const setMessageReaction = async (
+  input: { spaceId: string; sessionId: string; messageId: string; reaction: "like" | "dislike" | null },
+): Promise<MessageFeedbackDto> => {
+  const response = await request(`${messageFeedbackBase(input.spaceId, input.messageId)}/reaction`, {
+    method: "PUT",
+    body: JSON.stringify({ sessionId: input.sessionId, reaction: input.reaction }),
+  });
+  if (!response.ok) await feedbackFailure(response, "保存反馈");
+  return messageFeedbackResponse.parse(await response.json());
+};
+
+export const addMessageComment = async (
+  input: { spaceId: string; sessionId: string; messageId: string; text: string },
+): Promise<MessageFeedbackDto> => {
+  const response = await request(messageFeedbackBase(input.spaceId, input.messageId) + "/comments", {
+    method: "POST",
+    body: JSON.stringify({ sessionId: input.sessionId, text: input.text }),
+  });
+  if (!response.ok) await feedbackFailure(response, "新增评论");
+  return messageFeedbackResponse.parse(await response.json());
+};
+
+export const editMessageComment = async (
+  input: { spaceId: string; sessionId: string; messageId: string; commentId: string; text: string },
+): Promise<MessageFeedbackDto> => {
+  const response = await request(
+    `${messageFeedbackBase(input.spaceId, input.messageId)}/comments/${encodeURIComponent(input.commentId)}`,
+    { method: "PATCH", body: JSON.stringify({ sessionId: input.sessionId, text: input.text }) },
+  );
+  if (!response.ok) await feedbackFailure(response, "编辑评论");
+  return messageFeedbackResponse.parse(await response.json());
+};
+
+export const deleteMessageComment = async (
+  input: { spaceId: string; sessionId: string; messageId: string; commentId: string },
+): Promise<MessageFeedbackDto> => {
+  const response = await request(
+    `${messageFeedbackBase(input.spaceId, input.messageId)}/comments/${encodeURIComponent(input.commentId)}?sessionId=${encodeURIComponent(input.sessionId)}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) await feedbackFailure(response, "删除评论");
+  return messageFeedbackResponse.parse(await response.json());
 };
 
 /** 输入和事件均来自服务端契约，不再维护独立字段副本。 */

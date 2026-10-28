@@ -5,7 +5,7 @@ import type { ConversationHistoryPort } from "../../features/conversation/ports.
 import { AGENT_STATUS_ENTRY_TYPE, RESULT_ENTRY_TYPE, TURN_ENTRY_TYPE, type ConversationTurn } from "../../features/conversation/types.js";
 import type { AgentStatus } from "../../features/workspace/agent-status.js";
 import { createNotificationMessage, notificationIdOf } from "./notification-message.js";
-import { collectConversationRecords, projectConversationHistory, projectDreamTranscript } from "./history-projection.js";
+import { collectConversationRecords, projectConversationHistory, projectDreamTranscript, projectMessageFacts } from "./history-projection.js";
 import type { ToolPresentation } from "../ag-ui/tool-presentation.js";
 import { createActivityHistory } from "./activity-history.js";
 import { createActivitySession } from "../../features/activities/activity-session.js";
@@ -54,6 +54,7 @@ export const createSessionHistory = async (
       const projected = projectConversationHistory(manager.getBranch());
       return presentation ? presentation.presentHistory(projected) : projected;
     },
+    messageFacts: () => projectMessageFacts(manager.getBranch()),
     records: () => collectConversationRecords(manager.getBranch()),
     appendAgentStatus: (status) => { manager.appendCustomEntry(AGENT_STATUS_ENTRY_TYPE, status); },
     agentStatuses: () => manager.getBranch().filter((entry) => entry.type === "custom" && entry.customType === AGENT_STATUS_ENTRY_TYPE)

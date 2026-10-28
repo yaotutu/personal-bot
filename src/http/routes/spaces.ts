@@ -27,7 +27,7 @@ import { UnknownSkillError } from "../../features/skills/service.js";
  * 空间管理路由：多空间列表、重置会话、生命周期（含级联删除）、技能覆盖、专属指令与 Dream 配置。
  */
 export const createSpaceRoutes = (dependencies: HttpDependencies) => {
-  const { conversationHub, layout, jobs, monitors, skills, dream, actions } = dependencies;
+  const { conversationHub, layout, jobs, monitors, skills, dream, actions, messageFeedbackRepository } = dependencies;
   const app = new Hono();
 
   // GET /api/spaces - 列出所有空间（最近活跃倒序，永远包含 local-main）
@@ -84,10 +84,13 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
         }
       }
 
-      // 6. 重置该空间的 Dream 整理游标与待决项
+      // 6. 反馈与会话同生命周期；旧 sessionId 文件删除，不能迁移到 reset 后的新会话
+      await messageFeedbackRepository.removeSpace(spaceId);
+
+      // 7. 重置该空间的 Dream 整理游标与待决项
       await dream.resetSpace(spaceId);
 
-      // 7. 若勾选清理调度，级联删除该空间下的定时任务与监控
+      // 8. 若勾选清理调度，级联删除该空间下的定时任务与监控
       let removedJobs = 0;
       let removedMonitors = 0;
       if (clearSchedules) {
@@ -97,7 +100,7 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
         await monitors.clearPendingByOriginSpaceId(spaceId);
       }
 
-      // 8. 用全新的 sessionId 重新打开并初始化该空间
+      // 9. 用全新的 sessionId 重新打开并初始化该空间
       const nextConversation = await reopen();
 
       return c.json({
@@ -268,6 +271,7 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
       const removedJobs = await jobs.removeByOriginSpaceId(spaceId);
       const removedMonitors = await monitors.removeByOriginSpaceId(spaceId);
       await actions.cancelBySpaceId(spaceId);
+      await messageFeedbackRepository.removeSpace(spaceId);
       await rm(spaceDir, { recursive: true, force: true });
       await rm(threadWorkspaceDir(layout, spaceId), { recursive: true, force: true });
       return c.json({ ok: true, removed: { jobs: removedJobs, monitors: removedMonitors } });

@@ -48,6 +48,7 @@ Many personal-agent projects live inside an existing chat platform or a basic we
 </p>
 
 - **Streaming conversation and structured rendering.** Chat runs over AG-UI SSE and renders Markdown, copyable code blocks, nested lists, and inline tool-status cards in the client.
+- **Persistent message feedback.** Like, dislike, or comment on saved user and assistant messages. Pi Muse keeps reaction changes and original comment edits/deletions separately from PI's execution history, without triggering a model run or automatically changing your preferences.
 - **Isolated spaces.** Create contexts such as Work, Life, or Study. Each space has its own conversation tree, space instructions, and tool switches.
 - **A navigable space sidebar.** Open it from the header menu or with an edge-swipe gesture, then search and switch between spaces.
 
