@@ -1,0 +1,107 @@
+# Real Browser Docker and noVNC Guide
+
+This deployment places the complete browser workstation inside one Linux container: the Node service, Google Chrome, Xvfb, fluxbox, x11vnc, websockify, and noVNC share the same virtual display. Chrome remains a real GUI browser and does not use `--headless`; Xvfb only supplies the X display that must exist for it to run.
+
+## Architecture {#architecture}
+
+```text
+User browser
+  ├── /browser       -> Node API/CDP viewport frame stream and controlled input
+  ├── /vnc.html      -> websockify/noVNC -> x11vnc -> Xvfb -> Chrome window
+  ├── /pimuse-mobile.html -> phone-oriented noVNC page; still the same complete remote desktop
+  └── /viewer-bridge-demo.html -> static acceptance page for a same-origin iframe and external toolbar
+Agent
+  └── in-process BrowserService -> Playwright/CDP -> the same Chrome
+```
+
+`/browser` is suited to product-oriented tab and viewport operations; noVNC is suited to observing and taking over the complete Chrome window, including native browser UI such as the address bar, tab strip, context menu, and download bubble. Both operate the same Chrome instance and the same persistent profile. The mobile page only adapts touch, scaling, and the soft keyboard; it does not add a custom browser shell or address bar.
+
+## Startup {#startup}
+
+First prepare an independent configuration. Do not bake a real model key into the image:
+
+```sh
+mkdir -p .pi-muse
+cp -n config.example.json .pi-muse/config.json
+chmod 600 .pi-muse/config.json
+```
+
+Edit `.pi-muse/config.json` as needed. For browser-only use, the model may remain empty; for Agent conversations, fill in a real model configuration. Then build and start:
+
+```sh
+docker compose -f compose.browser.yaml up --build -d
+```
+
+The access address is not hard-coded in the service. Any address that can route to this machine works:
+
+```text
+http://<any-host-or-domain>:17890/browser
+http://<any-host-or-domain>:6080/vnc.html?autoconnect=1&resize=scale
+```
+
+Desktop and mobile share the `vnc.html` entry point. The default is `layout=auto`: when the viewport width is no wider than 700px, the page automatically switches to the mobile page, and it automatically returns to official noVNC once desktop width is restored. An explicit `layout=desktop` or `layout=mobile` pins the current page and prevents navigation based on window size. Redirects preserve query and `#` parameters. The mobile page connects to `/websockify` on the current address by default, and also supports overriding `path`, `host`, or `port` through query parameters. If x11vnc is later configured with a password, `password` can be supplied in the query or `#` fragment:
+
+```text
+http://<any-host-or-domain>:6080/pimuse-mobile.html
+http://<any-host-or-domain>:6080/pimuse-mobile.html?password=<VNC-password>
+http://<any-host-or-domain>:6080/pimuse-mobile.html#password=<VNC-password>
+```
+
+The current Compose entry still starts with `-nopw`, so there is no VNC password by default.
+
+### External Toolbar and Built-in Bar {#external-toolbar-and-built-in-bar}
+
+Both the official desktop page and the mobile page expose the `window.piMuseViewer` control bridge. Their respective toolbars remain by default. Adding `toolbar=hidden` to the URL query or fragment hides the page toolbar, status, and reconnect overlay, while the remote canvas remains operable. `toolbar.set` can show it again. For bridge commands and event fields, see [the viewer bridge guide](browser-viewer-bridge.md).
+
+Visit `/viewer-bridge-demo.html` under the same noVNC address to operate the real desktop in an iframe with a static external toolbar: connect, send keys, enter text, use the clipboard, scale, and toggle the built-in bar. It embeds `vnc.html?autoconnect=1&resize=scale&toolbar=hidden&layout=desktop` by default and pins the desktop layout to avoid page changes when the container size changes. The input field accepts only same-origin relative viewer paths, not IP addresses. If a cross-origin parent page embeds the viewer itself, it must set an explicit `parentOrigin` in the viewer URL. Fullscreen is entered directly from the demo page button into the iframe container; cross-window commands and the mobile soft keyboard cannot be guaranteed to preserve the user gesture.
+
+Host ports can be changed without code changes. For example, map the API to `18890` and the GUI to `16080`:
+
+```sh
+PI_MUSE_BROWSER_PORT=18890 \
+PI_MUSE_BROWSER_NOVNC_PORT=16080 \
+docker compose -f compose.browser.yaml up -d
+```
+
+With a reverse proxy, the API domain must forward `/api`, `/browser`, and `/ws/browser`, preserving WebSocket Upgrade headers. The noVNC domain must forward HTTP and the `/websockify` WebSocket.
+
+### Mobile Portrait Instance {#mobile-portrait-instance}
+
+Compose provides a separate `mobile` profile. It uses a `720x1280x24` virtual screen and an independent Chrome profile volume without affecting the default desktop instance. Its default host ports are API `18891` and noVNC `16081`:
+
+```sh
+docker compose -f compose.browser.yaml --profile mobile up -d pi-muse-browser-mobile
+```
+
+Visit:
+
+```text
+http://<any-host-or-domain>:18891/api/health
+http://<any-host-or-domain>:16081/pimuse-mobile.html
+```
+
+Both instances can run at the same time. To rebuild both simultaneously, run:
+
+```sh
+docker compose -f compose.browser.yaml --profile mobile up --build -d
+```
+
+## Data and Lifecycle {#data-and-lifecycle}
+
+- The Chrome profile is persisted in Docker volume `pi-muse-browser-data` at `/app/.pi-muse/browser/profile/`.
+- `.pi-muse/config.json` is mounted read-only from the host at `/app/browser-config.json`. At container startup it is copied into the data volume while remaining `0600`; the image build context explicitly excludes `.pi-muse`, so model keys are not baked into an image layer.
+- The entrypoint script first uses root to correct ownership of the data volume, then drops privileges to `pimuse`; Node, Chrome, Xvfb, x11vnc, websockify, and fluxbox do not run as root.
+- After startup completes, the container proactively triggers one tab read so the Chrome window is immediately visible. On shutdown, Node receives SIGTERM first and gracefully closes Chrome; the entrypoint script then cleans up fluxbox, x11vnc, websockify, and Xvfb.
+- The default virtual screen is `1440x900x24` and can be adjusted with the `BROWSER_SCREEN_SIZE` environment variable, for example `1920x1080x24`.
+- The official Google Chrome package currently targets linux/amd64; Apple Silicon machines must run Docker with amd64 emulation.
+
+## Verification {#verification}
+
+```sh
+curl -fsS http://127.0.0.1:17890/api/health
+curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
+```
+
+After opening noVNC, you should see the complete Chrome window. After opening `/browser` or letting the Agent call `tab` or `navigate`, noVNC shows the same window changing in real time.
+
+`viewer-bridge-demo.html` is a static acceptance tool, not the browser business client. Subsequent changes to the bridge, layout, or input logic require retesting iframe control, toolbar occlusion, connection recovery, and mobile input in a real browser.

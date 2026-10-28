@@ -2,7 +2,7 @@
 
 本文档对应当前仓库源码，介绍 Pi Muse 服务端和独立移动客户端的安装、连接、日常使用与安全边界。Android 已发布版本的实际功能以[移动客户端 Releases](https://github.com/yaotutu/pi-muse-mobile/releases)及对应版本说明为准；这里不代表新的 APK 已发布。
 
-## 从哪里开始
+## 从哪里开始 {#where-to-start}
 
 - [快速上手](getting-started.md)：安装服务端、准备配置并连接手机客户端。
 - [核心能力](usage.md)：了解空间、对话、任务、目标、记忆与审批入口。

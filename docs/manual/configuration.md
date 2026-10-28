@@ -8,7 +8,7 @@ pi-muse 只从一个配置文件读取启动配置：
 
 该文件必须存在；缺失、JSON 语法错误、未知字段、类型不合法或未知 `schemaVersion` 都会启动失败。服务端不支持旧的环境变量配置，也不支持 `${ENV_NAME}` 插值。模型 API key 直接写在 `model.apiKey`。自有 `web/` 的 `API_TARGET` 只用于 Vite 的 `/api` 代理，不是服务端配置来源。
 
-## 创建配置
+## 创建配置 {#create-configuration}
 
 ~~~sh
 mkdir -p .pi-muse
@@ -73,7 +73,7 @@ chmod 600 .pi-muse/config.json
 
 所有 section 和字段都可以按需省略；省略后使用内置默认值。`schemaVersion` 当前为 `1`。
 
-## 字段说明
+## 字段说明 {#field-reference}
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -110,9 +110,9 @@ chmod 600 .pi-muse/config.json
 
 默认情况下，`.pi-muse/config.json` 所在的 `.pi-muse/` 同时也是实例数据目录。当前默认实例目录已统一为 `.pi-muse/`，旧目录不会被自动读取或迁移。也就是说 sessions、memory、jobs、workspace 和配置文件保持在同一个实例目录内。
 `runtime.dataDir: "."` 也表示该配置文件目录，与启动进程的 cwd 无关；若在 `.pi-muse/config.json` 中填 `".pi-muse"`，则会指向其下嵌套的 `.pi-muse/`，不是项目根目录下的同名目录。
-会话按 `sessions/<threadId>/` 保存，每个 thread 有独立 pi 会话；单用户可有多个 thread，subagent 内部 `subagent-<uuid>` 工作区与旧 worker 遗留的 `task-*` 目录都不显示在用户会话列表中。每个 thread 的工作目录固定为 `workspace/threads/<threadId>/`，共享区为 `workspace/shared/`；完整目录树见下方 [实例目录结构](#实例目录结构)。没有可配置的全局 workspace 回退，旧根文件和旧 cwd 历史不会自动迁移或清理。
+会话按 `sessions/<threadId>/` 保存，每个 thread 有独立 pi 会话；单用户可有多个 thread，subagent 内部 `subagent-<uuid>` 工作区与旧 worker 遗留的 `task-*` 目录都不显示在用户会话列表中。每个 thread 的工作目录固定为 `workspace/threads/<threadId>/`，共享区为 `workspace/shared/`；完整目录树见下方 [实例目录结构](#instance-directory-structure)。没有可配置的全局 workspace 回退，旧根文件和旧 cwd 历史不会自动迁移或清理。
 
-## 实例目录结构
+## 实例目录结构 {#instance-directory-structure}
 
 ```text
 .pi-muse/
@@ -140,17 +140,17 @@ chmod 600 .pi-muse/config.json
 
 内置技能和子代理角色位于仓库 `assets/skills/`、`assets/subagents/`，构建时复制到 `dist/assets/`，不放入实例目录。实例中的同名技能或角色可以覆盖内置定义，但不能绕过既有权限。
 
-## 数据存储与安全边界
+## 数据存储与安全边界 {#data-storage-and-security-boundaries}
 
 - **数据明文存储**：会话历史、用户档案、记忆、工作区与状态文件均为明文存储。实例目录、`auth.key`（签名密钥）及任何实例备份均包含敏感凭据与个人数据，必须按敏感数据严格保护权限（建议 `0700`/`0600`），切勿公开或上传。
 - **访问凭据有效性**：登录 Token 长期有效且可跨服务重启维持；更换 `server.accessKey` 并重启服务使配置生效后，旧 Token 全部失效。
 - **单进程独占与故障处理**：单进程独占一个 `DATA_DIR`。遇到文件损坏或格式非法时服务会明确报错，绝不通过静默删除损坏数据来恢复空态；须停止服务后通过有效备份离线恢复。
 
-## 实例目录改名
+## 实例目录改名 {#rename-instance-directory}
 
 旧 `.personal-bot/` 不会自动回退读取。迁移必须先停服务并保留受保护备份，除配置中的绝对 runtime.dataDir 外，还要离线更新pi JSONL会话头的cwd及指向实例内的parentSession路径前缀；仅移动文件会使continueRecent跳过旧会话。消息正文和会话ID不变，文件mtime需保留以免改变最近会话选择；auth.key与accessKey不变才能继续使用原token。迁移与回退须针对实际实例单独核对，不能依赖过期运行记录；`.pi-muse-backups/` 含凭据，必须保持0700目录及0600敏感文件权限，不提交或上传。
 
-## 文件写入审批
+## 文件写入审批 {#file-write-approvals}
 
 - `write` / `edit` 只能操作 `DATA_DIR/workspace/threads/<threadId>/` 私有区和通过 `shared/...` 显式访问的 `workspace/shared/`；主会话同样使用 `threads/local-main/`，不使用父目录。读写均拒绝绝对路径、`..` 和根/目标/父目录符号链接；`bash` 永不暴露。
 - 每次操作都需独立人工审批，审批载荷保留完整修改前后文本和文件版本；`edit` 的待替换文本必须唯一命中。
@@ -158,7 +158,7 @@ chmod 600 .pi-muse/config.json
 - 拒绝、审批过期或运行取消均不会提交该次修改；服务重启会取消上一进程遗留的 pending 审批。审批有效期由登记时的 `expiresAt` 固定，提交前再次校验期限和取消状态。
 - 关闭 `tools.writable.enabled` 会移除这两个工具；工具展示策略不能跳过审批或开启被关闭的写入能力。
 
-## 工具展示策略
+## 工具展示策略 {#tool-presentation-policy}
 
 展示配置影响自有 Web消费的实时流与历史投影，不禁用工具、不改变模型收到的完整结果，也不改写 pi JSONL。修改配置后重启服务生效；已有历史会按当前策略重新投影，没有第二套历史或在线迁移。文件操作审批是独立的安全流程，不因隐藏工具卡片而省略。
 
@@ -177,7 +177,7 @@ chmod 600 .pi-muse/config.json
 }
 ~~~
 
-## 真实浏览器
+## 真实浏览器 {#real-browser}
 
 浏览器域使用 `playwright-core` 驱动本机系统 Chrome，不下载浏览器，且固定以带 GUI 的真实窗口启动；不提供 headless 模式。Chrome 懒启动，profile 固定在 `DATA_DIR/browser/profile/`；服务端调试页 `/browser` 与 Agent 的 `navigate` / `snapshot` / `act` / `tab` 工具共享同一实例和持久登录态。服务关闭时会结束 WS 订阅并优雅关闭 Chrome。Docker 部署使用 Xvfb/X11、x11vnc、websockify 和 noVNC 提供完整真实窗口，而不是回退 headless；见 [浏览器 Docker 说明](browser-docker.md)。
 
@@ -185,7 +185,7 @@ chmod 600 .pi-muse/config.json
 
 默认只允许公网 HTTP(S)；需要访问本机测试页面时显式设置 `tools.browser.allowPrivateTargets: true`。该地址规则只是与 web 工具共享的基础实现，浏览器域不依赖 `web_fetch`。浏览器不向模型暴露任意 JavaScript evaluate，也不返回 cookie、localStorage 或密码值；外部页面标题、文本与元素名称都按不可信数据处理。
 
-## 错误策略
+## 错误策略 {#error-policy}
 
 - 配置文件是必需文件，不存在不会回退到环境变量。
 - JSON 语法错误、未知字段、类型不合法、未知 `schemaVersion` 会启动失败。
@@ -195,7 +195,7 @@ chmod 600 .pi-muse/config.json
 - 服务不会自动创建或改写配置文件，避免启动路径意外覆盖用户手写配置。
 - Web 请求默认只允许公网 HTTP(S)，阻断回环、私网、链路本地和保留地址；每个重定向都会重新校验。本机联调可显式设置 `tools.web.allowPrivateTargets: true`，不改变其余请求安全约束。
 
-## 密钥与文件权限
+## 密钥与文件权限 {#keys-and-file-permissions}
 
 `config.json` 可能同时包含模型 key 和工作区访问密钥：
 
@@ -205,7 +205,7 @@ chmod 600 .pi-muse/config.json
 - 服务端不会把 key 写入日志、返回客户端或写入 pi 会话文件。
 - 备份配置文件时按敏感凭据同等保护。
 
-## mock 配置
+## mock 配置 {#mock-configuration}
 
 `pnpm dev:mock` 不读取 `.pi-muse/config.json`，也不调用真实模型。它在 `scripts/dev-mock.ts` 中显式构造隔离配置：
 

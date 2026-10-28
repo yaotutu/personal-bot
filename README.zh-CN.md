@@ -164,7 +164,7 @@ docker compose -f compose.browser.yaml up --build -d
 3. 进入 **设置 -> 服务器连接**，填写可访问的服务端地址（如 `http://192.168.1.100:17890` 或 `http://your-server.example:17890`）以及配置中的 `server.accessKey`。
 4. 点击 **测试连接**，通过后再点击 **连接服务器** 保存已验证的连接；只测试成功不会自动保存。
 
-直接支持 HTTP，不要求域名、证书或 HTTPS 反向代理。地址填写服务端根地址，不要附加 `/api` 或 `/docs`。真机上的 `localhost` 和 `127.0.0.1` 指向手机本身，不是服务端。服务端需要持续运行且端口可达。模型凭据只在服务端配置，客户端填写的是服务端 AccessKey，不是模型 API key。网络设置详见[快速上手](docs/manual/getting-started.md#3-连接手机客户端)。
+直接支持 HTTP，不要求域名、证书或 HTTPS 反向代理。地址填写服务端根地址，不要附加 `/api` 或 `/docs`。真机上的 `localhost` 和 `127.0.0.1` 指向手机本身，不是服务端。服务端需要持续运行且端口可达。模型凭据只在服务端配置，客户端填写的是服务端 AccessKey，不是模型 API key。网络设置详见[快速上手](docs/manual/getting-started.md#connect-mobile-client)。
 
 仓库内的 `web/` 是 HTTP/SSE 开发验证页面，不是主要产品客户端。
 
@@ -197,7 +197,7 @@ Pi Muse 使用 HTTP 发起请求和管理状态，并使用单向 SSE 流从服�
 
 ## 文档
 
-当前详细文档以中文编写。
+用户手册同时提供简体中文和英文；内部工程文档以中文为主。
 
 - [用户手册](docs/manual/index.md)
 - [快速上手](docs/manual/getting-started.md)

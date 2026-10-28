@@ -4,7 +4,7 @@
 
 该桥只控制当前 noVNC viewer 页面，不提供服务端截图，也不能控制宿主设备的屏幕、窗口或跨域页面。
 
-## 页面接入
+## 页面接入 {#page-integration}
 
 viewer 页面以 ES module 引入：
 
@@ -72,7 +72,7 @@ window.piMuseViewer = viewer; // createViewerBridge 内部也会完成这一步�
 }
 ```
 
-## 命令
+## 命令 {#commands}
 
 未知命令、未知字段和错误类型都会被拒绝。所有参数对象必须是普通 JSON object，数组不是合法参数对象。
 
@@ -103,11 +103,11 @@ window.piMuseViewer = viewer; // createViewerBridge 内部也会完成这一步�
 | `USER_GESTURE_REQUIRED` | 浏览器或原生层要求真实用户手势。 |
 | `OPERATION_FAILED` | 其他执行失败，或 adapter 状态无法序列化。 |
 
-## 传输格式
+## 传输格式 {#transport-format}
 
 所有方向都使用 `channel: "pi-muse-viewer"`、`version: 1`。顶层只允许契约列出的字段，未知字段会被拒绝。
 
-### Command
+### Command {#command}
 
 ```json
 {
@@ -122,7 +122,7 @@ window.piMuseViewer = viewer; // createViewerBridge 内部也会完成这一步�
 
 `id` 必须由外部调用方生成且保持唯一。桥会记住最近 128 个 id；已记住的重复 command 会被忽略，不会再次执行或再次发送 result。桥不做自动重试或 command 重放。
 
-### Result
+### Result {#result}
 
 ```json
 {
@@ -153,7 +153,7 @@ window.piMuseViewer = viewer; // createViewerBridge 内部也会完成这一步�
 
 `result` 必须可 JSON 序列化；`undefined` 序列化为 `null`。异步执行失败同样只返回受控错误对象。
 
-### Event
+### Event {#event}
 
 ```json
 {
@@ -173,7 +173,7 @@ window.piMuseViewer = viewer; // createViewerBridge 内部也会完成这一步�
 
 `data` 会经过 JSON 序列化检查。adapter 必须在源头避免放入 RFB、DOM、token、模型 key 或其他凭据。
 
-## iframe 宿主
+## iframe 宿主 {#iframe-host}
 
 viewer 作为 iframe 时，桥只处理满足以下条件的浏览器 `message`：
 
@@ -223,7 +223,7 @@ send({ command: "connect", args: {} });
 
 `toolbar=hidden` 与 `layout=desktop|mobile|auto` 是 viewer 页面 UI 的启动参数，由页面/adapter 层实现；协议核心本身只解析 `parentOrigin`，不读取或改写其他 URL 参数。
 
-## React Native 宿主
+## React Native 宿主 {#react-native-host}
 
 在 RN WebView 内检测到 `window.ReactNativeWebView.postMessage` 时，桥的所有 event/result 均输出为 JSON 字符串：
 
@@ -239,13 +239,13 @@ window.piMuseViewer.receive(JSON.stringify(command));
 
 原生侧必须先把 command JSON 转义成合法 JavaScript 字符串字面量，再执行上面的表达式。不要拼接未转义的用户文本。RN 场景没有 iframe parent origin 检查，message 边界由 WebView 与原生通信负责。
 
-## 键盘与全屏限制
+## 键盘与全屏限制 {#keyboard-and-fullscreen-limits}
 
 - `keyboard.set` 不是远端 X11 键盘开关的唯一保证；移动端软键盘通常还受 WebView 焦点、内容editable 状态、操作系统输入法和用户手势限制。adapter 不具备当前条件时应返回 `USER_GESTURE_REQUIRED` 或 `UNSUPPORTED`。
 - `fullscreen.set` 受浏览器 Fullscreen API、WebView 原生配置和用户手势限制。iOS WebView 常需要原生容器配合，不能承诺等同于原生全屏。
 - 这些命令只作用于 noVNC viewer 页面，不改变宿主设备屏幕方向、状态栏或其他应用窗口。
 
-## 安全边界
+## 安全边界 {#security-boundaries}
 
 - 桥不暴露 RFB 对象、noVNC 内部 API、DOM 节点、连接凭据或模型 key。
 - 公开 state 只应描述 viewer 能力与 UI 状态，不包含敏感配置。

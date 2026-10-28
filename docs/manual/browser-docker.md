@@ -2,7 +2,7 @@
 
 这个部署把浏览器工作站完整放进一个 Linux 容器：Node 服务、Google Chrome、Xvfb、fluxbox、x11vnc、websockify 和 noVNC 共享同一个虚拟显示。Chrome 仍然是真实带 GUI 的浏览器，不使用 `--headless`；Xvfb 只提供它必须存在的 X display。
 
-## 架构
+## 架构 {#architecture}
 
 ```text
 用户浏览器
@@ -16,7 +16,7 @@ Agent
 
 `/browser` 适合产品化标签与视口操作；noVNC 适合观察和接管完整 Chrome 窗口，包括地址栏、标签条、右键菜单、下载气泡等原生浏览器 UI。两者操作的是同一个 Chrome 实例和同一份持久 profile。移动版页面只做触控、缩放和软键盘适配，不添加自定义浏览器外壳或地址栏。
 
-## 启动
+## 启动 {#startup}
 
 先准备独立配置。不要把真实模型密钥构建进镜像：
 
@@ -49,7 +49,7 @@ http://<任意主机或域名>:6080/pimuse-mobile.html#password=<VNC密码>
 
 当前 Compose 入口仍以 `-nopw` 启动，默认没有 VNC 密码。
 
-### 外部工具条与内置栏
+### 外部工具条与内置栏 {#external-toolbar-and-built-in-bar}
 
 官方桌面页和手机页都暴露 `window.piMuseViewer` 控制桥。默认保留各自工具条；在 URL 查询或片段中加 `toolbar=hidden` 会隐藏页面工具条、状态和重连覆盖，但远端画布仍可操作。`toolbar.set` 可再次显示它。桥接命令与事件字段见 [viewer bridge 说明](browser-viewer-bridge.md)。
 
@@ -65,7 +65,7 @@ docker compose -f compose.browser.yaml up -d
 
 如使用反向代理，API 域名需要转发 `/api`、`/browser`、`/ws/browser`，其中 WebSocket Upgrade 头必须保留；noVNC 域名需要转发 HTTP 和 `/websockify` WebSocket。
 
-### 手机竖屏实例
+### 手机竖屏实例 {#mobile-portrait-instance}
 
 Compose 里提供独立的 `mobile` profile。它使用 `720x1280x24` 虚拟屏幕和独立 Chrome profile volume，不影响默认桌面实例；默认宿主端口为 API `18891`、noVNC `16081`：
 
@@ -86,7 +86,7 @@ http://<任意主机或域名>:16081/pimuse-mobile.html
 docker compose -f compose.browser.yaml --profile mobile up --build -d
 ```
 
-## 数据与生命周期
+## 数据与生命周期 {#data-and-lifecycle}
 
 - Chrome profile 持久化在 Docker volume `pi-muse-browser-data` 的 `/app/.pi-muse/browser/profile/`。
 - `.pi-muse/config.json` 从宿主机只读挂载到 `/app/browser-config.json`，容器启动时复制到数据 volume 并保持 `0600`；镜像构建上下文明确排除 `.pi-muse`，不会把模型密钥打进镜像层。
@@ -95,7 +95,7 @@ docker compose -f compose.browser.yaml --profile mobile up --build -d
 - 默认虚拟屏幕是 `1440x900x24`，可用环境变量 `BROWSER_SCREEN_SIZE` 调整，例如 `1920x1080x24`。
 - Google Chrome 官方包当前是 linux/amd64；Apple Silicon 机器需让 Docker 使用 amd64 模拟。
 
-## 验证
+## 验证 {#verification}
 
 ```sh
 curl -fsS http://127.0.0.1:17890/api/health

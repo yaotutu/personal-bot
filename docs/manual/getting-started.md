@@ -2,13 +2,13 @@
 
 本文档介绍如何从零配置并启动 Pi Muse 服务端，并与手机客户端连接。完整的配置字段详细说明以 [配置说明](configuration.md) 为唯一权威。
 
-## 环境准备
+## 环境准备 {#prerequisites}
 
 - **Node.js**：`>= 24`
 - **pnpm**：`12.10.1`
 - **大模型服务**：任意兼容 OpenAI Chat Completions 协议的接口（需具备 `baseUrl` 与模型 `id`，根据供应商提供对应 `apiKey`）
 
-## 1. 安装与配置
+## 1. 安装与配置 {#install-and-configure}
 
 克隆代码仓库并安装依赖：
 
@@ -44,7 +44,7 @@ chmod 600 .pi-muse/config.json
 }
 ```
 
-### 关键配置区分
+### 关键配置区分 {#important-configuration-distinctions}
 
 - **`model.apiKey` 与 `server.accessKey` 切勿混淆**：
   - `model.apiKey` 是调用外部大模型供应商的 API 凭据，由服务端发起模型请求时使用。
@@ -53,9 +53,9 @@ chmod 600 .pi-muse/config.json
 - **`server.host`**：默认为 `0.0.0.0`，允许所有网卡接入，方便手机在局域网连接；若仅在本机通过网页或命令行访问，可设为 `127.0.0.1`。
 - 更多工具与运行时字段见 [配置说明](configuration.md)。
 
-## 2. 启动服务
+## 2. 启动服务 {#start-service}
 
-### 开发调试模式
+### 开发调试模式 {#development-debug-mode}
 
 ```sh
 pnpm dev
@@ -63,7 +63,7 @@ pnpm dev
 
 该命令以源码监听模式运行，支持热重载，默认监听所有网卡的 `17890` 端口；在服务端本机可通过 `http://127.0.0.1:17890` 访问。
 
-### 生产构建运行
+### 生产构建运行 {#production-build-and-run}
 
 ```sh
 pnpm build
@@ -72,13 +72,13 @@ pnpm start
 
 > **注意**：`pnpm start` 启动编译后的 API 接口服务，**不会自动托管静态前端页面**。如需使用开发者 Web 工作台，请参考 [开发指南](development.md)。
 
-### 服务持续在线说明
+### 服务持续在线说明 {#keep-service-online}
 
 Pi Muse 服务端承载了后台定时提醒扫描、长期记忆整理（Dream 反思任务）以及网页监控等周期性职责。为了保证提醒按时触发与客户端正常连接，建议将服务端部署在常开的主机或服务器上（如配合 tmux、pm2 或 systemd 等后台管理工具）。
 
 服务重启不会补跑已过期的一次性提醒，失败任务也不会自动重新调用模型或工具。对话流断开会取消所属运行，但已经完成的操作不会因此回滚。
 
-## 3. 连接手机客户端
+## 3. 连接手机客户端 {#connect-mobile-client}
 
 Pi Muse 用户端以独立移动客户端为主（目前 Android 优先）。
 
@@ -92,13 +92,13 @@ Pi Muse 用户端以独立移动客户端为主（目前 Android 优先）。
    - 在访问密钥处填入配置文件中的 `server.accessKey`。
    - 点击「测试连接」，通过后点击「连接服务器」保存；只测试成功不会自动保存。
 
-## 4. 网络安全边界
+## 4. 网络安全边界 {#network-security-boundaries}
 
 - **局域网访问**：当 `server.host` 设置为 `0.0.0.0` 时，必须设置强随机 `server.accessKey`，防止同一局域网内的未授权设备调用。
 - **HTTP 与远程访问**：HTTP 正常受支持，服务端端口需允许手机访问；但访问密钥、Token 和聊天内容没有传输加密，AccessKey 不能替代加密。优先在可信网络中使用，HTTPS 或安全虚拟组网作为可选保护，不是启动或连接的前提。
 - **实例数据保护**：实例目录 `.pi-muse/` 中包含模型 API key、服务访问密钥、token 签名密钥以及所有明文会话与记忆数据，切勿公开或上传。
 
-## 5. 服务验证
+## 5. 服务验证 {#verify-service}
 
 服务启动后，可通过以下接口验证服务状态：
 
@@ -106,4 +106,4 @@ Pi Muse 用户端以独立移动客户端为主（目前 Android 优先）。
 - **接口文档**：`http://127.0.0.1:17890/docs`（Scalar API 交互文档）
 - **OpenAPI 规范**：`http://127.0.0.1:17890/openapi.json`
 
-无需真实模型凭据的本地交互联调可参考 [开发入口](development.md#业务本地开发)；mock 使用 fake provider，不能代替真实后端与外部模型验收。
+无需真实模型凭据的本地交互联调可参考 [开发入口](development.md#local-business-development)；mock 使用 fake provider，不能代替真实后端与外部模型验收。

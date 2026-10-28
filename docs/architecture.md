@@ -147,7 +147,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - 仅文件缺失可返回初始化默认值（`SOUL.md`/`USER.md`/`DREAM.md`/`INSTRUCTIONS.md` 同样仅 `ENOENT` 视为空串，其他 I/O 错误抛错）；JSON 损坏、非法根结构、已知字段类型错误、未知版本与其他 I/O 错误必须抛错。每个条目都应符合当前 reader，任一坏条目整体拒绝，禁止过滤后静默丢失或填补已有文档字段。
 - 写入先在内存序列化，以 `wx`、`0600` 创建同目录临时文件，再 `rename`；文本档案与会话指令共用带预期版本比对的原子写入口，防止后台整理覆盖并发编辑。不做 fsync、自动重试、跨进程锁或 durable execution。
 - 损坏文件需停止服务、保留原件并从有效备份恢复，不直接删文件消除报错。未来格式/路径变更单独设计离线迁移与回退，不运行中双写，不保留隐式旧 reader。
-- `runtime.dataDir` 省略或为相对路径时按配置文件目录解析，不按进程 cwd；嵌套目录陷阱与完整实例树见 [配置说明](manual/configuration.md#实例目录结构)。
+- `runtime.dataDir` 省略或为相对路径时按配置文件目录解析，不按进程 cwd；嵌套目录陷阱与完整实例树见 [配置说明](manual/configuration.md#instance-directory-structure)。
 
 ## HTTP 与前端适配边界
 

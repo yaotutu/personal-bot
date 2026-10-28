@@ -46,7 +46,7 @@
 | 新增功能、修复问题或修改代码 | [测试规范](docs/testing.md)：回归补强、命令、证据标准与验收边界 |
 | 修改 HTTP/SSE、工具报文或客户端接入/展示 | [API 开发规范](docs/api-development.md)；同时核对 `src/http/contracts/` 与自有 `web/` |
 | 修改配置、启动或部署 | [配置说明](docs/manual/configuration.md)、[快速上手](docs/manual/getting-started.md)与 [开发指南](docs/development.md)：端口、代理、凭据、DATA_DIR 与操作边界 |
-| 编写文档或修改用户可见行为 | [文档规范](docs/documentation.md)：用户手册范围、页面组织与写作要求 |
+| 编写文档或修改用户可见行为 | [文档规范](docs/documentation.md)：用户手册范围、页面组织、写作要求与中英文配对同步 |
 | 调整 pi 集成或子代理 | 架构规范与 [pi 复用边界](docs/pi-reuse.md)；不照搬历史版本结论 |
 
 ## 最低完成标准
