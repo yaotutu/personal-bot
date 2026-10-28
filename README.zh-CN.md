@@ -160,10 +160,10 @@ docker compose -f compose.browser.yaml up --build -d
 
 1. [下载最新 Android APK](https://github.com/yaotutu/pi-muse-mobile/releases/latest/download/app-release.apk)。源码与平台说明见[客户端仓库](https://github.com/yaotutu/pi-muse-mobile)，已发布版本信息见[版本说明](https://github.com/yaotutu/pi-muse-mobile/releases/latest)。
 2. 在 Android 手机或模拟器中安装并启动 App。
-3. 进入 **设置 -> 服务器连接**，填写可访问的服务端地址（如 `http://192.168.x.x:17890` 或 HTTPS 域名）以及配置中的 `server.accessKey`。
+3. 进入 **设置 -> 服务器连接**，填写可访问的服务端地址（如 `http://192.168.1.100:17890` 或 `http://your-server.example:17890`）以及配置中的 `server.accessKey`。
 4. 点击 **测试连接**，通过后再点击 **连接服务器** 保存已验证的连接；只测试成功不会自动保存。
 
-地址填写服务端根地址，不要附加 `/api` 或 `/docs`。真机上的 `localhost` 和 `127.0.0.1` 指向手机本身，不是服务端。服务端需要持续运行且网络可达；远程访问使用 HTTPS 或安全虚拟组网。模型凭据只在服务端配置，客户端填写的是服务端 AccessKey，不是模型 API key。网络设置详见[快速上手](docs/getting-started.md#3-连接手机客户端)。
+直接支持 HTTP，不要求域名、证书或 HTTPS 反向代理。地址填写服务端根地址，不要附加 `/api` 或 `/docs`。真机上的 `localhost` 和 `127.0.0.1` 指向手机本身，不是服务端。服务端需要持续运行且端口可达。模型凭据只在服务端配置，客户端填写的是服务端 AccessKey，不是模型 API key。网络设置详见[快速上手](docs/getting-started.md#3-连接手机客户端)。
 
 仓库内的 `web/` 是 HTTP/SSE 开发验证页面，不是主要产品客户端。
 
@@ -189,7 +189,7 @@ Pi Muse 使用 HTTP 发起请求和管理状态，并使用单向 SSE 流从服�
 
 - **自部署不等于离线。** 配置的模型提供方会收到当前任务所需的提示词和上下文。其他服务端数据留在你的部署中，但模型请求会离开该部署。
 - **本地数据是明文。** 会话、画像、记忆、工作区文件、任务状态、签名密钥和配置凭据均以明文本地存储。请严格保护实例目录和备份权限。
-- **使用 AccessKey 与安全组网。** 设置强随机 `server.accessKey`。远程访问应使用带 HTTPS 的反向代理或安全专用网络，不要把明文 HTTP 直接暴露到公网。
+- **设置 AccessKey，了解 HTTP 边界。** 设置强随机 `server.accessKey`。HTTP 正常受支持，但访问密钥、Token 和聊天内容没有传输加密，优先在可信网络中使用；HTTPS 或安全虚拟组网是远程访问的可选保护，不是连接前提。
 - **工具权限保持收敛。** 没有 Shell 工具。Web 请求默认只允许公网 HTTP(S) 并带 SSRF 校验；文件写入限定在工作区内，并通过完整差异逐次人工审批。
 
 ---

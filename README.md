@@ -160,10 +160,10 @@ Its default API port is also `17890`, so it cannot run at the same time as the l
 
 1. [Download the latest Android APK](https://github.com/yaotutu/pi-muse-mobile/releases/latest/download/app-release.apk). See the [client repository](https://github.com/yaotutu/pi-muse-mobile) for source and platform details, or [release notes](https://github.com/yaotutu/pi-muse-mobile/releases/latest) for the published version.
 2. Install and open the app on an Android device or emulator.
-3. Go to **Settings -> Server Connection**, enter a reachable server address such as `http://192.168.x.x:17890` or your HTTPS domain, and enter the configured `server.accessKey`.
+3. Go to **Settings -> Server Connection**, enter a reachable server address such as `http://192.168.1.100:17890` or `http://your-server.example:17890`, and enter the configured `server.accessKey`.
 4. Tap **Test Connection**, then **Connect to Server** to save the verified connection. A successful test alone does not save it.
 
-Use the server's base address, without `/api` or `/docs`. On a physical phone, `localhost` and `127.0.0.1` refer to the phone, not your server. Keep the server running and reachable; for remote access, use HTTPS or a secure private network. Model credentials stay on the server: the app needs the server AccessKey, not the model API key. See [Getting Started](docs/getting-started.md#3-连接手机客户端) for network setup.
+HTTP is supported directly; a domain, certificate, and HTTPS reverse proxy are not required. Use the server's base address, without `/api` or `/docs`. On a physical phone, `localhost` and `127.0.0.1` refer to the phone, not your server. Keep the server running and its port reachable. Model credentials stay on the server: the app needs the server AccessKey, not the model API key. See [Getting Started](docs/getting-started.md#3-连接手机客户端) for network setup.
 
 The repository's `web/` app is an HTTP/SSE development and verification page, not the primary product client.
 
@@ -189,7 +189,7 @@ Pi Muse uses HTTP for requests and management, plus one-way SSE streams for serv
 
 - **Self-hosting is not offline.** The configured model provider receives the prompts and context needed for the current task. Other server data remains on your deployment, but model requests leave it.
 - **Local data is plaintext.** Conversations, profiles, memory, workspace files, job state, signing keys, and configured credentials are stored locally without encryption at rest. Protect instance-directory and backup permissions.
-- **Use an AccessKey and secure networking.** Set a strong `server.accessKey`. For remote access, use HTTPS with a reverse proxy or a secure private network; do not expose plain HTTP directly to the public internet.
+- **Use an AccessKey and understand HTTP.** Set a strong `server.accessKey`. HTTP is supported, but sends login credentials, tokens, and conversation content without transport encryption. Prefer a trusted network; HTTPS or a secure private network is optional protection for remote access, not a connection requirement.
 - **Least-privilege tools.** There is no shell tool. Web requests target public HTTP(S) by default with SSRF checks, and file writes are workspace-scoped and individually approved through full diffs.
 
 ---
