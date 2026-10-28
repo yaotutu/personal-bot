@@ -10,7 +10,9 @@
 
 自部署你的 personal agent，通过公开 HTTP/SSE API 接入 Android、iOS、终端及其他平台。独立移动客户端将对话、任务、目标和审批集中在手边。
 
-当前提供 Android 预编译安装包，其他平台可通过公开接口集成。
+**[下载 Android APK](https://github.com/yaotutu/pi-muse-mobile/releases/latest/download/app-release.apk)** · [客户端仓库](https://github.com/yaotutu/pi-muse-mobile) · [版本说明](https://github.com/yaotutu/pi-muse-mobile/releases/latest)
+
+部署服务端、安装客户端，再填写服务端地址和 AccessKey 即可连接，无需为自己的部署重新编译客户端。当前提供 Android 预编译安装包，其他平台可通过公开接口集成。
 
 [快速开始](#快速开始) · [核心特性](#核心特性) · [为什么选择客户端优先](#为什么选择客户端优先) · [架构](#架构与通信协议) · [Android 下载](https://github.com/yaotutu/pi-muse-mobile/releases)
 
@@ -156,9 +158,12 @@ docker compose -f compose.browser.yaml up --build -d
 
 ### 2. 连接 Android 客户端
 
-1. 前往 [pi-muse-mobile Releases](https://github.com/yaotutu/pi-muse-mobile/releases) 下载最新 Android APK。
+1. [下载最新 Android APK](https://github.com/yaotutu/pi-muse-mobile/releases/latest/download/app-release.apk)。源码与平台说明见[客户端仓库](https://github.com/yaotutu/pi-muse-mobile)，已发布版本信息见[版本说明](https://github.com/yaotutu/pi-muse-mobile/releases/latest)。
 2. 在 Android 手机或模拟器中安装并启动 App。
 3. 进入 **设置 -> 服务器连接**，填写可访问的服务端地址（如 `http://192.168.x.x:17890` 或 HTTPS 域名）以及配置中的 `server.accessKey`。
+4. 点击 **测试连接**，通过后再点击 **连接服务器** 保存已验证的连接；只测试成功不会自动保存。
+
+地址填写服务端根地址，不要附加 `/api` 或 `/docs`。真机上的 `localhost` 和 `127.0.0.1` 指向手机本身，不是服务端。服务端需要持续运行且网络可达；远程访问使用 HTTPS 或安全虚拟组网。模型凭据只在服务端配置，客户端填写的是服务端 AccessKey，不是模型 API key。网络设置详见[快速上手](docs/getting-started.md#3-连接手机客户端)。
 
 仓库内的 `web/` 是 HTTP/SSE 开发验证页面，不是主要产品客户端。
 

@@ -10,7 +10,9 @@
 
 Self-host your personal agent and connect across Android, iOS, terminals, and other platforms through its public HTTP/SSE API. A dedicated mobile client keeps conversations, tasks, goals, and approvals within reach.
 
-Prebuilt app downloads currently target Android; other platforms can integrate through the documented API.
+**[Download Android APK](https://github.com/yaotutu/pi-muse-mobile/releases/latest/download/app-release.apk)** · [Client Repository](https://github.com/yaotutu/pi-muse-mobile) · [Release Notes](https://github.com/yaotutu/pi-muse-mobile/releases/latest)
+
+Deploy the server, install the app, then enter your server address and AccessKey to connect. No client rebuild is needed for your deployment. Prebuilt app downloads currently target Android; other platforms can integrate through the documented API.
 
 [Quick Start](#quick-start) · [Core Features](#core-features) · [Why Client-First](#why-client-first) · [Architecture](#architecture-and-communication-protocol) · [Android Download](https://github.com/yaotutu/pi-muse-mobile/releases)
 
@@ -156,9 +158,12 @@ Its default API port is also `17890`, so it cannot run at the same time as the l
 
 ### 2. Connect the Android Client
 
-1. Download the latest Android APK from [pi-muse-mobile Releases](https://github.com/yaotutu/pi-muse-mobile/releases).
+1. [Download the latest Android APK](https://github.com/yaotutu/pi-muse-mobile/releases/latest/download/app-release.apk). See the [client repository](https://github.com/yaotutu/pi-muse-mobile) for source and platform details, or [release notes](https://github.com/yaotutu/pi-muse-mobile/releases/latest) for the published version.
 2. Install and open the app on an Android device or emulator.
 3. Go to **Settings -> Server Connection**, enter a reachable server address such as `http://192.168.x.x:17890` or your HTTPS domain, and enter the configured `server.accessKey`.
+4. Tap **Test Connection**, then **Connect to Server** to save the verified connection. A successful test alone does not save it.
+
+Use the server's base address, without `/api` or `/docs`. On a physical phone, `localhost` and `127.0.0.1` refer to the phone, not your server. Keep the server running and reachable; for remote access, use HTTPS or a secure private network. Model credentials stay on the server: the app needs the server AccessKey, not the model API key. See [Getting Started](docs/getting-started.md#3-连接手机客户端) for network setup.
 
 The repository's `web/` app is an HTTP/SSE development and verification page, not the primary product client.
 
