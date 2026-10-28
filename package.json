@@ -16,7 +16,10 @@
     "test:e2e": "pnpm build && tsx --test --test-concurrency=1 --test-timeout=90000 tests/e2e/*.test.ts",
     "test:live": "tsx tests/live/run.ts",
     "check": "pnpm typecheck && pnpm test && pnpm test:e2e && pnpm --dir web build && git diff --check",
-    "dev:mock": "tsx scripts/dev-mock.ts"
+    "dev:mock": "tsx scripts/dev-mock.ts",
+    "docs:dev": "vitepress dev docs-site --host 127.0.0.1 --port 4174 --strictPort",
+    "docs:build": "vitepress build docs-site",
+    "docs:preview": "vite preview docs-site --outDir .vitepress/dist --host 127.0.0.1 --port 4174 --strictPort"
   },
   "dependencies": {
     "@ag-ui/core": "0.0.59",
@@ -33,6 +36,8 @@
     "@types/node": "24.10.1",
     "@types/ws": "8.18.1",
     "tsx": "4.23.15",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vite": "5.4.21",
+    "vitepress": "1.6.4"
   }
 }

@@ -106,4 +106,4 @@ Pi Muse 用户端以独立移动客户端为主（目前 Android 优先）。
 - **接口文档**：`http://127.0.0.1:17890/docs`（Scalar API 交互文档）
 - **OpenAPI 规范**：`http://127.0.0.1:17890/openapi.json`
 
-如需无需真实模型凭据的本地开发与全链路联调，请参阅 [开发指南](development.md#无凭据本地联调)。
+无需真实模型凭据的本地交互联调可参考 [开发入口](development.md#业务本地开发)；mock 使用 fake provider，不能代替真实后端与外部模型验收。

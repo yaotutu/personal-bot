@@ -97,7 +97,7 @@ pnpm test:live --config .pi-muse/config.json --allow-live
 ## 相关开发文档
 
 - [架构规范](architecture.md)：职责边界、隔离机制、文件审批与新能力接入
-- [配置说明](configuration.md)：完整字段说明、实例目录树与展示策略
+- [配置说明](manual/configuration.md)：完整字段说明、实例目录树与展示策略
 - [测试规范](testing.md)：测试分层、证据标准与回归要求
 - [API 开发规范](api-development.md)：HTTP/SSE 契约设计与文档生成
 - [pi 复用边界](pi-reuse.md)：SDK 集成边界与升级核对

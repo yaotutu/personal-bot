@@ -102,7 +102,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - Web service 返回结构化成功/失败联合结果，监控等业务消费者直接读取；pi 工具层才负责 JSON 序列化与错误标记，不从工具文本反向解析业务状态。
 - 取消信号必须沿工具、service、transport 传到在途网络请求，停止不伪装成普通成功或触发搜索兜底；不能只取消客户端显示而等待工具继续执行。
 - 模型 key 只在受保护实例配置与服务端内存，不写 pi auth.json、日志、客户端或 JSONL；provider/runtime key 在 bootstrap 注册一次。独立资源目录不加载个人 CLI 全局配置、skills、extensions 或 MCP。
-- 单进程单 DATA_DIR；保留 accessKey 鉴权中间件。默认 `0.0.0.0` 便于局域网访问，缺 accessKey 会警告；生产部署应显式配置访问密钥。配置和启动细节见 [配置说明](configuration.md)。
+- 单进程单 DATA_DIR；保留 accessKey 鉴权中间件。默认 `0.0.0.0` 便于局域网访问，缺 accessKey 会警告；生产部署应显式配置访问密钥。配置和启动细节见 [配置说明](manual/configuration.md)。
 - 真实浏览器是独立 `browser` 域，不复用 `web_fetch`。默认同样拒绝私网目标；`tools.browser.allowPrivateTargets` 仅用于本机联调。页面标题、文本和元素名是不可信数据；不向模型暴露任意 JavaScript evaluate，不返回 cookie/localStorage/密码值。
 
 ## 真实浏览器
@@ -147,7 +147,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - 仅文件缺失可返回初始化默认值（`SOUL.md`/`USER.md`/`DREAM.md`/`INSTRUCTIONS.md` 同样仅 `ENOENT` 视为空串，其他 I/O 错误抛错）；JSON 损坏、非法根结构、已知字段类型错误、未知版本与其他 I/O 错误必须抛错。每个条目都应符合当前 reader，任一坏条目整体拒绝，禁止过滤后静默丢失或填补已有文档字段。
 - 写入先在内存序列化，以 `wx`、`0600` 创建同目录临时文件，再 `rename`；文本档案与会话指令共用带预期版本比对的原子写入口，防止后台整理覆盖并发编辑。不做 fsync、自动重试、跨进程锁或 durable execution。
 - 损坏文件需停止服务、保留原件并从有效备份恢复，不直接删文件消除报错。未来格式/路径变更单独设计离线迁移与回退，不运行中双写，不保留隐式旧 reader。
-- `runtime.dataDir` 省略或为相对路径时按配置文件目录解析，不按进程 cwd；嵌套目录陷阱与完整实例树见 [配置说明](configuration.md#实例目录结构)。
+- `runtime.dataDir` 省略或为相对路径时按配置文件目录解析，不按进程 cwd；嵌套目录陷阱与完整实例树见 [配置说明](manual/configuration.md#实例目录结构)。
 
 ## HTTP 与前端适配边界
 

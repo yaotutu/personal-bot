@@ -135,7 +135,7 @@ cp -n config.example.json .pi-muse/config.json
 chmod 600 .pi-muse/config.json
 ```
 
-Set at least `server.accessKey`, `model.baseUrl`, `model.id`, and `model.apiKey` in `.pi-muse/config.json`. See [Configuration](docs/configuration.md) for every field.
+Set at least `server.accessKey`, `model.baseUrl`, `model.id`, and `model.apiKey` in `.pi-muse/config.json`. See [Configuration](docs/manual/configuration.md) for every field.
 
 Start the development server:
 
@@ -153,7 +153,7 @@ The browser container is an optional alternative deployment that also provides n
 docker compose -f compose.browser.yaml up --build -d
 ```
 
-Its default API port is also `17890`, so it cannot run at the same time as the local server on the same host port. Run it instead of the local service or map different host ports. See [Browser Docker](docs/browser-docker.md).
+Its default API port is also `17890`, so it cannot run at the same time as the local server on the same host port. Run it instead of the local service or map different host ports. See [Browser Docker](docs/manual/browser-docker.md).
 
 ---
 
@@ -164,7 +164,7 @@ Its default API port is also `17890`, so it cannot run at the same time as the l
 3. Go to **Settings -> Server Connection**, enter a reachable server address such as `http://192.168.1.100:17890` or `http://your-server.example:17890`, and enter the configured `server.accessKey`.
 4. Tap **Test Connection**, then **Connect to Server** to save the verified connection. A successful test alone does not save it.
 
-HTTP is supported directly; a domain, certificate, and HTTPS reverse proxy are not required. Use the server's base address, without `/api` or `/docs`. On a physical phone, `localhost` and `127.0.0.1` refer to the phone, not your server. Keep the server running and its port reachable. Model credentials stay on the server: the app needs the server AccessKey, not the model API key. See [Getting Started](docs/getting-started.md#3-连接手机客户端) for network setup.
+HTTP is supported directly; a domain, certificate, and HTTPS reverse proxy are not required. Use the server's base address, without `/api` or `/docs`. On a physical phone, `localhost` and `127.0.0.1` refer to the phone, not your server. Keep the server running and its port reachable. Model credentials stay on the server: the app needs the server AccessKey, not the model API key. See [Getting Started](docs/manual/getting-started.md#3-连接手机客户端) for network setup.
 
 The repository's `web/` app is an HTTP/SSE development and verification page, not the primary product client.
 
@@ -199,14 +199,17 @@ Pi Muse uses HTTP for requests and management, plus one-way SSE streams for serv
 
 The detailed documentation is currently written in Chinese.
 
-- [Getting Started](docs/getting-started.md)
-- [Configuration](docs/configuration.md)
+- [User Manual](docs/manual/index.md)
+- [Getting Started](docs/manual/getting-started.md)
+- [Configuration](docs/manual/configuration.md)
 - [Architecture](docs/architecture.md)
-- [Browser Docker](docs/browser-docker.md)
+- [Browser Docker](docs/manual/browser-docker.md)
 - [Development](docs/development.md)
 - [HTTP API Contract](docs/http-api-contract.md)
 - [Avatar Assets](docs/avatar.md)
 - [Testing Guide](docs/testing.md)
+
+For a local manual preview, run `pnpm docs:dev`. Run `pnpm docs:build` and `pnpm docs:preview` to review the static build at `127.0.0.1:4174`; these commands do not publish the site.
 
 ---
 

@@ -135,7 +135,7 @@ cp -n config.example.json .pi-muse/config.json
 chmod 600 .pi-muse/config.json
 ```
 
-至少在 `.pi-muse/config.json` 中设置 `server.accessKey`、`model.baseUrl`、`model.id` 和 `model.apiKey`。完整字段见[配置说明](docs/configuration.md)。
+至少在 `.pi-muse/config.json` 中设置 `server.accessKey`、`model.baseUrl`、`model.id` 和 `model.apiKey`。完整字段见[配置说明](docs/manual/configuration.md)。
 
 启动开发服务：
 
@@ -153,7 +153,7 @@ API 默认监听 `17890` 端口。生产构建可使用 `pnpm build && pnpm star
 docker compose -f compose.browser.yaml up --build -d
 ```
 
-它的默认 API 端口同样是 `17890`，不能与同主机同端口的本地服务同时运行。应作为替代运行，或映射不同宿主端口。详见[浏览器 Docker 说明](docs/browser-docker.md)。
+它的默认 API 端口同样是 `17890`，不能与同主机同端口的本地服务同时运行。应作为替代运行，或映射不同宿主端口。详见[浏览器 Docker 说明](docs/manual/browser-docker.md)。
 
 ---
 
@@ -164,7 +164,7 @@ docker compose -f compose.browser.yaml up --build -d
 3. 进入 **设置 -> 服务器连接**，填写可访问的服务端地址（如 `http://192.168.1.100:17890` 或 `http://your-server.example:17890`）以及配置中的 `server.accessKey`。
 4. 点击 **测试连接**，通过后再点击 **连接服务器** 保存已验证的连接；只测试成功不会自动保存。
 
-直接支持 HTTP，不要求域名、证书或 HTTPS 反向代理。地址填写服务端根地址，不要附加 `/api` 或 `/docs`。真机上的 `localhost` 和 `127.0.0.1` 指向手机本身，不是服务端。服务端需要持续运行且端口可达。模型凭据只在服务端配置，客户端填写的是服务端 AccessKey，不是模型 API key。网络设置详见[快速上手](docs/getting-started.md#3-连接手机客户端)。
+直接支持 HTTP，不要求域名、证书或 HTTPS 反向代理。地址填写服务端根地址，不要附加 `/api` 或 `/docs`。真机上的 `localhost` 和 `127.0.0.1` 指向手机本身，不是服务端。服务端需要持续运行且端口可达。模型凭据只在服务端配置，客户端填写的是服务端 AccessKey，不是模型 API key。网络设置详见[快速上手](docs/manual/getting-started.md#3-连接手机客户端)。
 
 仓库内的 `web/` 是 HTTP/SSE 开发验证页面，不是主要产品客户端。
 
@@ -199,14 +199,17 @@ Pi Muse 使用 HTTP 发起请求和管理状态，并使用单向 SSE 流从服�
 
 当前详细文档以中文编写。
 
-- [快速上手](docs/getting-started.md)
-- [配置说明](docs/configuration.md)
+- [用户手册](docs/manual/index.md)
+- [快速上手](docs/manual/getting-started.md)
+- [配置说明](docs/manual/configuration.md)
 - [架构规范](docs/architecture.md)
-- [真实浏览器 Docker 说明](docs/browser-docker.md)
+- [真实浏览器 Docker 说明](docs/manual/browser-docker.md)
 - [开发与联调手册](docs/development.md)
 - [HTTP API 契约](docs/http-api-contract.md)
 - [虚拟形象素材说明](docs/avatar.md)
 - [测试指南](docs/testing.md)
+
+本地查看手册可运行 `pnpm docs:dev`；运行 `pnpm docs:build` 后用 `pnpm docs:preview` 在 `127.0.0.1:4174` 预览静态构建结果。这些命令不会发布站点。
 
 ---
 
