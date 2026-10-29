@@ -1,23 +1,60 @@
 #!/usr/bin/env python3
-"""从已确认的 RGB 母版通过 ImageMagick 派生 T1 客户端素材。"""
+"""从已确认的 T1 母版确定性导出客户端 PNG、预览与交接包。"""
 
+import hashlib
 from pathlib import Path
+import shutil
 import subprocess
 from tempfile import TemporaryDirectory
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 
 ROOT = Path(__file__).resolve().parent
 SOURCE = ROOT / "previews/neutral-icon-master.png"
 CLIENT = ROOT / "client"
+DELIVERY = ROOT / "delivery/pi-muse-client-assets.zip"
+PNG_FILES = (
+    "icon.png",
+    "android-icon-foreground.png",
+    "android-icon-background.png",
+    "android-icon-monochrome.png",
+    "favicon.png",
+    "splash-icon.png",
+    "images/muse-companion.png",
+    "web/icon-16.png",
+    "web/icon-32.png",
+    "web/icon-192.png",
+    "web/icon-512.png",
+)
 
 
 def magick(*args):
     subprocess.run(["magick", *map(str, args)], check=True)
 
 
+def build_delivery():
+    """只收正式 PNG 与指南；固定顺序和 ZIP 元数据以保证逐字节复现。"""
+    guide = (ROOT / "client-handoff.md").read_bytes()
+    entries = [(f"assets/{name}", (CLIENT / name).read_bytes()) for name in PNG_FILES]
+    entries.append(("asset-guide.md", guide))
+    checksums = "".join(
+        f"{hashlib.sha256(data).hexdigest()}  {name}\n" for name, data in entries
+    ).encode("ascii")
+    entries.append(("checksums.sha256", checksums))
+    DELIVERY.parent.mkdir(exist_ok=True)
+    with ZipFile(DELIVERY, "w", compression=ZIP_DEFLATED, compresslevel=9) as archive:
+        for name, data in entries:
+            info = ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = ZIP_DEFLATED
+            info.external_attr = 0o100644 << 16
+            info.create_system = 3
+            archive.writestr(info, data, compress_type=ZIP_DEFLATED, compresslevel=9)
+
+
 def main():
     (ROOT / "mascot").mkdir(exist_ok=True)
     (CLIENT / "web").mkdir(parents=True, exist_ok=True)
+    (CLIENT / "images").mkdir(parents=True, exist_ok=True)
 
     with TemporaryDirectory(prefix="brand-icons-", dir=ROOT) as scratch:
         temp = Path(scratch)
@@ -67,7 +104,13 @@ def main():
         for size, path in ((48, CLIENT / "favicon.png"), (16, CLIENT / "web/icon-16.png"), (32, CLIENT / "web/icon-32.png"), (192, CLIENT / "web/icon-192.png"), (512, CLIENT / "web/icon-512.png")):
             magick(SOURCE, "-resize", f"{size}x{size}", "-colorspace", "sRGB", "-alpha", "off", "-strip", f"PNG24:{path}")
 
+        # 缩小完整透明母版，给圆形头像遮罩的四角留出空间。
+        magick(ROOT / "mascot/transparent.png", "-resize", "420x420", "-background", "none", "-gravity", "center", "-extent", "512x512", "-strip", f"PNG32:{CLIENT / 'images/muse-companion.png'}")
+
+    # 启动图直接复用已验证的 Android 安全留白图层，不再重新编码像素。
+    shutil.copyfile(CLIENT / "android-icon-foreground.png", CLIENT / "splash-icon.png")
     subprocess.run(["rsvg-convert", "-o", str(ROOT / "previews/client-icon-sheet.png"), str(ROOT / "client-icon-sheet.svg")], check=True)
+    build_delivery()
 
 
 if __name__ == "__main__":

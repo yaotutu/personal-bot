@@ -179,21 +179,48 @@
     },
     {
       "file": "client-icon-sheet.svg",
-      "role": "client-icon-simulated-preview-layout",
-      "sha256": "4915c611d528ad629c7e3f52913b32bc73f3099a4dc651316ba157c3c83e0608"
+      "role": "client-asset-mock-preview-layout",
+      "sha256": "6746f6eff1f2e5b74e4a822a6837dd463c8d0f0c88beee7ed8ba52eddc483559"
     },
     {
       "file": "previews/client-icon-sheet.png",
-      "role": "client-icon-simulated-preview",
-      "sha256": "9256da63a63c73b36b97991a15a7645cf6922bd6f22073e4efdd317d2c15d2dd",
+      "role": "client-asset-mock-preview",
+      "sha256": "821aac2d3faab66fb15c5af34dc2edb6b14c55d5292f682cd807f31607e62b66",
       "width": 1600,
-      "height": 1130,
+      "height": 1530,
       "mode": "RGB"
     },
     {
       "file": "build-client-icons.py",
-      "role": "deterministic-client-asset-build-script",
-      "sha256": "a78e52226a67930e80090d30429b195d2dc7b1794913de291cfd3a0788cf3fd9"
+      "role": "deterministic-client-asset-and-delivery-build-script",
+      "sha256": "dac64de463afb782dd58a3b1413078290a1fe45a6fd8baacd40ef3f2a021a9fb"
+    },
+    {
+      "file": "client/images/muse-companion.png",
+      "role": "static-default-avatar-from-transparent-master-circle-safe",
+      "sha256": "1fb8a413bdebaec3840e70865c188da12a30fa479353386884663c2dce37bdf1",
+      "width": 512,
+      "height": 512,
+      "mode": "RGBA"
+    },
+    {
+      "file": "client/splash-icon.png",
+      "role": "splash-candidate-byte-copy-of-android-foreground-not-integrated",
+      "sha256": "7d59434c5a2c4a501e3077509483f3bd436182a3621d7ca32b278cdc1056d8ad",
+      "width": 1024,
+      "height": 1024,
+      "mode": "RGBA"
+    },
+    {
+      "file": "client-handoff.md",
+      "role": "mobile-static-asset-handoff-guide",
+      "sha256": "52e679356025cdeee3dcbb6709200eba041fa1f464f2ec5bcb8e23cf3d57924e"
+    },
+    {
+      "file": "delivery/pi-muse-client-assets.zip",
+      "role": "reproducible-portable-client-asset-package",
+      "sha256": "7aa54b620cb60febb780f4a6f29fae9a86c009b47348f3e96896ee02c82b3d32",
+      "sizeBytes": 1831241
     }
   ],
   "approvedArtwork": {
@@ -211,11 +238,11 @@
       64,
       32
     ],
-    "notes": "User accepted the light-background T1 artwork. The deterministic transparent cutout and client icon asset pack are complete; native launcher validation and integration remain pending.",
+    "notes": "User accepted the light-background T1 artwork. The static client handoff pack is complete; native launcher, splash, app integration and runtime validation remain pending.",
     "approvedOn": "2026-10-29"
   },
   "clientAssetPack": {
-    "state": "created-static-checked-not-integrated",
+    "state": "complete-static-handoff-not-integrated",
     "source": "previews/neutral-icon-master.png",
     "sourceSha256": "53182c9e203f7dfb5d6af30202862e851fabc2a565a276b62f79a79e96850245",
     "transparentMaster": "mascot/transparent.png",
@@ -239,6 +266,19 @@
     "nativeLauncherValidated": false,
     "platformIntegration": false,
     "previewViewportFraction": "72/108",
-    "opaqueMascotCoreRgbMismatchPixels": 0
+    "opaqueMascotCoreRgbMismatchPixels": 0,
+    "defaultAvatar": "client/images/muse-companion.png",
+    "defaultAvatarSource": "mascot/transparent.png",
+    "defaultAvatarAlphaBoundingBox": "348x316+82+103",
+    "defaultAvatarCircleOutsideAlphaPixels": 0,
+    "splashIcon": "client/splash-icon.png",
+    "splashByteCopyOf": "client/android-icon-foreground.png",
+    "splashSafeCircleDiameterFraction": "2/3",
+    "splashSafeCircleOutsideAlphaPixels": 0,
+    "splashIntegrated": false,
+    "handoffGuide": "client-handoff.md",
+    "delivery": "delivery/pi-muse-client-assets.zip",
+    "deliverySha256": "7aa54b620cb60febb780f4a6f29fae9a86c009b47348f3e96896ee02c82b3d32",
+    "nativeSplashValidated": false
   }
 }

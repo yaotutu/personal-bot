@@ -1,11 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1600" height="1130" viewBox="0 0 1600 1130">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1600" height="1530" viewBox="0 0 1600 1530">
   <defs>
     <clipPath id="ios"><rect x="70" y="225" width="290" height="290" rx="66"/></clipPath>
     <clipPath id="android-circle"><circle cx="590" cy="370" r="145"/></clipPath>
     <clipPath id="android-round"><rect x="875" y="225" width="290" height="290" rx="81"/></clipPath>
     <clipPath id="mono-round"><rect x="1240" y="225" width="290" height="290" rx="81"/></clipPath>
+    <clipPath id="avatar-circle"><circle cx="290" cy="1300" r="100"/></clipPath>
   </defs>
-  <rect width="1600" height="1130" fill="#edf2f4"/>
+  <rect width="1600" height="1530" fill="#edf2f4"/>
   <g font-family="Avenir, Arial, sans-serif" fill="#223849">
     <text x="70" y="89" font-size="44" font-weight="700">Pi Muse / T1 client icon assets</text>
     <text x="70" y="130" font-size="21" fill="#617583">Same approved artwork · transparent mascot · platform layer studies</text>
@@ -49,6 +50,19 @@
     <text x="1216" y="968" font-size="18" text-anchor="middle">48</text>
     <text x="1310" y="968" font-size="18" text-anchor="middle">32</text>
     <text x="1390" y="968" font-size="18" text-anchor="middle">16 px</text>
-    <text x="70" y="1103" font-size="17" fill="#617583">Simulated masks and surfaces for review only · native launcher and app integration not verified</text>
+    <path d="M70 1100H1530" stroke="#cfdbdf" stroke-width="2"/>
+    <text x="70" y="1145" font-size="24" font-weight="700">Default avatar and static mascot</text>
+    <text x="1050" y="1145" font-size="24" font-weight="700">Splash icon composition</text>
+    <rect x="70" y="1175" width="440" height="270" rx="24" fill="#f9fbfd"/>
+    <circle cx="290" cy="1300" r="100" fill="#dceaf4"/>
+    <image x="190" y="1200" width="200" height="200" clip-path="url(#avatar-circle)" xlink:href="client/images/muse-companion.png"/>
+    <text x="92" y="1420" font-size="17">512 RGBA · circular cover mock</text>
+    <rect x="560" y="1175" width="440" height="270" rx="24" fill="#304657"/>
+    <image x="677" y="1190" width="206" height="206" xlink:href="client/images/muse-companion.png"/>
+    <text x="582" y="1420" font-size="17" fill="#fff">Same static PNG on dark surface</text>
+    <rect x="1050" y="1175" width="480" height="270" rx="24" fill="#f1f6fa"/>
+    <image x="1167" y="1180" width="240" height="240" xlink:href="client/splash-icon.png"/>
+    <text x="1072" y="1420" font-size="17">1024 RGBA · safe circle · not enabled</text>
+    <text x="70" y="1490" font-size="17" fill="#617583">Asset mock only · native launcher, splash screen and app integration not verified</text>
   </g>
 </svg>
