@@ -9,6 +9,7 @@ This guide explains how to create and manage Pi Muse scheduled jobs and web moni
 - **Activity history**: A timeline of composite or long-running work explicitly registered by the model during real execution. It is not a collection of every chat, every tool call, or every background notification.
 
 All three areas are under the bottom 「任务」 tab. The session panel's 「历史」 page also shows activity history for the current space, but it does not provide the all-spaces scope switch shown in the main tasks page.
+The chat `schedule` and `monitor` tools can only list and control records in the current space. Even with the full ID of another space's record, chat returns “not found” and does not change it. REST management on the bottom 「任务」 tab still supports the all-spaces aggregate and explicit cross-space management.
 
 ## Prerequisites {#prerequisites}
 
@@ -31,7 +32,7 @@ Ordinary answers, explanations, clarifications, and simple lookups usually do no
 
 1. On the chat page, open the space sidebar and confirm the current space. The job binds to this origin space. Resetting that space's conversation keeps the job by default and rebinds it to the new conversation; deleting the space deletes the job.
 2. State the job content and its one-time or daily time directly in a message. For example: “Create a daily job at 09:00 to summarize today's todo items” or “Create a one-time job tomorrow at 09:00 Shanghai time to remind me to review the checklist.”
-3. Send the message and wait for the model to call the `schedule` tool. A successful tool result shows a short job ID and the next execution time.
+3. Send the message and wait for the model to call the `schedule` tool. A successful tool result shows the full job ID and the next execution time; use that full ID for later cancellation in chat.
 4. Open bottom 「任务」 → 「定时任务」 and verify its status, time, origin space, and next execution.
 
 The current mobile client has no “new scheduled job” form. If the model only replies in text without calling the tool, explicitly ask it to create the scheduled job or check whether the `cron` skill is enabled. Do not treat a natural-language promise in chat as a scheduled job.
@@ -39,6 +40,8 @@ The current mobile client has no “new scheduled job” form. If the model only
 A one-time time must include an explicit timezone. When editing in the mobile app, it generates a timestamp with an offset from the phone's local date and time. A daily job stores only `HH:mm`, interpreted in the server's local timezone; the page shows that timezone as read from `/api/health`.
 
 ## Manage Scheduled Jobs {#manage-scheduled-jobs}
+
+The buttons in this section use the REST management API and can target either all spaces or the current space. The chat `schedule` tool is fixed to the current space and cannot view or change another space's job.
 
 1. Tap bottom 「任务」 → 「定时任务」.
 2. Filter with 「全部空间」 or 「当前空间」, sort by 「下次执行」, 「更新时间」, or 「创建时间」, and switch ascending or descending order.
@@ -69,6 +72,8 @@ The job timeline contains creation, the latest control, and the latest run resul
 For `change`, the first check only establishes a baseline and does not notify; later fingerprint changes do. For `contains`, continued matches do not repeat notifications—only “not matched” changing to “matched” does. Page excerpts in monitor notifications are untrusted external content and should only be used as factual clues to verify.
 
 Management steps:
+
+The page operations below use the REST management API and can filter by all spaces or the current space. The chat `monitor` tool is fixed to the current space and cannot view or change another space's monitor title, keyword, or content.
 
 1. On 「网页监控」, filter with 「全部空间」 or 「当前空间」 and sort by creation time, latest check, or status.
 2. 「暂停」 stops future checks and 「恢复」 restores a paused monitor. These two actions submit immediately, so check the target card before tapping.

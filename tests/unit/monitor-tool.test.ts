@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { monitorTool } from "../../src/adapters/pi/tools/monitor.js";
+import { projectExecutionEvent } from "../../src/adapters/pi/execution.js";
 import type { Monitor } from "../../src/features/monitors/types.js";
 
 const createMockMonitors = () => {
@@ -22,7 +23,7 @@ const createMockMonitors = () => {
           intervalMinutes: input.intervalMinutes ?? 30,
           status: "active",
           createdAt: new Date().toISOString(),
-          originSpaceId: input.originSpaceId,
+          originSpaceId: input.originSpaceId ?? "local-main",
           checks: 0,
         };
         items.push(m);
@@ -86,6 +87,7 @@ test("monitor tool execute: list/pause/resume/stop do not require url", async ()
     intervalMinutes: 10,
     status: "active",
     createdAt: new Date().toISOString(),
+    originSpaceId: "space-1",
     checks: 1,
   });
   const tool = monitorTool(service, "space-1");
@@ -114,4 +116,57 @@ test("monitor tool execute: list/pause/resume/stop do not require url", async ()
   const noIdRes = await tool.execute("call-noid", { action: "pause" } as never, undefined, undefined, {} as never);
   assert.equal(noIdRes.isError, true);
   assert.match(noIdRes.content[0]?.type === "text" ? noIdRes.content[0].text : "", /control needs monitorId/);
+});
+
+test("monitor list and controls do not expose or change another space's monitor", async () => {
+  const { service, items, calls } = createMockMonitors();
+  items.push(
+    {
+      id: "own-monitor",
+      title: "Own site",
+      url: "https://example.com/own",
+      condition: "change",
+      intervalMinutes: 30,
+      status: "active",
+      createdAt: new Date().toISOString(),
+      originSpaceId: "space-1",
+      checks: 0,
+    },
+    {
+      id: "other-monitor",
+      title: "Other secret title",
+      url: "https://example.com/other",
+      condition: "change",
+      intervalMinutes: 30,
+      status: "active",
+      createdAt: new Date().toISOString(),
+      originSpaceId: "space-b",
+      checks: 0,
+    },
+  );
+  const tool = monitorTool(service, "space-1");
+
+  const list = await tool.execute("call-list", { action: "list" } as never, undefined, undefined, {} as never);
+  const listText = list.content[0]?.type === "text" ? list.content[0].text : "";
+  assert.match(listText, /own-monitor \[active\] Own site/);
+  assert.doesNotMatch(listText, /other-monitor|Other secret title/);
+
+  const denied = await tool.execute("call-other", { action: "pause", monitorId: "other-monitor" } as never, undefined, undefined, {} as never);
+  assert.equal(denied.isError, true);
+  assert.equal(denied.content[0]?.type === "text" ? denied.content[0].text : "", "Monitor not found");
+  assert.equal((denied.details as { denied?: boolean } | undefined)?.denied, true);
+  const projected = projectExecutionEvent({
+    type: "tool_execution_end",
+    toolCallId: "call-other",
+    toolName: "monitor",
+    result: denied,
+    isError: true,
+  } as never) as { content?: string };
+  assert.equal(projected.content, "Monitor not found");
+  assert.equal(items[1]?.status, "active");
+  assert.ok(!calls.some((call) => call.method === "control" && call.args instanceof Object && (call.args as { id?: string }).id === "other-monitor"));
+
+  const own = await tool.execute("call-own", { action: "pause", monitorId: "own-monitor" } as never, undefined, undefined, {} as never);
+  assert.equal(own.isError, false);
+  assert.equal(items[0]?.status, "paused");
 });

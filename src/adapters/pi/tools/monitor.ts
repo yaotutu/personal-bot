@@ -1,12 +1,21 @@
-import { defineTool } from "@earendil-works/pi-coding-agent";
+import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import type { MonitorService } from "../../../features/monitors/monitor-service.js";
 import type { MonitorCondition } from "../../../features/monitors/types.js";
 
-/** 对话式监控工具：创建/列表/暂停/恢复/停止。检查由调度器周期执行。 */
+type MonitorToolDetails = { denied?: true } | undefined;
+
+const deniedResult = (text: string): AgentToolResult<MonitorToolDetails> => ({
+  content: [{ type: "text", text }],
+  details: { denied: true },
+  isError: true,
+});
+
+/** 对话式监控工具：创建/列表/暂停/恢复/停止。普通聊天只限于当前空间；
+ * 跨空间汇总和控制仍由 REST 管理入口显式完成。 */
 export const monitorTool = (
   monitors: Pick<MonitorService, "create" | "list" | "control">,
-  originSpaceId?: string,
+  originSpaceId = "local-main",
 ) =>
   defineTool({
     name: "monitor",
@@ -36,18 +45,14 @@ export const monitorTool = (
         value: Type.Optional(Type.String({ description: "Keyword for contains." })),
         title: Type.Optional(Type.String({ description: "Short label (create)." })),
         intervalMinutes: Type.Optional(Type.Number({ description: "Check interval, min 5." })),
-        monitorId: Type.Optional(Type.String({ description: "Monitor id for control." })),
+        monitorId: Type.Optional(Type.String({ description: "Monitor ID for control; it must belong to this conversation." })),
       },
       { additionalProperties: false },
     ),
     execute: async (_id, params) => {
       if (params.action === "create") {
         if (!params.url || !/^https?:\/\//.test(params.url))
-          return {
-            content: [{ type: "text", text: "url must be a public http(s) URL." }],
-            details: undefined,
-            isError: true,
-          };
+          return deniedResult("url must be a public http(s) URL.");
         try {
           const monitor = await monitors.create({
             originSpaceId,
@@ -75,7 +80,9 @@ export const monitorTool = (
         }
       }
       if (params.action === "list") {
-        const list = await monitors.list();
+        const list = (await monitors.list()).filter(
+          (monitor) => (monitor.originSpaceId ?? "local-main") === originSpaceId,
+        );
         const lines = list.map(
           (m) =>
             `- ${m.id} [${m.status}] ${m.title} · ${m.condition}${m.value ? ` "${m.value}"` : ""} · every ${m.intervalMinutes}min · checks=${m.checks}${m.error ? ` · ${m.error}` : ""}`,
@@ -86,18 +93,16 @@ export const monitorTool = (
         };
       }
       if (!params.monitorId)
-        return {
-          content: [{ type: "text", text: "control needs monitorId (see list)." }],
-          details: undefined,
-          isError: true,
-        };
+        return deniedResult("control needs monitorId (see list).");
       const action = params.action as "pause" | "resume" | "stop";
+      const scoped = (await monitors.list()).some(
+        (monitor) => monitor.id === params.monitorId && (monitor.originSpaceId ?? "local-main") === originSpaceId,
+      );
+      if (!scoped) return deniedResult("Monitor not found");
       const result = await monitors.control(params.monitorId, action);
       return {
-        content: [
-          { type: "text", text: result.ok ? `Monitor ${action}d.` : result.message },
-        ],
-        details: undefined,
+        content: [{ type: "text", text: result.ok ? `Monitor ${action}d.` : result.message }],
+        details: result.ok ? undefined : { denied: true as const },
         isError: !result.ok,
       };
     },

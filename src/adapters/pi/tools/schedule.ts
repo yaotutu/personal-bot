@@ -15,8 +15,12 @@ const deniedResult = (text: string): AgentToolResult<ScheduleToolDetails> => ({
 });
 
 // P4 对话式定时任务工具：模型把自然语言时间转成参数。一次性用 ISO 时间
-// （含时区），每日用严格 HH:mm（00:00 至 23:59）。崩了重跑哲学：调度器只是扫表 + 诚实状态。
-export const scheduleTool = (jobs: Pick<JobService, "add" | "list" | "cancel">, spaceId?: string) =>
+// （含时区），每日用严格 HH:mm（00:00 至 23:59）。普通聊天只可见和控制
+// 当前空间；跨空间汇总仍走 REST 管理入口。
+export const scheduleTool = (
+  jobs: Pick<JobService, "add" | "list" | "cancel">,
+  spaceId = "local-main",
+) =>
   defineTool({
     name: "schedule",
     label: "Scheduled jobs",
@@ -42,7 +46,7 @@ export const scheduleTool = (jobs: Pick<JobService, "add" | "list" | "cancel">, 
             "REQUIRED for every action (use a placeholder for list/cancel). For create: ISO 8601 with timezone, or strict HH:mm (00:00 to 23:59) when daily=true.",
         }),
         daily: Type.Optional(Type.Boolean()),
-        jobId: Type.Optional(Type.String({ description: "Job to cancel." })),
+        jobId: Type.Optional(Type.String({ description: "Full job ID to cancel; it must belong to this conversation." })),
       },
       { additionalProperties: false },
     ),
@@ -55,12 +59,12 @@ export const scheduleTool = (jobs: Pick<JobService, "add" | "list" | "cancel">, 
         // 并通过 details.denied = true 标记为受控业务拒绝，穿过 projectExecutionEvent 错误脱敏
         try {
           assertValidSchedule(daily, params.at.trim());
-          const job = await jobs.add(params.prompt, daily, params.at, spaceId || "local-main");
+          const job = await jobs.add(params.prompt, daily, params.at, spaceId);
           return {
             content: [
               {
                 type: "text",
-                text: `Scheduled (id ${job.id.slice(0, 8)}): "${job.prompt}" next at ${job.nextRunAt}${daily ? " (daily)" : ""}.`,
+                text: `Scheduled (id ${job.id}): "${job.prompt}" next at ${job.nextRunAt}${daily ? " (daily)" : ""}.`,
               },
             ],
             details: { id: job.id },
@@ -79,16 +83,22 @@ export const scheduleTool = (jobs: Pick<JobService, "add" | "list" | "cancel">, 
       if (params.action === "cancel") {
         if (!params.jobId?.trim())
           return deniedResult("Cancel needs jobId (see list).");
+        const scoped = (await jobs.list()).some(
+          (job) => job.id === params.jobId && (job.originSpaceId ?? "local-main") === spaceId,
+        );
+        if (!scoped) return deniedResult("No such job.");
         const ok = await jobs.cancel(params.jobId);
         return {
           content: [{ type: "text", text: ok ? "Cancelled." : "No such job." }],
           details: undefined,
         };
       }
-      const list = await jobs.list();
+      const list = (await jobs.list()).filter(
+        (job) => (job.originSpaceId ?? "local-main") === spaceId,
+      );
       const lines = list.map(
         (x) =>
-          `- ${x.id.slice(0, 8)} ${x.daily ? `daily ${x.at}` : x.at} enabled=${x.enabled} next=${x.nextRunAt}: ${x.prompt}`,
+          `- ${x.id} ${x.daily ? `daily ${x.at}` : x.at} enabled=${x.enabled} next=${x.nextRunAt}: ${x.prompt}`,
       );
       return {
         content: [
