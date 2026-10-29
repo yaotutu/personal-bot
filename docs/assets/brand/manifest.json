@@ -22,6 +22,97 @@
       "height": 1254,
       "mode": "RGB",
       "sha256": "afb6c0197bea03c0e47cb047202415d60e70f8340a8d28e8b8a43941f267b9f1"
+    },
+    {
+      "file": "previews/neutral-icon-master.png",
+      "role": "neutral-background-preview-only",
+      "sha256": "53182c9e203f7dfb5d6af30202862e851fabc2a565a276b62f79a79e96850245",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGB"
+    },
+    {
+      "file": "exports/neutral-icon-1024.png",
+      "role": "neutral-background-preview-only",
+      "sha256": "c29bdf8a616ea928cde6ac96db13eadde93f7fda96fcc669e06adc889ddd7a73",
+      "width": 1024,
+      "height": 1024,
+      "mode": "RGB"
+    },
+    {
+      "file": "exports/neutral-icon-128.png",
+      "role": "neutral-background-preview-only",
+      "sha256": "a92502fcb278f64f106af344b4deb3396541e6b4087d8e2669990f375322c99f",
+      "width": 128,
+      "height": 128,
+      "mode": "RGB"
+    },
+    {
+      "file": "exports/neutral-icon-256.png",
+      "role": "neutral-background-preview-only",
+      "sha256": "a4be2d57fce96f20607daae68b3460a9cd7ec2c17d92904544401a151386b5d7",
+      "width": 256,
+      "height": 256,
+      "mode": "RGB"
+    },
+    {
+      "file": "exports/neutral-icon-32.png",
+      "role": "neutral-background-preview-only",
+      "sha256": "a6c2d725db3a8800cf009268112517265f75312378475e6177ccfbbfc79b9485",
+      "width": 32,
+      "height": 32,
+      "mode": "RGB"
+    },
+    {
+      "file": "exports/neutral-icon-512.png",
+      "role": "neutral-background-preview-only",
+      "sha256": "0d5ade646a44daa7e2d2ca9e438bb597732745807bafb76a3b947f94b2e4edaf",
+      "width": 512,
+      "height": 512,
+      "mode": "RGB"
+    },
+    {
+      "file": "exports/neutral-icon-64.png",
+      "role": "neutral-background-preview-only",
+      "sha256": "b1cf49ebec067dd08911c5360434a0be694bcc001b49b11e7b5fd590ed130c5a",
+      "width": 64,
+      "height": 64,
+      "mode": "RGB"
+    },
+    {
+      "file": "previews/neutral-icon-sheet.png",
+      "role": "neutral-background-preview-only",
+      "sha256": "22bb7c59f0279cf4dc826942db7d5f589bd0c2a3d77487551b637284e1573554",
+      "width": 1400,
+      "height": 980,
+      "mode": "RGB"
+    },
+    {
+      "file": "neutral-icon-sheet.svg",
+      "role": "neutral-background-preview-only",
+      "sha256": "da5ef32ae1ddee0a44111a2563a9d6bc277b3f2fcf872b91d46be16430348fe0"
+    },
+    {
+      "file": "generation-brief.txt",
+      "role": "neutral-background-preview-only",
+      "sha256": "238e907440a172ec41b851f9fc518ef52da24a57967dce3ca08ea168763c4cb3"
     }
-  ]
+  ],
+  "neutralPreview": {
+    "state": "opaque-size-and-composition-study",
+    "source": "previews/neutral-icon-master.png",
+    "identitySource": "mascot/reference.png",
+    "backgroundApproved": false,
+    "transparentForegroundReady": false,
+    "platformIntegration": false,
+    "sizes": [
+      1024,
+      512,
+      256,
+      128,
+      64,
+      32
+    ],
+    "notes": "Same-source mechanical exports. AI-edited neutral study is not a replacement mascot master. Transparent attempts rejected for colored edge artifacts."
+  }
 }

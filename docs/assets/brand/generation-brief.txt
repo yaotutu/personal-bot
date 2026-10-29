@@ -1,0 +1,32 @@
+T1 neutral preview assets - 2026-10-29
+
+Mode: built-in image_gen edit; no CLI/API fallback.
+Identity reference: mascot/reference.png.
+Result: previews/neutral-icon-master.png, 1254x1254 RGB.
+All exports are mechanical resizes of that one result, not new generations.
+The source character reference remains authoritative and unchanged.
+The light background is provisional, not a user-approved brand palette.
+
+Successful opaque-image request:
+Use case: precise-object-edit. Input image is the exact Pi Muse T1 mascot reference. Change only the peach backdrop to a completely uniform very pale cool porcelain color #F3F7FA. Preserve this penguin design: plump egg body, powder blue outer shell, unbroken ivory face/belly with a shallow center notch, two dark oval eyes, tiny flattened apricot beak, orange feet, hanging short blue flippers, soft matte fine texture. Same neutral frontal expression and proportions. No accessories, tufts or blush. Full body centered in a square. Scale the whole character to occupy 74% of image width and about 70% image height with clear even breathing room around it. Remove the original floor shadow, floating object on an entirely flat uniform porcelain color with NO gradient and NO shadow. The backdrop must meet all four canvas edges; no rounded corner tile or inset border. Crisp natural blue and apricot edges, no white halo or neon fringing. This is a neutral working composition, not a final background choice. No text or watermark.
+
+Observed limitations:
+The generator retained a larger character than the requested 74% width.
+The actual pale background is not assumed to equal the requested hex value.
+AI editing may slightly alter character details; this is a derivative study,
+not a pixel-identical extraction and not a replacement character master.
+Transparent requests from the reference and neutral study still produced
+colored edge artifacts. They were rejected and are not packaged as assets.
+No programmatic repainting or alpha cleanup was used to conceal that issue.
+
+Export recipe (ImageMagick):
+magick previews/neutral-icon-master.png -resize NxN -colorspace sRGB -alpha off -strip PNG24:exports/neutral-icon-N.png
+N: 1024, 512, 256, 128, 64, 32.
+Preview recipe (librsvg):
+rsvg-convert -o previews/neutral-icon-sheet.png neutral-icon-sheet.svg
+The SVG is only a layout/contact sheet; it does not redraw the mascot.
+
+Scope:
+Asset-only work in the dedicated brand-assets Git worktree.
+No application source/config edits, native build, runtime integration,
+release, push or changes to the other development worktree.
