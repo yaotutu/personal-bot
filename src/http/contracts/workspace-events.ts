@@ -9,7 +9,7 @@ import {
 } from "./approvals.js";
 
 /**
- * 工作区实时状态推送流契约（zod v4）：GET /api/events 上发出的五类事件。
+ * 工作区实时状态推送流契约（zod v4）：GET /api/events 上发出的六类事件。
  *
  * 与旧版“空对象失效通知”不同，本流直接承载可展示的最新状态：
  * - ready：连接建立时的完整当前集合（进行中的运行 + 待审批项 + 进行中的活动）；
@@ -17,6 +17,7 @@ import {
  * - approval_pending：新增待审批项的完整不可变内容；
  * - approval_updated：审批进入终态与执行回执变化时的轻量投影。
  * - activity_updated：活动状态变化时的概览快照（仅状态变化时推送，progress 过程更新不推）。
+ * - conversation_updated：服务端通知已成功 append 到会话历史后的瞬时失效信号。
  *
  * 协议边界：
  * - 单向推送，不接收批准/拒绝/停止等操作；用户操作走独立 HTTP 接口。
@@ -112,10 +113,21 @@ export const workspaceEvents = {
         "progress 文本的过程性更新不推送，查看最新进展读取 GET /api/activities/:id。" +
         "completed 时 result 为结果摘要；按 id 更新本地活动，逐步明细仍读取详情接口。",
     ),
+  conversation_updated: z
+    .strictObject({
+      instanceId: instanceIdSchema,
+      spaceId: z.string().min(1).describe("通知成功落盘的目标空间 ID。"),
+      sessionId: z.string().min(1).describe("通知成功落盘时的 PI 会话 ID，用于过滤旧会话迟到帧。"),
+    })
+    .describe(
+      "服务端通知成功 append 到 PI 历史后的瞬时失效信号。data 只包含身份字段，不含消息正文、通知状态或 agent status；" +
+        "客户端只应对对应 space/session 标记历史失效并读取 GET /api/conversation 权威历史，不得伪造状态事件。" +
+        "该帧只在新增通知落盘后发布一次；排队、取消、append 失败和同 ID 幂等 noop 不发布。",
+    ),
 } as const;
 
 export const WORKSPACE_SSE_DESCRIPTION = [
-  "这是单用户工作区的实时状态推送流：连接建立时直接给出当前进行中的运行和待审批项的完整内容，之后推送最新变化。它与 POST /api/conversation/run 的 AG-UI 聊天文字流完全独立；不是聊天增量，不负责锁屏系统推送，也不接收任何操作命令。客户端收到事件后可直接更新界面，不需要为每条事件再拉一次快照。",
+  "这是单用户工作区的实时状态推送流：连接建立时直接给出当前进行中的运行和待审批项的完整内容，之后推送最新变化。它与 POST /api/conversation/run 的 AG-UI 聊天文字流完全独立；不是聊天增量，不负责锁屏系统推送，也不接收任何操作命令。除 conversation_updated 是明确要求客户端重读权威历史的失效信号外，其他事件可直接更新界面，不需要为每条事件再拉一次快照。",
   "### 连接与鉴权\n\n" +
     "使用支持流式读取和自定义请求头的 fetch 连接 GET /api/events，携带 `Authorization: Bearer <token>`；token 由 POST /api/session 获取。浏览器原生 EventSource 不能设置此请求头，不要改为通过 URL 传递 token。" +
     "成功响应为 HTTP 200、Content-Type: text/event-stream、Cache-Control: no-cache, no-transform。" +
@@ -130,7 +142,7 @@ export const WORKSPACE_SSE_DESCRIPTION = [
       .join("\n"),
   "### 首帧 ready 与完整集合\n\n" +
     "服务端先注册订阅，再在同一同步步骤内取得当前运行、待审批集合与进行中活动集合、生成 ready 并放入发送缓冲；从订阅到快照之间没有 await，因此不会出现“先读快照、后订阅”的漏通知窗口。订阅后、ready 发出前到达的增量先进入同一有界队列缓冲，ready 作为首帧先发送，随后再按 revision 合并发送增量，保证不漏掉快照窗口内的变化，也不会让旧帧覆盖新状态。ready 是每条连接恰好一次的首帧，先于后续增量事件。" +
-    "ready.agentStatuses、ready.pendingApprovals 与 ready.activities 是各自集合的完整替换值：以 ready 整体覆盖本地进行中运行、待审批集合与进行中活动集合，移除不在其中的旧项，不能只做并集或保留断线前缓存。ready 不含已结束运行的历史；某个运行结束后如需最终状态，使用 GET /api/agent/status 查询。ready.activities 只含未进入终态的活动；活动的完整历史与逐步明细使用 GET /api/activities 与 GET /api/activities/:id 查询。" +
+    "ready.agentStatuses、ready.pendingApprovals 与 ready.activities 是各自集合的完整替换值：以 ready 整体覆盖本地进行中运行、待审批集合与进行中活动集合，移除不在其中的旧项，不能只做并集或保留断线前缓存。ready 不含已结束运行的历史；某个运行结束后如需最终状态，使用 GET /api/agent/status 查询。ready.activities 只含未进入终态的活动；活动的完整历史与逐步明细使用 GET /api/activities 与 GET /api/activities/:id 查询。ready 也不重放通知历史；重连成功后客户端应重读当前打开会话的权威历史，以恢复断线期间落盘的通知。" +
     "ready.serverTime 是服务端快照时间，仅用于展示/诊断。所有时间字段都不能用于排序或判定新旧。",
   "### 版本合并与 instanceId\n\n" +
     "运行以 (spaceId, runId) 为身份、以 revision 为版本；审批以 id 为身份、以 revision 为版本。客户端只应用 revision 更高的帧，相同或更低 revision 直接忽略，因此乱序、重复或合并后的帧不会让界面倒退。revision 从 1 开始，状态变化时递增；审批进入终态或收到执行回执时 +1，重复决定不推进版本。" +
@@ -153,6 +165,9 @@ export const WORKSPACE_SSE_DESCRIPTION = [
     "activity_updated 直接携带活动概览：title、goal、status、progress、result 与来源空间。仅在 status 变化时推送一次（登记开始、等待审批/用户、等待继续、完成、失败、停止、中断）；progress 文本的过程性更新不推送，同一活动的连续待发帧在服务端缓冲中可合并为最新一条。" +
     "completed 时 result 为最终结果摘要，客户端可直接展示通知；需要逐步明细时读取 GET /api/activities/:id，需要历史列表时读取 GET /api/activities。活动状态以 id 为身份，用最新收到的帧整体替换本地对应活动；ready.activities 只含未进入终态的活动，终态活动的最终内容以 activity_updated 帧或查询接口为准。" +
     "活动没有独立 revision：同一运行的活动状态由服务端单调推进，后到帧覆盖先到帧；断线重连后以新的 ready 为准。",
+  "### 会话历史失效\n\n" +
+    "conversation_updated 只表示一条服务端通知已经成功 append 到指定 (spaceId, sessionId) 的 PI 历史。不要从事件推断 agent 状态，也不要把 payload 当作消息内容；正确处理是把该会话历史标脏并读取 GET /api/conversation。事件没有重放日志，若刷新期间又收到新事件，应再次读取；ready 后的重读同样用于恢复断线漏帧。流式聊天正在占用当前视图时可延后刷新，但流结束后必须完成一次权威历史读取，不能丢失已收到的失效信号。" +
+    "该事件按服务端进程 instanceId 过滤旧实例迟到帧；sessionId 与当前视图不一致时不得把旧会话数据应用到新会话。非当前空间可保留轻量失效标记，或依赖切换空间时的首次权威读取，不需要轮询。",
   "### 断线、重连与结束\n\n" +
     "不发送事件 id，不支持历史重放，忽略 Last-Event-ID。网络断线、App 回到前台或切换网络后重连时，一律以新的 ready 为同步边界：整体替换进行中运行与待审批集合，不能从断线前的缓存继续叠加增量。" +
     "流没有 RUN_FINISHED 之类的终止业务事件；服务关闭会结束活跃流并清理订阅与心跳，客户端将 EOF 作为连接结束处理。断开通知连接不会取消聊天、定时任务、子代理或审批等待；停止聊天仍使用原有聊天 Stop 协议，审批只能由运行取消或过期等真实业务事件进入终态。" +
@@ -165,3 +180,4 @@ export type AgentStatusUpdatedEventDto = z.infer<typeof workspaceEvents.agent_st
 export type ApprovalPendingEventDto = z.infer<typeof workspaceEvents.approval_pending>;
 export type ApprovalUpdatedEventDto = z.infer<typeof workspaceEvents.approval_updated>;
 export type ActivityUpdatedEventDto = z.infer<typeof workspaceEvents.activity_updated>;
+export type ConversationUpdatedEventDto = z.infer<typeof workspaceEvents.conversation_updated>;

@@ -22,7 +22,7 @@
 - 使用 Node.js 24+ 与 `package.json` 声明的 pnpm 版本；依赖安装与脚本以当前工程定义为准，不改全局工具配置。
 - JS/TS 优先函数式工厂和显式依赖注入，不引入 DI 框架、空壳抽象、万能 `utils.ts`、通用插件框架或事件总线。
 - 交互、HTTP、AG-UI 报文与工具卡先核对自有 `web/` 和 `src/http/contracts/`；能力语义、调度、副作用与失败策略先核对 nanobot 源码再适配 pi。冲突时不改 pi 底层、不用假数据伪装兼容，明确差异并记录。
-- pi 的 `createAgentSession` 是执行循环、工具执行与持久化权威：不手写第二套 agent loop，不修改 pi 底层。各 thread 的 SessionManager/JSONL 是聊天正文、附件事实与工具结果唯一历史；Pi Muse 自有业务事实使用独立 repository，不得 append 到 PI branch、进入模型上下文或改变会话 revision。细节见架构规范。
+- pi 的 `createAgentSession` 是执行循环、工具执行与持久化权威：不手写第二套 agent loop，不修改 pi 底层。各 thread 的 SessionManager/JSONL 是聊天正文、附件事实与工具结果唯一历史；Pi Muse 自有业务事实使用独立 repository，不为存储这些事实 append 到 PI branch、隐式注入模型上下文或改变会话 revision。显式信息处理与只读工具查询的消费边界见架构规范。
 - 开发用子 Agent 与产品内 subagent 是两套机制；开发委派不增加产品能力或权限。产品内新增网络、文件、MCP、委托等能力前，先定义权限、审批与错误边界，注册工具名不等于授权。
 
 ## 安全与数据边界

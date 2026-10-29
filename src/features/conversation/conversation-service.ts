@@ -3,9 +3,18 @@ import type { ActivityRun } from "../activities/types.js";
 import { ConversationError, rejectConversation } from "./errors.js";
 import { validateConversationInput } from "./validate-input.js";
 import type { ConversationDependencies, ConversationExecution } from "./ports.js";
-import type { CancelReason, ConversationEvent, ConversationInput, ConversationResult, ConversationTurn, ConversationNotification } from "./types.js";
+import type { CancelReason, ConversationEvent, ConversationInput, ConversationResult, ConversationTurn, ConversationNotification, ConversationNotificationReceipt } from "./types.js";
 import type { MessageFeedbackSession } from "../messages/service.js";
 import { attachmentIdentity, buildConversationPrompt } from "./attachments.js";
+
+type PendingNotification = {
+  notification: ConversationNotification;
+  resolve: (receipt: ConversationNotificationReceipt) => void;
+  reject: (error: unknown) => void;
+  done: Promise<ConversationNotificationReceipt>;
+  signal?: AbortSignal;
+  cancelQueued?: () => void;
+};
 
 type ActiveRun = {
   runId: string;
@@ -24,33 +33,87 @@ export function createConversation(
   let active: ActiveRun | undefined;
   let closed = false;
   let closing: Promise<boolean> | undefined;
-  const notifications = new Map<string, {
-    notification: ConversationNotification;
-    resolve: () => void;
+  const notifications = new Map<string, PendingNotification>();
+  const receiptOf = (id: string): ConversationNotificationReceipt => ({
+    notificationId: id,
+    sessionId: historyPort.sessionId(),
+    messageId: id,
+  });
+  const removeQueued = (pending: {
     reject: (error: unknown) => void;
-    done: Promise<void>;
-  }>();
+    cancelQueued?: () => void;
+  }, error: unknown) => {
+    pending.cancelQueued?.();
+    pending.reject(error);
+  };
+  const cancelQueuedNotifications = (error: unknown) => {
+    for (const pending of [...notifications.values()]) removeQueued(pending, error);
+    notifications.clear();
+  };
   const flushNotifications = () => {
-    for (const [id, pending] of notifications) {
+    for (const [id, pending] of [...notifications]) {
+      if (pending.signal?.aborted) {
+        notifications.delete(id);
+        removeQueued(pending, new Error("Notification cancelled"));
+        continue;
+      }
       try {
-        if (!history().some((message) => message.id === id)) historyPort.appendNotification(pending.notification);
-        pending.resolve();
-      } catch (error) { pending.reject(error); }
-      notifications.delete(id);
+        if (!history().some((message) => message.id === id)) {
+          historyPort.appendNotification(pending.notification);
+          // 先落盘后推送；同 ID 幂等 noop、取消和 append 失败都不能产生实时帧。
+          try {
+            dependencies.publishNotification?.({
+              spaceId: dependencies.spaceId ?? "local-main",
+              sessionId: historyPort.sessionId(),
+            });
+          } catch { /* 展示失效推送不改变已成功的持久化结果。 */ }
+        }
+        notifications.delete(id);
+        pending.resolve(receiptOf(id));
+      } catch (error) {
+        notifications.delete(id);
+        removeQueued(pending, error);
+      }
     }
   };
-  // 忙碌时排队，真正写入 pi 树后才确认投递；通知失败不改变模型轮的执行结果。
-  const notify = (text: string, id: string): Promise<void> => {
+  // 唯一通知入口：稳定 ID 幂等，排队但尚未写入 PI 历史前可被调用方取消。
+  const notify = (
+    text: string,
+    id: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ConversationNotificationReceipt> => {
     if (closed) return Promise.reject(new Error("Conversation is closed"));
+    if (options?.signal?.aborted) return Promise.reject(new Error("Notification cancelled"));
     const existing = notifications.get(id);
     if (existing) return existing.done;
-    let resolve!: () => void;
+    let resolve!: (receipt: ConversationNotificationReceipt) => void;
     let reject!: (error: unknown) => void;
-    const done = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
-    notifications.set(id, { notification: { id, text }, resolve, reject, done });
+    const done = new Promise<ConversationNotificationReceipt>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    const pending: PendingNotification = {
+      notification: { id, text },
+      resolve,
+      reject,
+      done,
+      signal: options?.signal,
+    };
+    const cancelQueued = () => options?.signal?.removeEventListener("abort", onAbort);
+    const onAbort = () => {
+      if (notifications.get(id) !== pending) return;
+      notifications.delete(id);
+      cancelQueued();
+      reject(new Error("Notification cancelled"));
+    };
+    pending.cancelQueued = cancelQueued;
+    options?.signal?.addEventListener("abort", onAbort, { once: true });
+    notifications.set(id, pending);
+    done.then(cancelQueued, cancelQueued);
     if (!active) flushNotifications();
     return done;
   };
+
   const cancel = async (
     reason: ActiveRun["reason"] = "STOPPED",
     runId?: string,
@@ -417,6 +480,7 @@ export function createConversation(
     isRunning: () => Boolean(active),
     close: () => {
       closed = true;
+      cancelQueuedNotifications(new Error("Conversation is closed"));
       return closing ??= cancel("SHUTDOWN");
     },
   };

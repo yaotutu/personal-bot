@@ -28,7 +28,7 @@ A space permits one chat run at a time. If message ownership or history revision
 4. Tap 「编辑」 on an existing comment to change and save it. Tap 「删除」 and confirm to delete the current comment. One message can have multiple comments.
 5. Tap 「复制消息」 to copy that message text to the system clipboard. Copying is local; if it fails, the page asks you to try again.
 
-Feedback is saved only as server business data for the current space, current session, and that message. It does not enter model context or chat history, does not change the conversation revision, and is not used for preference training. The server retains the original operation history for reaction changes and for comment additions, edits, and pre-deletion text. Deleting a comment only hides it from the current list.
+Feedback is saved as server business data for the current space, current session, and that message. Recording it does not enter chat history, change the conversation revision, or trigger preference training. The server retains the original operation history for reaction changes and for comment additions, edits, and pre-deletion text. Deleting a comment only hides it from the current list. If information processing is explicitly enabled for the space, its background decision may read currently valid feedback examples for that space; withdrawing, editing, or deleting feedback takes effect through the latest projection.
 
 If a feedback write times out, disconnects, or has an unknown result, the interface locks further changes and shows 「刷新核对反馈」. Complete a read-back and verify before acting again; the client does not automatically retry. Resetting the current session deletes all message feedback for that space, and deleting the space removes it as well.
 
@@ -53,17 +53,27 @@ Each space has independent conversation history, a private workspace, space rule
 
 Space rules are limited to 20,000 characters. Closing the panel keeps unsaved drafts for the current connection; changing servers or clearing local cache discards those local drafts.
 
+## Query Information Processing {#query-information-background}
+
+The server can enable generic information processing for an existing space: it accepts external batch information, decides between silence and notification using the space rules and preference notes, and retains traceability from raw items and decisions to published messages. Current mobile source has no dedicated management entry; ingestion and settings use server APIs, and processing is disabled by default.
+
+Ask in an ordinary chat, such as “What happened to the information just received?” The assistant can use the always-available read-only `information` tool to query the current space's items, runs, preferences, and notification links. It cannot ingest items, start processing, publish notifications, or read another space.
+
+When the background decides to notify, the server appends the notification to that space's history; an open chat page receives a real-time invalidation signal and reloads authoritative history automatically. After the notification connection reconnects, the client also reloads the current conversation, so no manual refresh or space switching is required.
+
+This only refreshes the foreground chat while the app is open; it is not an operating-system push notification.
+
 ## Reset and Delete Spaces {#reset-and-delete-spaces}
 
 ### Reset the Current Session {#reset-current-session}
 
 1. Go to bottom 「设置」 → 「会话维护」 → 「重置当前会话」.
 2. Check the target space shown in the dialog.
-3. By default, reset stops the current run, clears that space's chat history, message feedback, unfinished approvals, Dream consolidation cursor, latest consolidation result, and pending suggestions, then opens a fresh conversation. Space rules, skill switches, Dream configuration, and private workspace files are retained.
+3. By default, reset stops the current run, clears that space's chat history, message feedback, unfinished approvals, Dream consolidation cursor, latest consolidation result, and pending suggestions, then opens a fresh conversation. Space rules, skill switches, Dream configuration, private workspace files, information settings, raw items, processing records, and preference notes are retained.
 4. To also delete scheduled tasks and webpage monitors bound to the space, select 「同时清理此空间下的定时任务与网页监控」. It is unselected by default; jobs and monitors are rebound to the new session.
 5. Tap 「确认重置」. Success shows 「会话已重置」, and a new conversation can begin.
 
-Cleared chat history and message feedback cannot be recovered. If the network result is unknown, the client keeps the unconfirmed state and pauses sending. Tap 「核对重置结果」 first; do not automatically retry the reset.
+Cleared chat history and message feedback cannot be recovered. Reset cancels information notifications that have not yet been written to history; historical publication links remain traceable, but feedback from the old session is not migrated as new preference examples. If the network result is unknown, the client keeps the unconfirmed state and pauses sending. Tap 「核对重置结果」 first; do not automatically retry the reset.
 
 ### Delete a Space {#delete-space}
 
@@ -73,7 +83,7 @@ Cleared chat history and message feedback cannot be recovered. If the network re
 4. Check the deletion scope, then tap 「确认删除」.
 
 ::: danger Irreversible deletion
-Deleting a space permanently removes its chat history, message feedback, private workspace files, space rules, skill configuration, Dream configuration and consolidation state, and bound scheduled tasks and webpage monitors. The action cannot be undone and does not migrate data to the main space. The main space cannot be deleted. Use 「重置当前会话」 when you only want to clear the conversation.
+Deleting a space permanently removes its chat history, message feedback, private workspace files, space rules, skill configuration, Dream configuration and consolidation state, information processing data, and bound scheduled tasks and webpage monitors. The action cannot be undone and does not migrate data to the main space. The main space cannot be deleted. Use 「重置当前会话」 when you only want to clear the conversation.
 :::
 
 If a delete request result is unknown, refresh the space list and verify before resending. After deletion, creating a space with the same ID later does not restore the old history.

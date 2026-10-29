@@ -44,7 +44,15 @@ const describePathParam = (path: string, name: string): string => {
     if (path.includes("/memories/")) return "记忆条目唯一标识（如 m_...）";
     if (path.includes("/goals/")) return "长期目标唯一标识（如 goal_...）";
     if (path.includes("/approvals/")) return "审批项唯一标识（如 apv_...）";
+    if (path.includes("/information/items/")) return "信息原始条目唯一标识（info_...）";
+    if (path.includes("/information/runs/")) return "信息处理 run 唯一标识（inforun_...）";
     return "目标资源唯一标识";
+  }
+  if (name === "itemId" && path.includes("/information/items/")) {
+    return "信息原始条目唯一标识（info_...）";
+  }
+  if (name === "runId" && path.includes("/information/runs/")) {
+    return "信息处理 run 唯一标识（inforun_...）";
   }
   return `${name} 路径参数`;
 };
@@ -53,12 +61,20 @@ const pathParams = (path: string) => {
   const names = [...path.matchAll(/:([a-zA-Z]+)/g)].map((m) => m[1]!);
   return names.map((name) => {
     const description = describePathParam(path, name);
+    const schema =
+      name === "spaceId"
+        ? { type: "string" as const, minLength: 1, maxLength: 64, pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]*$", description }
+        : path.includes("/information/items/") && name === "itemId"
+          ? { type: "string" as const, minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9_-]+$", description }
+          : path.includes("/information/runs/") && name === "runId"
+            ? { type: "string" as const, minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9_-]+$", description }
+            : { type: "string" as const, description };
     return {
       name,
       in: "path" as const,
       description,
       required: true,
-      schema: { type: "string" as const, description },
+      schema,
     };
   });
 };

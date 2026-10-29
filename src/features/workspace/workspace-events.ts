@@ -11,7 +11,8 @@ const ACTIVITY_TERMINAL: ReadonlySet<ActivityOverview["status"]> = new Set(["com
 export type WorkspaceUpdate =
   | { event: "agent_status_updated"; status: AgentStatus }
   | { event: "approval_pending" | "approval_updated"; approval: PendingAction }
-  | { event: "activity_updated"; activity: ActivityOverview };
+  | { event: "activity_updated"; activity: ActivityOverview }
+  | { event: "conversation_updated"; conversation: { spaceId: string; sessionId: string } };
 type Subscriber = { notify: (event: WorkspaceUpdate) => void; close: () => void };
 export class ExecutionCapacityError extends Error {
   constructor() { super("Too many active executions (maximum 32)"); }
@@ -64,6 +65,14 @@ export const createWorkspaceEvents = () => {
       publish({ event: item.status === "pending" ? "approval_pending" : "approval_updated", approval: item });
       const targetSpace = item.spaceId;
       if (targetSpace && item.runId) liveRuns.get(runKey(targetSpace, item.runId))?.refreshApprovals();
+    },
+    /**
+     * 通知成功落盘后的瞬时失效信号。这里不保存通知内容或运行状态；
+     * 客户端按载荷身份重读权威历史，断线漏帧由新连接 ready 后重读恢复。
+     */
+    conversationNotificationAppended: (conversation: { spaceId: string; sessionId: string }) => {
+      if (closed) return;
+      publish({ event: "conversation_updated", conversation });
     },
     /**
      * 活动概览投影推送：由会话服务在活动状态变化时调用。

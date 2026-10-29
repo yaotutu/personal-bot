@@ -9,6 +9,7 @@ import { buildOpenApiDocument } from "./openapi.js";
 import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
 import { createMessageRoutes } from "./routes/messages.js";
 import { createSpaceRoutes } from "./routes/spaces.js";
+import { createInformationRoutes } from "./routes/information.js";
 import { createWorkspaceEventRoutes } from "./routes/events.js";
 import { createBrowserRoutes } from "./routes/browser.js";
 import { serviceVersion } from "../bootstrap/service-version.js";
@@ -90,6 +91,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.route("/", createWorkspaceEventRoutes(dependencies.workspaceEvents));
   app.route("/", createBrowserRoutes(dependencies.browser));
   app.route("/api/spaces", createMessageRoutes(dependencies));
+  app.route("/api/spaces", createInformationRoutes(dependencies));
   app.route("/api/spaces", createSpaceRoutes(dependencies));
   app.route("/", createWorkspaceRoutes(dependencies));
   app.route("/", runtimeRoutes);

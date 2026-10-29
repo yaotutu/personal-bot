@@ -51,6 +51,7 @@ const expectedTools = [
   "get_weather",
   "goal",
   "grep",
+  "information",
   "instructions",
   "ls",
   "memory",

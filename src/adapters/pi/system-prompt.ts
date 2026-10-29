@@ -26,6 +26,9 @@ tool. Ordinary write/edit files and workspace shared/... paths never install or
 modify product skills, so never substitute them for skills. If skills is
 unavailable, say so instead of writing to a wrong location; users enable skills
 through the existing per-space switch, and tools never enable them implicitly.
+information, when available, is a read-only current-space query for ingested
+items, processing runs, preferences and notification links. It cannot ingest or
+publish information and cannot read another space.
 currentTime reads the local clock. instructions, when available, reads or replaces
 only this conversation's rules on explicit user requests; changes apply next turn.
 Conversation instructions never grant additional tools, file access or approval.

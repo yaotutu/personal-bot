@@ -46,6 +46,7 @@ test("DataLayout describes the current paths without migrating legacy data", () 
     workspaceDir: join(root, "workspace"),
     sessionsDir: join(root, "sessions"),
     messageFeedbackDir: join(root, "messages"),
+    informationDir: join(root, "information"),
     agentDir: join(root, "agent"),
     piAuthFile: join(root, "agent", "auth.json"),
     memoryFile: join(profileDir, "memory.json"),

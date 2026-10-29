@@ -76,6 +76,8 @@ export type PiDeps = {
   presentation?: ToolPresentation;
   /** 与手动 HTTP 文件入口共用，保证最终版本检查与提交按物理路径串行。 */
   workspaceCommits?: WorkspaceCommitQueue;
+  /** 普通聊天常开的只读信息查询；后台信息 runner 不装配该入口。 */
+  information?: Pick<import("../../features/information/service.js").InformationService, "query">;
 };
 
 const subagentBlockedTools = new Set([SUBAGENT_TOOL_NAME, "activity", "schedule", "monitor", "instructions", "bash"]);
@@ -198,6 +200,7 @@ export async function openPi(deps: PiDeps) {
     skillsService: skills,
     writableEnabled: deps.config.writable.enabled,
     workspaceCommits: deps.workspaceCommits,
+    information: deps.information,
   });
 
   const builtinToolNames = new Set(registeredToolNames);

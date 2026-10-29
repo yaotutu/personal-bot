@@ -35,6 +35,7 @@ const repository = <T>(): { read: () => Promise<T[]>; update: <R>(change: (items
 const conversationFixture = async (t: TestContext) => {
   const facts: ConversationNotification[] = [];
   const calls: string[] = [];
+  const published: Array<{ spaceId: string; sessionId: string }> = [];
   let listener: (event: ExecutionEvent) => void = () => {};
   const done = deferred();
   const history: ConversationHistoryPort = {
@@ -58,9 +59,15 @@ const conversationFixture = async (t: TestContext) => {
   t.after(messageFeedback.cleanup);
   const conversation = createConversation(
     { configured: true, runTimeoutMs: 5000 },
-    { history, messages: messageFeedback.messages, openSession: async () => session },
+    {
+      spaceId: "source",
+      history,
+      messages: messageFeedback.messages,
+      openSession: async () => session,
+      publishNotification: (identity) => { published.push(identity); },
+    },
   );
-  return { conversation, calls, facts, done, history, session, messages: messageFeedback.messages };
+  return { conversation, calls, facts, published, done, history, session, messages: messageFeedback.messages };
 };
 
 test("hub permanently closes, drains successful creations even if another rejects", async (t) => {
@@ -116,18 +123,57 @@ test("trigger cancelled while session opens never starts prompt; closed coordina
   await assert.rejects(conversation.run({ spaceId: "main", runId: "r", expectedRevision: "empty", message: { id: "u", content: "hello" } }, () => {}), { code: "SHUTDOWN" });
 });
 
+test("queued notification can be cancelled before it is written to PI history", async (t) => {
+  const { conversation, calls, done, facts, published } = await conversationFixture(t);
+  const running = conversation.trigger("job", "job");
+  await until(() => calls.includes("prompt"));
+  const controller = new AbortController();
+  const queued = conversation.notify("late notification", "notification-cancelled", { signal: controller.signal });
+  const observed = queued.catch((error: Error) => error.message);
+  controller.abort();
+  assert.equal(await observed, "Notification cancelled");
+  done.resolve();
+  await running;
+  assert.deepEqual(facts, []);
+  assert.deepEqual(published, []);
+});
+
 test("busy conversation queues factual notification without another model turn and deduplicates IDs", async (t) => {
-  const { conversation, calls, done, facts } = await conversationFixture(t);
+  const { conversation, calls, done, facts, published } = await conversationFixture(t);
   const running = conversation.trigger("job", "job");
   await until(() => calls.includes("prompt"));
   const delivered = conversation.notify("monitor changed", "notification-1");
   assert.equal(facts.length, 0);
   done.resolve();
   await running;
-  await delivered;
+  assert.deepEqual(await delivered, { notificationId: "notification-1", sessionId: "unit-session", messageId: "notification-1" });
   await conversation.notify("monitor changed", "notification-1");
   assert.deepEqual(facts, [{ id: "notification-1", text: "monitor changed" }]);
+  assert.deepEqual(published, [{ spaceId: "source", sessionId: "unit-session" }]);
   assert.equal(calls.filter((call) => call === "prompt").length, 1);
+});
+
+test("notification invalidation is published only after a successful append", async (t) => {
+  const { conversation, facts, history, published } = await conversationFixture(t);
+  const successfulAppend = history.appendNotification;
+  history.appendNotification = () => { throw new Error("disk failure"); };
+  await assert.rejects(conversation.notify("disk failure", "notification-failed"), /disk failure/);
+  assert.deepEqual([facts, published], [[], []]);
+  history.appendNotification = successfulAppend;
+
+  await conversation.notify("first delivery", "notification-once");
+  assert.deepEqual(facts.map((fact) => fact.id), ["notification-once"]);
+  assert.deepEqual(published, [{ spaceId: "source", sessionId: "unit-session" }]);
+
+  const originalAppend = history.appendNotification;
+  let appendCalls = 0;
+  history.appendNotification = (notification) => {
+    appendCalls++;
+    originalAppend(notification);
+  };
+  await conversation.notify("first delivery", "notification-once");
+  assert.equal(appendCalls, 0);
+  assert.equal(published.length, 1);
 });
 
 test("monitor close after an in-flight fetch never records a new check or dispatches", async (t) => {
@@ -137,7 +183,7 @@ test("monitor close after an in-flight fetch never records a new check or dispat
   const fetched = deferred<ReturnType<typeof fetchedPage>>();
   let fetching = false;
   const notifications: string[] = [];
-  const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10, web: { fetch: async () => { fetching = true; return fetched.promise; } } }, monitors, { notify: async (text) => { notifications.push(text); } });
+  const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10, web: { fetch: async () => { fetching = true; return fetched.promise; } } }, monitors, { notify: async (_text) => { notifications.push(_text); return { notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" }; } });
   scheduler.start();
   t.mock.timers.tick(10);
   await until(() => fetching);
@@ -155,7 +201,7 @@ test("monitor delivery failure preserves observed change for next scan without r
   let fetches = 0;
   let attempts = 0;
   const notifications: string[] = [];
-  const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10, web: { fetch: async () => { fetches++; return fetchedPage("yes"); } } }, monitors, { notify: async (text) => { if (++attempts === 1) throw new Error("disk busy"); notifications.push(text); } });
+  const scheduler = createMonitorScheduler({ monitorScanIntervalMs: 10, web: { fetch: async () => { fetches++; return fetchedPage("yes"); } } }, monitors, { notify: async (_text) => { if (++attempts === 1) throw new Error("disk busy"); notifications.push(_text); return { notificationId: "test-notification", sessionId: "test-session", messageId: "test-message" }; } });
   scheduler.start();
   t.mock.timers.tick(10);
   await until(() => attempts === 1 && !scheduler.isBusy());

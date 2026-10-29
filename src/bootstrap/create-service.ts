@@ -21,6 +21,11 @@ import { createMemoryRepository } from "../adapters/storage/memory-repository.js
 import { createSkillRepository } from "../adapters/storage/skill-repository.js";
 import { createMessageFeedbackSession } from "../features/messages/service.js";
 import { createMessageFeedbackRepository } from "../adapters/storage/message-feedback-repository.js";
+import { createInformationRepository } from "../adapters/storage/information-repository.js";
+import { createInformationService } from "../features/information/service.js";
+import { createInformationScheduler } from "../features/information/scheduler.js";
+import { createInformationRunner, createInformationSkillTextReader } from "../adapters/pi/information-runner.js";
+import { threadInstructionsFile } from "../adapters/storage/data-layout.js";
 import { createHttpApp } from "../http/app.js";
 import { createDataLayout, ensureThreadLayout, threadSessionsDir } from "../adapters/storage/data-layout.js";
 import { createScheduler } from "../features/jobs/scheduler.js";
@@ -43,7 +48,6 @@ import { createWorkspaceFileStore } from "../adapters/workspace/files-store.js";
 import { createActivityService } from "../features/activities/service.js";
 import { createDreamRepository } from "../adapters/storage/dream-repository.js";
 import { readThreadInstructions, writeThreadInstructions } from "../adapters/storage/thread-instructions.js";
-import { threadInstructionsFile } from "../adapters/storage/data-layout.js";
 import { createDreamService } from "../features/dream/service.js";
 import { createDreamScheduler } from "../features/dream/scheduler.js";
 import { createDreamProposer } from "../adapters/pi/dream-runner.js";
@@ -105,6 +109,8 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const skills = createSkillsService(createSkillRepository(layout));
   const messageFeedbackRepository = createMessageFeedbackRepository(layout);
   const dreamRepository = createDreamRepository(layout);
+  const informationRepository = createInformationRepository(layout);
+  let information: Awaited<ReturnType<typeof createInformationService>> | undefined;
 
   // 多会话：每个 thread 惰性创建独立的 pi 会话树；用户级能力（memory/jobs/工具）共享。
   // pi runtime 全进程一份：provider 与 runtime key 注册一次，所有线程共用；
@@ -155,6 +161,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
         messages,
         beginStatus: (input) => workspaceEvents.beginRun(input),
         publishActivity: (overview) => workspaceEvents.activityChanged(overview),
+        publishNotification: (identity) => workspaceEvents.conversationNotificationAppended(identity),
         cancelApprovals: async (ownerSpaceId, runId) => {
           for (const action of await actions.list()) if (action.spaceId === ownerSpaceId && action.runId === runId && action.status === "pending") await actions.cancel(action.id);
         },
@@ -185,6 +192,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
             browser,
             skills,
             workspaceCommits,
+            information,
           }),
           manager,
         ),
@@ -224,12 +232,24 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       return snapshots.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     },
   );
+  information = createInformationService({
+    repository: informationRepository,
+    spaceExists: async (spaceId) => spaceId === "local-main" || (await conversationHub.spaces()).some((space) => space.id === spaceId),
+    retainSpace: (spaceId) => conversationHub.retainSpace(spaceId),
+    feedback: messageFeedbackRepository,
+    runModel: createInformationRunner({ config, layout, modelRuntime }),
+    readInstructions: (spaceId) => readThreadInstructions(threadInstructionsFile(layout, spaceId)),
+    enabledSkillTexts: createInformationSkillTextReader(skills),
+  });
+  const informationScheduler = createInformationScheduler(information);
+
   // 先完整读取/校验并恢复各域，再启动任何执行源。初始化失败不会遗留 interval。
   try {
-    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), messageFeedbackRepository.validateAll()]);
+    await Promise.all([memory.list(), identity.get(), goals.list(), actions.list(), monitors.list(), dreamRepository.reconcileOnStart(), messageFeedbackRepository.validateAll(), informationRepository.validateAll(), informationRepository.reconcileOnStart()]);
     await actions.cancelPending();
     workspaceEvents.seedApprovals(await actions.list());
   } catch (error) {
+    await information?.close();
     await conversationHub.closeAll();
     await browser?.close();
     throw error;
@@ -291,7 +311,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const workspaceFiles = createWorkspaceFileService(createWorkspaceFileStore(layout, workspaceCommits), {
     spaceExists: async (spaceId) => (await conversationHub.spaces()).some((space) => space.id === spaceId),
   });
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, browser, messageFeedbackRepository };
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, browser, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
@@ -299,7 +319,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     clearInterval(approvalTimer);
     // 全局通知没有执行取消语义；先结束长连接，避免 HTTP server 等待它们而无法退出。
     workspaceEvents.close();
-    const stopped = [scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), conversationHub.closeAll()];
+    const stopped = [scheduler.close(), monitorScheduler.close(), dreamScheduler.close(), informationScheduler.close(), information?.close() ?? Promise.resolve(), conversationHub.closeAll()];
     closing = (async () => {
       const results = await Promise.allSettled(stopped);
       await Promise.all([...requests]);
@@ -315,6 +335,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
     scheduler.start();
     monitorScheduler.start();
     dreamScheduler.start();
+    informationScheduler.start();
     return { ...dependencies, app, close };
   } catch (error) {
     await close();

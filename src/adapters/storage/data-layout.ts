@@ -13,6 +13,7 @@ export type DataLayout = {
   workspaceDir: string;
   sessionsDir: string;
   messageFeedbackDir: string;
+  informationDir: string;
   agentDir: string;
   piAuthFile: string;
   memoryFile: string;
@@ -38,6 +39,7 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     workspaceDir: join(root, "workspace"),
     sessionsDir: join(root, "sessions"),
     messageFeedbackDir: join(root, "messages"),
+    informationDir: join(root, "information"),
     agentDir: join(root, "agent"),
     piAuthFile: join(root, "agent", "auth.json"),
     memoryFile: join(profileDir, "memory.json"),
@@ -86,6 +88,12 @@ export const threadDreamPromptFile = spaceDreamPromptFile;
 export const spaceDreamFile = (layout: DataLayout, spaceId: string) =>
   join(spaceSessionsDir(layout, spaceId), "dream.json");
 export const threadDreamFile = spaceDreamFile;
+
+/** 信息接入域独立于 PI 会话；reset 保留，delete 级联删除。 */
+export const spaceInformationFile = (layout: DataLayout, spaceId: string): string => {
+  if (!isSpaceId(spaceId)) throw new Error("Invalid spaceId");
+  return join(layout.informationDir, `${spaceId}.json`);
+};
 
 /** workspace/ 与 threads/ 仅为容器；空间与内部任务没有父目录访问特权。 */
 export const spaceWorkspaceDir = (layout: DataLayout, spaceId: string) => {

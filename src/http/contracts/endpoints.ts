@@ -7,6 +7,7 @@ import * as status from "./agent-status.js";
 import * as files from "./workspace-files.js";
 import * as browser from "./browser.js";
 import * as message from "./messages.js";
+import * as information from "./information.js";
 import { sseEvents, SSE_EVENT_ORDER } from "./sse-events.js";
 import { workspaceEvents, WORKSPACE_SSE_DESCRIPTION } from "./workspace-events.js";
 
@@ -207,6 +208,120 @@ export const endpoints: EndpointSpec[] = [
     method: "put", path: "/api/spaces/:spaceId/instructions", tag: "空间", summary: "保存空间专属规则",
     hint: "下一轮对话开始时注入生效；传空串等于清空。可选传入 purpose 声明空间用途（自动在开头生成 `## 空间用途` 段落，供 Dream 后台整理判定本空间专属规则归属；Dream 整理轮禁止修改该段落）。显式保存可建立新空间；删除进行中返回 409 SPACE_DELETING，刷新列表后由用户重新选择，不自动重试旧 ID。",
     auth: true, request: req.saveInstructionsSchema, response: resp.instructionsResponse,
+  },
+  {
+    operationId: "getInformationSettings",
+    method: "get", path: "/api/spaces/:spaceId/information/settings", tag: "信息后台", summary: "读取空间信息后台设置",
+    hint: "只读查询已存在空间的通用信息后台设置；目标不存在返回 404，不创建或复活空间。默认 enabled=false、batchWindowSeconds=15。",
+    auth: true, response: information.informationSettingsResponse,
+    errorResponses: {
+      400: { description: "非法 spaceId", schema: resp.errorResponse },
+      404: { description: "空间不存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "updateInformationSettings",
+    method: "put", path: "/api/spaces/:spaceId/information/settings", tag: "信息后台", summary: "保存空间信息后台设置",
+    hint: "整份替换 enabled 与 batchWindowSeconds（0–3600；0 表示下一轮调度立即聚合）。规则继续复用普通空间 INSTRUCTIONS.md，没有独立业务 prompt。禁用时拒绝新接入/新 run 并取消该空间在途信息轮，未处理队列保留；最后保存生效。",
+    auth: true, request: information.informationSettingsRequestSchema, response: information.informationSettingsResponse,
+    errorResponses: {
+      400: { description: "非法请求或窗口范围", schema: resp.errorResponse },
+      404: { description: "空间不存在", schema: resp.errorResponse },
+      409: { description: "空间正在删除或后台全局忙", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "getInformationPreferences",
+    method: "get", path: "/api/spaces/:spaceId/information/preferences", tag: "信息后台", summary: "读取空间信息偏好与当前反馈例证",
+    hint: "返回空间局部 notes 以及当前会话内已发布信息通知对应的最新喜欢/不喜欢和评论投影。回撤、编辑或删除反馈后立即以当前投影为准，不长期固化旧结论；reset 后旧会话反馈不迁移。",
+    auth: true, response: information.informationPreferencesResponse,
+    errorResponses: {
+      400: { description: "非法 spaceId", schema: resp.errorResponse },
+      404: { description: "空间不存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "updateInformationPreferences",
+    method: "put", path: "/api/spaces/:spaceId/information/preferences", tag: "信息后台", summary: "保存空间信息偏好备注",
+    hint: "保存当前空间局部 notes（最多 20000 字符；空串清空）。它不写全局记忆、不自动改写空间规则、不触发模型；最后保存生效。",
+    auth: true, request: information.informationPreferencesRequestSchema, response: information.informationPreferencesResponse,
+    errorResponses: {
+      400: { description: "非法请求或超长 notes", schema: resp.errorResponse },
+      404: { description: "空间不存在", schema: resp.errorResponse },
+      409: { description: "空间正在删除", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "createInformationItems",
+    method: "post", path: "/api/spaces/:spaceId/information/items", tag: "信息后台", summary: "批量接入原始信息",
+    hint: "最多 50 条，整批校验通过后原子提交；source 是 ASCII identifier，externalId/content 有界且 content 非空。同空间 source+externalId 同内容幂等回读，不同内容返回 409 且不覆盖原文。禁用返回 409。后台原始信息保存在 Pi Muse 独立 repository，不 append PI 聊天历史。",
+    auth: true, request: information.informationIngestRequestSchema, response: information.informationIngestResponse,
+    errorResponses: {
+      400: { description: "整批或任一条目非法；不会提交任何条目", schema: resp.errorResponse },
+      404: { description: "空间不存在", schema: resp.errorResponse },
+      409: { description: "信息后台禁用、同 key 不同内容冲突或空间正在删除", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "listInformationItems",
+    method: "get", path: "/api/spaces/:spaceId/information/items", tag: "信息后台", summary: "分页读取空间原始信息",
+    hint: "按接纳时间倒序读取，limit 默认 20、范围 1–100，可用 status 过滤；cursor 是不透明 base64url 且绑定过滤条件。查询不创建空间，不冻结快照。",
+    auth: true, query: information.informationItemsQuerySchema, response: information.informationItemsResponse,
+    errorResponses: {
+      400: { description: "非法查询或游标", schema: resp.errorResponse },
+      404: { description: "空间不存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "getInformationItem",
+    method: "get", path: "/api/spaces/:spaceId/information/items/:itemId", tag: "信息后台", summary: "读取单条信息与关联 run",
+    hint: "返回原始条目及按创建时间倒序的关联执行记录；不存在返回 404。读取不影响状态或聊天 revision。",
+    auth: true, response: information.informationItemDetailResponse,
+    errorResponses: {
+      400: { description: "非法 spaceId 或 itemId", schema: resp.errorResponse },
+      404: { description: "空间或条目不存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "runInformationNow",
+    method: "post", path: "/api/spaces/:spaceId/information/runs", tag: "信息后台", summary: "显式立即处理一批待处理信息",
+    hint: "忽略剩余窗口，选取最早 pending 的有限批次（最多 20 条/60000 字符）并同步等待本次真实模型轮与确定性发布收尾。全局已有后台信息轮返回 409 BUSY；禁用或无 pending 分别返回 409 DISABLED/NO_PENDING。模型失败或非法提交记录为 failed run，不自动重试；发布失败与模型失败分开记录，不冒充已送达。",
+    auth: true, request: information.informationRunRequestSchema, response: information.informationRunDetailResponse,
+    errorResponses: {
+      400: { description: "非法请求", schema: resp.errorResponse },
+      404: { description: "空间不存在", schema: resp.errorResponse },
+      409: { description: "DISABLED、NO_PENDING、BUSY 或空间正在删除", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "listInformationRuns",
+    method: "get", path: "/api/spaces/:spaceId/information/runs", tag: "信息后台", summary: "分页读取信息处理 run",
+    hint: "按创建时间倒序读取执行记录，limit 默认 20、范围 1–100，可用 status 过滤；记录包含模型终态、逐 item 决策、通知发布状态及可验证 notificationId/sessionId/messageId 溯源。",
+    auth: true, query: information.informationRunsQuerySchema, response: information.informationRunsResponse,
+    errorResponses: {
+      400: { description: "非法查询或游标", schema: resp.errorResponse },
+      404: { description: "空间不存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "getInformationRun",
+    method: "get", path: "/api/spaces/:spaceId/information/runs/:runId", tag: "信息后台", summary: "读取单个信息处理 run 与原始条目",
+    hint: "返回 run 决策、发布状态、真实通知关联与本批原始 items；不存在返回 404。查询不改写状态，也不自动重跑模型。",
+    auth: true, response: information.informationRunDetailResponse,
+    errorResponses: {
+      400: { description: "非法 spaceId 或 runId", schema: resp.errorResponse },
+      404: { description: "空间或 run 不存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
   },
   {
     operationId: "getSpaceDream",
@@ -612,7 +727,7 @@ export const endpoints: EndpointSpec[] = [
     auth: true, response: z.object({}).describe("SSE 流"),
     sse: {
       // 流描述直接复用契约模块的单一事实源；事件表由 workspaceEvents 生成，
-      // 四类事件（ready/agent_status_updated/approval_pending/approval_updated）直接携带可展示状态。
+      // 事件表由契约维护：状态类事件直接携带可展示投影，conversation_updated 只触发权威历史重读。
       description: WORKSPACE_SSE_DESCRIPTION,
       events: workspaceEvents,
     },

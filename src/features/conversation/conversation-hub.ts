@@ -134,6 +134,7 @@ export const createConversationHub = (
       validateId(id);
       if (deleting.has(id)) return Promise.resolve(undefined);
       return serial(id, async () => {
+        if (deleting.has(id)) return undefined;
         const conversation = await find(id);
         if (!conversation) return undefined;
         const entry = cache.get(id)!;

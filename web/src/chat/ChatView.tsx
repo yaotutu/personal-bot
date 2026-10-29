@@ -26,6 +26,12 @@ type ChatSession = {
   run?: ForegroundRun;
 };
 
+type ConversationInvalidation = {
+  instanceId: string;
+  spaceId: string;
+  sessionId: string;
+};
+
 const toolLabel = (call: ToolCallView): string => {
   switch (call.name) {
     case "currentTime":
@@ -131,10 +137,14 @@ const MessageBubble = ({ message }: { message: MessageView }) => {
 export const ChatView = ({
   spaceId,
   sessionId: initialSessionId,
+  conversationRefreshKey = "0:0",
+  conversationUpdates = [],
   onReset,
 }: {
   spaceId?: string;
   sessionId?: string;
+  conversationRefreshKey?: string;
+  conversationUpdates?: readonly ConversationInvalidation[];
   onReset?: () => void;
 }) => {
   const currentSpaceId = spaceId || "local-main";
@@ -150,6 +160,46 @@ export const ChatView = ({
   const [resetting, setResetting] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<ChatSession | null>(null);
+  const historyRequest = useRef<AbortController | null>(null);
+  const conversationRefreshSeen = useRef<string | undefined>(undefined);
+  const conversationRefreshPending = useRef(false);
+  const seenSessionIds = useRef<Set<string>>(new Set<string>());
+
+  const ownsSession = (session: ChatSession) =>
+    sessionRef.current === session && !session.controller.signal.aborted;
+
+  const readAuthority = async (session: ChatSession) => {
+    const controller = new AbortController();
+    historyRequest.current?.abort();
+    historyRequest.current = controller;
+    // 旧请求即使异步晚回，也不能覆盖新请求或清理它的 loading 状态。
+    const ownsHistoryRequest = () =>
+      historyRequest.current === controller && !controller.signal.aborted && ownsSession(session);
+    session.historyReady = false;
+    setLoading(true);
+    try {
+      const history = await loadHistory(currentSpaceId, controller.signal);
+      if (!ownsHistoryRequest()) return;
+      session.revision = history.revision;
+      session.historyReady = true;
+      if (history.sessionId) {
+        seenSessionIds.current.add(history.sessionId);
+        setActiveSessionId(history.sessionId);
+      }
+      setViews(projectHistory(history.messages));
+      setError("");
+    } catch (e) {
+      if (ownsHistoryRequest()) {
+        session.historyReady = false;
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      if (historyRequest.current === controller) {
+        historyRequest.current = null;
+        if (!controller.signal.aborted && ownsSession(session)) setLoading(false);
+      }
+    }
+  };
 
   // 每次挂载/切换都创建独立归属对象，避免 A→B→A 时仅比较 spaceId 误认旧请求。
   // layout cleanup 在新界面可交互前撤销归属；abort 只负责停 I/O，归属校验负责拦截已排队回调。
@@ -161,32 +211,47 @@ export const ChatView = ({
       revision: "empty",
     };
     sessionRef.current = session;
-    const ownsSession = () => sessionRef.current === session && !session.controller.signal.aborted;
     setError("");
     setViews([]);
     setDraft("");
     setRunning(null);
     setStopping(false);
     setLoading(true);
-    void loadHistory(currentSpaceId, session.controller.signal)
-      .then(({ messages, revision }) => {
-        if (!ownsSession()) return;
-        session.revision = revision;
-        session.historyReady = true;
-        setViews(projectHistory(messages));
-      })
-      .catch((e: unknown) => {
-        if (ownsSession()) setError(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
-        if (ownsSession()) setLoading(false);
-      });
+    void readAuthority(session);
     return () => {
       if (sessionRef.current === session) sessionRef.current = null;
+      historyRequest.current?.abort();
       session.controller.abort();
       session.run?.controller.abort();
     };
   }, [currentSpaceId]);
+
+  // conversation_updated 只含身份；这里保留草稿和组件归属，用权威 REST 历史替换视图。
+  const relevantInvalidation = conversationUpdates.findLast(
+    (update) => update.spaceId === currentSpaceId,
+  );
+  useEffect(() => {
+    if (conversationRefreshSeen.current === undefined) {
+      conversationRefreshSeen.current = conversationRefreshKey;
+      return;
+    }
+    if (conversationRefreshSeen.current === conversationRefreshKey) return;
+    conversationRefreshSeen.current = conversationRefreshKey;
+    const session = sessionRef.current;
+    if (!session || session.spaceId !== currentSpaceId) return;
+    // 当前会话必须刷新；从未见过的 sessionId 可能来自远端 reset，也必须回读。
+    // 已被当前视图替换掉的旧 sessionId 只作为迟到帧忽略。
+    const staleSession = relevantInvalidation
+      && activeSessionId !== relevantInvalidation.sessionId
+      && seenSessionIds.current.has(relevantInvalidation.sessionId);
+    if (staleSession) return;
+    // 流式视图仍拥有画面时只标脏；结束后由 finally 补读，避免历史覆盖实时流。
+    if (session.run) {
+      conversationRefreshPending.current = true;
+      return;
+    }
+    void readAuthority(session);
+  }, [conversationRefreshKey, relevantInvalidation, activeSessionId, currentSpaceId]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
@@ -271,6 +336,11 @@ export const ChatView = ({
             session.run = undefined;
             setRunning(null);
             setStopping(false);
+            // 结束同步期间收到的新失效不能被消费后丢掉；这里统一补一次权威读取。
+            if (conversationRefreshPending.current) {
+              conversationRefreshPending.current = false;
+              void readAuthority(session);
+            }
           }
         }
       }
@@ -298,6 +368,7 @@ export const ChatView = ({
     setResetting(true);
     try {
       const res = await resetSpace(currentSpaceId, clearSchedules);
+      seenSessionIds.current.add(res.sessionId);
       setActiveSessionId(res.sessionId);
       setViews([]);
       if (session && session.spaceId === currentSpaceId) {

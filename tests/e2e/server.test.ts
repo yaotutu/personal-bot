@@ -228,7 +228,7 @@ test("e2e: workspace named SSE pushes ready state and real run status without me
   terminalSuccess(await nextRun.done);
   const spec = await client.json("/openapi.json");
   assert.deepEqual(Object.keys(spec.paths["/api/events"].get.responses["200"]["x-sse-events"]).sort(),
-    ["activity_updated", "agent_status_updated", "approval_pending", "approval_updated", "ready"]);
+    ["activity_updated", "agent_status_updated", "approval_pending", "approval_updated", "conversation_updated", "ready"]);
   // 结束服务应关闭长连接，客户端读到 EOF。
   await service.stop();
   assert.equal(await stream.next(), null);

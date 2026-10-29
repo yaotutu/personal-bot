@@ -19,6 +19,8 @@ import type { WorkspaceCommitQueue } from "../adapters/workspace/file-commit-que
 import type { ActivityService } from "../features/activities/service.js";
 import type { DreamService } from "../features/dream/service.js";
 import type { DreamScheduler } from "../features/dream/scheduler.js";
+import type { InformationService } from "../features/information/service.js";
+import type { InformationScheduler } from "../features/information/scheduler.js";
 import type { BrowserService } from "../features/browser/browser-service.js";
 
 type Auth = Awaited<ReturnType<typeof createAuth>>;
@@ -45,11 +47,13 @@ export type ServiceContainer = {
   activities: ActivityService;
   dream: DreamService;
   dreamScheduler: DreamScheduler;
+  information: InformationService;
+  informationScheduler: InformationScheduler;
   browser?: BrowserService;
   messageFeedbackRepository: MessageFeedbackRepository;
 };
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "dream" | "browser" | "messageFeedbackRepository"
+  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "dream" | "information" | "browser" | "messageFeedbackRepository"
 >;

@@ -38,6 +38,7 @@ import {
   type AgentStatusUpdatedEventDto,
   type ApprovalPendingEventDto,
   type ApprovalUpdatedEventDto,
+  type ConversationUpdatedEventDto,
   type ReadyEventDto,
 } from "../../../src/http/contracts/workspace-events.js";
 export type { SseEvent };
@@ -48,6 +49,7 @@ export type {
   AgentStatusUpdatedEventDto,
   ApprovalPendingEventDto,
   ApprovalUpdatedEventDto,
+  ConversationUpdatedEventDto,
   ReadyEventDto,
 };
 export type {
@@ -751,7 +753,8 @@ export type WorkspaceEvent =
   | { type: "agent_status_updated"; data: AgentStatusUpdatedEventDto }
   | { type: "approval_pending"; data: ApprovalPendingEventDto }
   | { type: "approval_updated"; data: ApprovalUpdatedEventDto }
-  | { type: "activity_updated"; data: ActivityUpdatedEventDto };
+  | { type: "activity_updated"; data: ActivityUpdatedEventDto }
+  | { type: "conversation_updated"; data: ConversationUpdatedEventDto };
 
 /**
  * 订阅工作区 SSE 实时流（GET /api/events）。
@@ -835,6 +838,12 @@ export const subscribeWorkspaceEvents = async (
             const parsed = workspaceEvents.activity_updated.safeParse(payload);
             if (!parsed.success) throw invalid();
             event = { type: "activity_updated", data: parsed.data };
+            break;
+          }
+          case "conversation_updated": {
+            const parsed = workspaceEvents.conversation_updated.safeParse(payload);
+            if (!parsed.success) throw invalid();
+            event = { type: "conversation_updated", data: parsed.data };
             break;
           }
           default:

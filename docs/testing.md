@@ -51,6 +51,7 @@ pnpm test                      # unit + integration
 pnpm test:e2e                  # 自动先 build，再串行执行真实 dist 进程套件
 pnpm test:live --config <path> --allow-live [--keep-artifacts]  # 显式真实模型验收
 node --import tsx tests/live/skill-authoring.ts --config <path> --allow-live --keep-artifacts
+node --import tsx tests/live/information.ts --config <path> --allow-live [--keep-artifacts]
 node --import tsx tests/live/message-feedback.ts --allow-live --base-url <url> --token-file <path> --context-file <path> --phase record|verify
 pnpm check                     # typecheck + test + test:e2e + Web build + diff 检查
 ```
@@ -87,6 +88,12 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 - 专项连接已运行的真实后端与外部模型；`--base-url`、`--token-file`、`--context-file` 与 `--allow-live` 必须显式给出，token 只进请求头且不输出。
 - `--phase record` 创建独立空间并写入不含凭据的重启 context；主 Agent 重启后端后用同参数执行 `--phase verify` 验证持久化、后续真实模型、reset/delete 生命周期。失败不自动重试写入。
 
+### `tests/live/information.ts`
+
+- 专项启动隔离后端并经 `createLiveModel` 透明代理真实调用外部模型，不读取或修改正式 DATA_DIR。入口必须显式给出 `--config` 与 `--allow-live`，可追加 `--keep-artifacts` 保留脱敏证据。
+- 覆盖混合批与全静默结构化提交、silent 不写聊天、通知发布与 notification/session/message 溯源、偏好 notes 与当前反馈例证进入下一轮、普通聊天只读 `information` 工具、幂等/冲突/跨空间隔离、自动调度、disable/reset/delete 取消排队通知以及重启持久化。
+- 以后端 repository、PI 历史 revision/message、真实代理 tool call/result 与 HTTP 状态为证据；后台请求必须只声明 `submit_information_result`。同一 SDK 轮内允许无效提交后由模型自行纠正，但最终必须恰好一个有效提交；测试策略只约束合成数据，不用关键词代码替代模型决策，失败不自动重试模型。
+
 ### `pnpm check`
 
 顺序为 typecheck → test → test:e2e（含服务端 build）→ `pnpm --dir web build` → `git diff --check`，任一步非零即停；不包含 live，不自动产生真实模型费用。
@@ -108,7 +115,7 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 - **approve / deny / cancel**：子代理文件审批绑定父 thread/run，approve 后字节一致，deny/cancel 不落盘；cancel 的父 SSE 为 RUN_ERROR，后续同 thread 可 RUN_FINISHED。
 - **慢 Web 与子模型 Stop**：父 Stop 后 RUN_ERROR，provider 及真实 HTTP socket 关闭，不等待 transport 超时；稳定 E2E fixture 持续挂起，live 使用 55 秒慢 fixture，后续轮可用。
 - **隔离与删除不复活**：shared 跨 thread 显式可读，私有标记不泄露；删除后 GET 空历史、迟到 Stop false、目录不存在。
-- **工作区 SSE 与退出**：`/api/events` 首帧 ready、记忆提交触发 workspace_updated；持有 SSE 时 SIGTERM 自然 code 0。
+- **工作区 SSE 与退出**：`/api/events` 首帧 ready；通知成功 append 后仅发布 `conversation_updated` 身份帧，取消/失败/幂等 noop 不发布；持有 SSE 时 SIGTERM 自然 code 0。
 - **Activity 专项**（`tests/e2e/activity.test.ts`）：普通对话不登记、鉴权/只读查询无文件或 revision 副作用、显式登记与幂等重放、完成声明/最终交付保护、等待用户、Stop/断流/超时/优雅关闭/故意崩溃后的诚实状态及原活动继续；父/子审批、实际提交、拒绝/过期/冲突不写，子代理层级、安全隐藏、过滤/同时间游标/留存、删除不复活与损坏记录失败关闭。此层只模拟模型决策，不能称作自主分类真实验收。
 - **旧队列不恢复**：`/api/agent/tasks` 不出现在文档且 POST 501，快照无 worker，不因测试或重启创建旧任务数据。
 - **范围之外**：浏览器 UI、PWA 安装、移动端锁屏等不在本层；HTTP 版本断言或 fake provider 通过不是这些行为的验收。

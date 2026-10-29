@@ -179,6 +179,27 @@ test("execution receipts push higher approval revisions without changing the hum
   for (const field of ["preview", "payload", "title", "kind"]) assert.equal(Object.hasOwn(finished.data, field), false);
 });
 
+test("a persisted conversation notification pushes one identity-only invalidation frame", async (t) => {
+  const { service, headers } = await fixture(t);
+  const stream = await connect(t, service, headers);
+  const conversation = await service.conversationHub.forSpace("local-main");
+
+  const receipt = await conversation.notify("information arrived", "workspace-notification-1");
+  const frame = await stream.nextFrame();
+  assert.deepEqual(frame, {
+    event: "conversation_updated",
+    data: {
+      instanceId: stream.ready.instanceId,
+      spaceId: "local-main",
+      sessionId: receipt.sessionId,
+    },
+  });
+
+  await conversation.notify("information arrived", "workspace-notification-1");
+  const unexpected = await Promise.race([stream.nextFrame(), sleep(50).then(() => null)]);
+  assert.equal(unexpected, null);
+});
+
 test("model conversation run pushes agent_status_updated events and disconnecting events does not cancel a chat", async (t) => {
   const { service, headers, model } = await fixture(t, true);
   const events = await connect(t, service, headers);

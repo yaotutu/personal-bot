@@ -15,6 +15,7 @@ import {
   type AgentStatusDto,
   type ApprovalViewDto,
   type SpaceDto,
+  type ConversationUpdatedEventDto,
   type WorkspaceEvent,
 } from "../lib/api";
 
@@ -141,6 +142,9 @@ type WorkspaceState = {
   // 进行中的活动概览（含 waiting_* / awaiting_continuation）；终态活动进入 notices 供通知展示。
   activities: ActivityUpdatedEventDto[];
   notices: ActivityUpdatedEventDto[];
+  // ready 是恢复漏通知的同步边界；瞬时失效只保存身份与顺序，不保存通知内容。
+  conversationSyncVersion: number;
+  conversationUpdates: Array<{ sequence: number; data: ConversationUpdatedEventDto }>;
 };
 
 type WorkspaceAction =
@@ -158,6 +162,8 @@ const initialWorkspaceState: WorkspaceState = {
   statusRevisions: {},
   activities: [],
   notices: [],
+  conversationSyncVersion: 0,
+  conversationUpdates: [],
 };
 
 const runKey = (spaceId: string, runId: string) => JSON.stringify([spaceId, runId]);
@@ -203,7 +209,19 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
         );
       }
       // ready.activities 是进行中活动集合的完整替换值；终态活动的历史通知不随重连复活。
-      return { instanceId, approvals, approvalRevisions, approvalTombstones, statuses, statusRevisions, activities, notices: [] };
+      return {
+        ...state,
+        instanceId,
+        approvals,
+        approvalRevisions,
+        approvalTombstones,
+        statuses,
+        statusRevisions,
+        activities,
+        notices: [],
+        conversationSyncVersion: state.conversationSyncVersion + 1,
+        conversationUpdates: [],
+      };
     }
     case "agent_status_updated": {
       const status = action.data;
@@ -266,6 +284,17 @@ const workspaceReducer = (state: WorkspaceState, action: WorkspaceAction): Works
         ? [...state.notices.filter((item) => item.id !== activity.id), activity].slice(-8)
         : state.notices;
       return { ...state, activities, notices };
+    }
+    case "conversation_updated": {
+      const update = action.data;
+      if (state.instanceId !== update.instanceId) return state;
+      return {
+        ...state,
+        conversationUpdates: [
+          ...state.conversationUpdates,
+          { sequence: (state.conversationUpdates.at(-1)?.sequence ?? 0) + 1, data: update },
+        ].slice(-32),
+      };
     }
     case "dismiss_notice":
       return { ...state, notices: state.notices.filter((item) => item.id !== action.id) };
@@ -397,6 +426,11 @@ export const App = () => {
   // 只展示一行当前运行状态；优先当前会话，其次任意进行中的运行，不构造活动列表。
   const currentStatus =
     workspace.statuses.find((status) => status.spaceId === active) ?? workspace.statuses[0];
+  const activeConversationUpdate = workspace.conversationUpdates.findLast(
+    (update) => update.data.spaceId === active,
+  );
+  const conversationRefreshKey =
+    `${workspace.conversationSyncVersion}:${activeConversationUpdate?.sequence ?? 0}`;
 
   return (
     <div className="flex h-screen bg-stone-100">
@@ -544,6 +578,8 @@ export const App = () => {
             key={active}
             spaceId={active}
             sessionId={spaces.find((s) => s.id === active)?.sessionId}
+            conversationRefreshKey={conversationRefreshKey}
+            conversationUpdates={workspace.conversationUpdates.map((update) => update.data)}
             onReset={refreshSpaces}
           />
         )}

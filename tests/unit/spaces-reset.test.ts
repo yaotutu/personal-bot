@@ -43,6 +43,23 @@ test("POST /:spaceId/reset invokes clearPendingByOriginSpaceId when clearSchedul
       calls.push(`removeFeedback:${spaceId}`);
     },
   };
+  const mockInformation = {
+    pauseSpace: (spaceId: string) => {
+      calls.push(`pauseInformation:${spaceId}`);
+      return {
+        stopped: Promise.resolve(),
+        resume: () => {
+          calls.push(`resumeInformation:${spaceId}`);
+        },
+      };
+    },
+    cancelSpace: async (spaceId: string) => {
+      calls.push(`cancelInformation:${spaceId}`);
+    },
+    removeSpace: async (spaceId: string) => {
+      calls.push(`removeInformation:${spaceId}`);
+    },
+  };
   const mockHub = {
     spaces: async () => [],
     resetSpace: async (_spaceId: string, onReset: (hooks: { closeCurrent: () => Promise<void>; reopen: () => Promise<{ sessionId: () => string }> }) => Promise<unknown>) => {
@@ -67,6 +84,7 @@ test("POST /:spaceId/reset invokes clearPendingByOriginSpaceId when clearSchedul
     dream: mockDream,
     actions: mockActions,
     messageFeedbackRepository: mockMessageFeedbackRepository,
+    information: mockInformation,
   } as unknown as HttpDependencies);
 
   // 1. 重置 explicit space，clearSchedules: false -> 调用 clearPendingByOriginSpaceId
@@ -76,7 +94,12 @@ test("POST /:spaceId/reset invokes clearPendingByOriginSpaceId when clearSchedul
     body: JSON.stringify({ clearSchedules: false }),
   });
   assert.equal(res1.status, 200);
-  assert.deepEqual(calls, ["removeFeedback:custom-space", "clearPending:custom-space"]);
+  assert.deepEqual(calls, [
+    "pauseInformation:custom-space",
+    "removeFeedback:custom-space",
+    "clearPending:custom-space",
+    "resumeInformation:custom-space",
+  ]);
 
   // 2. 重置 local-main，clearSchedules: false -> 调用 clearPendingByOriginSpaceId("local-main")
   calls.length = 0;
@@ -86,7 +109,12 @@ test("POST /:spaceId/reset invokes clearPendingByOriginSpaceId when clearSchedul
     body: JSON.stringify({ clearSchedules: false }),
   });
   assert.equal(res2.status, 200);
-  assert.deepEqual(calls, ["removeFeedback:local-main", "clearPending:local-main"]);
+  assert.deepEqual(calls, [
+    "pauseInformation:local-main",
+    "removeFeedback:local-main",
+    "clearPending:local-main",
+    "resumeInformation:local-main",
+  ]);
 
   // 3. 重置并清理调度，clearSchedules: true -> 调用 removeByOriginSpaceId
   calls.length = 0;
@@ -96,5 +124,11 @@ test("POST /:spaceId/reset invokes clearPendingByOriginSpaceId when clearSchedul
     body: JSON.stringify({ clearSchedules: true }),
   });
   assert.equal(res3.status, 200);
-  assert.deepEqual(calls, ["removeFeedback:custom-space", "removeJobs:custom-space", "remove:custom-space"]);
+  assert.deepEqual(calls, [
+    "pauseInformation:custom-space",
+    "removeFeedback:custom-space",
+    "removeJobs:custom-space",
+    "remove:custom-space",
+    "resumeInformation:custom-space",
+  ]);
 });

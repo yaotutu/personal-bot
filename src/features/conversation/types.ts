@@ -10,6 +10,12 @@ import type { MessageFeedback, ProjectedMessageMetadata } from "../messages/type
 export const TURN_ENTRY_TYPE = "personal-bot.turn";
 export const RESULT_ENTRY_TYPE = "personal-bot.result";
 export const AGENT_STATUS_ENTRY_TYPE = "pi-muse.agent-status";
+export type ConversationNotificationReceipt = {
+  notificationId: string;
+  sessionId: string;
+  messageId: string;
+};
+
 export type ConversationNotification = { id: string; text: string };
 
 export type ConversationTurn = {

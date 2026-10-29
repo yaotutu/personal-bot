@@ -51,6 +51,7 @@ export const createWorkspaceEventRoutes = (events: WorkspaceEvents) => {
           if (ended) return;
           const data = event.event === "agent_status_updated" ? event.status
             : event.event === "activity_updated" ? event.activity
+            : event.event === "conversation_updated" ? event.conversation
             : event.event === "approval_pending" ? presentApproval(event.approval) : presentApprovalResolution(event.approval);
           const bytes = frame(event.event, { instanceId: events.instanceId, ...data });
           if (bytes.byteLength > MAX_EVENT_BYTES) { disconnect(); return; }

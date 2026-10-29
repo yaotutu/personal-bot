@@ -211,6 +211,7 @@ test("docs: activity GET endpoints are authenticated read-only JSON operations w
     "agent_status_updated",
     "approval_pending",
     "approval_updated",
+    "conversation_updated",
     "ready",
   ]);
 });
@@ -642,7 +643,8 @@ test("docs: notification stream documents the client sync protocol and keeps eve
   for (const rule of [
     /Authorization: Bearer/, /event:[\s\S]*data:/, /UTF-8/, /空行/,
     /ready[\s\S]*agentStatuses[\s\S]*pendingApprovals[\s\S]*activities/,
-    /agent_status_updated/, /approval_pending/, /approval_updated/, /activity_updated/,
+    /agent_status_updated/, /approval_pending/, /approval_updated/, /activity_updated/, /conversation_updated/,
+    /GET \/api\/conversation/, /不得伪造状态事件/, /同 ID 幂等 noop/,
     /GET \/api\/agent\/status\?(spaceId|threadId)=/, /GET \/api\/activities/,
     /instanceId[\s\S]*revision/, /\(id, revision\)/,
     /30 秒[\s\S]*keep-alive/,
@@ -661,6 +663,7 @@ test("docs: notification stream documents the client sync protocol and keeps eve
     "agent_status_updated",
     "approval_pending",
     "approval_updated",
+    "conversation_updated",
     "ready",
   ]);
   const chat = document.paths["/api/conversation/run"].post as Operation;
@@ -669,7 +672,7 @@ test("docs: notification stream documents the client sync protocol and keeps eve
     assert.ok(!Object.hasOwn(chat.responses["200"]["x-sse-events"], name), `聊天 SSE 不应混入通知事件 ${name}`);
 });
 
-test("docs: /api/events SSE schema is text/event-stream with five directly usable state events", () => {
+test("docs: /api/events SSE schema is text/event-stream with six bounded client events", () => {
   const doc = buildOpenApiDocument();
   const op = (doc.paths as Record<string, Record<string, Record<string, unknown>>>)["/api/events"]?.get;
   assert.ok(op);
@@ -677,7 +680,7 @@ test("docs: /api/events SSE schema is text/event-stream with five directly usabl
   // 200 必须声明 text/event-stream 媒体类型
   const content = (ok.content as Record<string, Record<string, unknown>>)["text/event-stream"];
   assert.ok(content, "200 必须声明 text/event-stream content");
-  // 事件表恰好五种，且都是可直接展示的状态载荷，不再是空对象失效通知。
+  // 状态类事件直接可展示；conversation_updated 只带身份，客户端重读权威历史。
   const table = ok["x-sse-events"] as Record<string, { description: string; schema: Record<string, unknown> }>;
   assert.ok(table, "必须声明 x-sse-events 事件契约");
   assert.deepEqual(Object.keys(table).sort(), [
@@ -685,6 +688,7 @@ test("docs: /api/events SSE schema is text/event-stream with five directly usabl
     "agent_status_updated",
     "approval_pending",
     "approval_updated",
+    "conversation_updated",
     "ready",
   ]);
   for (const [name, entry] of Object.entries(table)) {
@@ -695,8 +699,11 @@ test("docs: /api/events SSE schema is text/event-stream with five directly usabl
   // ready 是完整替换集合；增量事件顶层都带 instanceId。
   const ready = table.ready.schema;
   assert.deepEqual(Object.keys(ready.properties as object).sort(), ["activities", "agentStatuses", "instanceId", "pendingApprovals", "serverTime"]);
-  for (const name of ["activity_updated", "agent_status_updated", "approval_pending", "approval_updated"])
+  for (const name of ["activity_updated", "agent_status_updated", "approval_pending", "approval_updated", "conversation_updated"])
     assert.ok(Object.hasOwn(table[name].schema.properties as object, "instanceId"), `${name} 顶层必须带 instanceId`);
+  const conversationProps = table.conversation_updated.schema.properties as Record<string, unknown>;
+  assert.deepEqual(Object.keys(conversationProps).sort(), ["instanceId", "sessionId", "spaceId"]);
+  assert.equal(table.conversation_updated.schema.additionalProperties, false);
   // 审批新增推完整预览；审批终态推轻量投影（不含 title/kind/preview）。
   const pendingProps = Object.keys(table.approval_pending.schema.properties as object);
   assert.ok(pendingProps.includes("preview"));
@@ -1022,7 +1029,7 @@ test("docs: /openapi.json and /docs are served without auth", async (t) => {
   const liveDesc = String(liveOp.description ?? "");
   assert.match(liveDesc, /Authorization[\s\S]*Bearer/i, "live description 应说明 Authorization: Bearer");
   assert.match(liveDesc, /event:[\s\S]*?data:/i, "live description 应说明 event:/data: 帧格式");
-  assert.match(liveDesc, /agent_status_updated[\s\S]*approval_pending[\s\S]*approval_updated[\s\S]*activity_updated/i, "live description 应说明五类事件");
+  assert.match(liveDesc, /agent_status_updated[\s\S]*approval_pending[\s\S]*approval_updated[\s\S]*activity_updated[\s\S]*conversation_updated/i, "live description 应说明六类事件");
   assert.match(liveDesc, /keep-alive/i, "live description 应说明 : keep-alive 心跳");
   assert.match(liveDesc, /Last-Event-ID/, "live description 应说明无 Last-Event-ID / 不重放");
   assert.doesNotMatch(liveDesc, /workspace_updated|actions_updated/, "旧失效通知事件不得保留");
@@ -1137,4 +1144,38 @@ test("docs: every served route is registered and every registration is served (n
       `注册表登记了 ${key}，但服务端没有对应路由（文档在撒谎）`,
     );
   }
+});
+
+test("docs: information endpoints expose a bounded authenticated space-scoped API", () => {
+  const doc = buildOpenApiDocument();
+  const paths = doc.paths as unknown as Record<string, Record<string, OpenApiOperation>>;
+  const informationPaths = Object.entries(paths)
+    .filter(([path]) => path.startsWith("/api/spaces/{spaceId}/information"))
+    .map(([path, operations]) => [path, Object.keys(operations).sort()] as const)
+    .sort(([left], [right]) => left.localeCompare(right));
+  assert.deepEqual(informationPaths, [
+    ["/api/spaces/{spaceId}/information/items", ["get", "post"]],
+    ["/api/spaces/{spaceId}/information/items/{itemId}", ["get"]],
+    ["/api/spaces/{spaceId}/information/preferences", ["get", "put"]],
+    ["/api/spaces/{spaceId}/information/runs", ["get", "post"]],
+    ["/api/spaces/{spaceId}/information/runs/{runId}", ["get"]],
+    ["/api/spaces/{spaceId}/information/settings", ["get", "put"]],
+  ]);
+
+  for (const operations of Object.values(paths)) {
+    for (const operation of Object.values(operations)) {
+      if (operation.tags?.[0] !== "信息后台") continue;
+      assert.deepEqual(operation.security, [{ bearerAuth: [] }]);
+    }
+  }
+
+  assert.match(paths["/api/spaces/{spaceId}/information/items"]!.post!.description ?? "", /最多 50 条/);
+  assert.match(paths["/api/spaces/{spaceId}/information/items"]!.post!.description ?? "", /同内容幂等回读/);
+  assert.match(paths["/api/spaces/{spaceId}/information/items"]!.post!.description ?? "", /不同内容返回 409/);
+  assert.match(paths["/api/spaces/{spaceId}/information/runs"]!.post!.description ?? "", /409 BUSY/);
+  assert.match(paths["/api/spaces/{spaceId}/information/runs"]!.post!.description ?? "", /不自动重试/);
+  assert.match(paths["/api/spaces/{spaceId}/information/runs"]!.post!.description ?? "", /发布失败与模型失败分开/);
+  assert.match(paths["/api/spaces/{spaceId}/information/runs"]!.get!.description ?? "", /notificationId\/sessionId\/messageId/);
+  assert.match(paths["/api/spaces/{spaceId}/information/preferences"]!.get!.description ?? "", /当前投影/);
+  assert.match(paths["/api/spaces/{spaceId}/information/settings"]!.put!.description ?? "", /取消该空间在途信息轮/);
 });

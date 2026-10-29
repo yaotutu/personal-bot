@@ -274,6 +274,23 @@ test("routes: approval registered during subscribe appears in ready and its fram
   await sse.close();
 });
 
+test("routes: appended notification emits one strict conversation_updated identity frame", async () => {
+  const events = createWorkspaceEvents();
+  const sse = await open(events);
+  await sse.take(1);
+
+  events.conversationNotificationAppended({ spaceId: "space-a", sessionId: "session-a" });
+  const updated = await sse.until("conversation_updated");
+  assert.ok(updated);
+  assert.deepEqual(updated.data, {
+    instanceId: events.instanceId,
+    spaceId: "space-a",
+    sessionId: "session-a",
+  });
+
+  await sse.close();
+});
+
 test("routes: cancel and service close clear the heartbeat timer", async () => {
   const originalSet = globalThis.setInterval;
   const originalClear = globalThis.clearInterval;

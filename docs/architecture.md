@@ -11,7 +11,7 @@
 | `src/index.ts`、`scripts/dev-mock.ts` | 配置加载、监听、信号退出；调用统一组合入口 | 业务规则、工具实现 |
 | `src/config/load-config.ts` | 必需 JSON 配置、直接凭据与校验 | 环境变量回退、创建业务实例 |
 | `src/bootstrap/create-service.ts`、`types.ts` | 唯一实例组装、启动校准、执行源启停、统一关闭 | DTO、agent loop |
-| `src/features/` | conversation/messages/memory/identity/dream/jobs/goals/actions/monitors/skills/web/weather/workspace/activities/browser 的规则与最小 port | Hono、AG-UI、pi SDK、文件系统或具体 adapter |
+| `src/features/` | conversation/messages/information/memory/identity/dream/jobs/goals/actions/monitors/skills/web/weather/workspace/activities/browser 的规则与最小 port | Hono、AG-UI、pi SDK、文件系统或具体 adapter |
 | `src/adapters/pi/` | session factory、执行历史与消息事实投影、activity 记录与安全观察、诊断脱敏、资源隔离、prompt、工具装配与路径 guard | 第二份正文历史、手写 agent loop、反馈业务状态 |
 | `src/adapters/ag-ui/` | SSE、事件投影、运行与取消适配 | 会话锁或业务域状态 |
 | `src/adapters/storage/` | DataLayout、文件读写、各域 repository | 业务状态机、通用 CRUD 框架 |
@@ -31,7 +31,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - 历史读取和迟到 Stop 只查已有会话；不存在/已删 ID 返回空历史或 false，不 mkdir、不进入列表。显式新 run、规则/技能保存或来源绑定可建立会话；存在性以会话列表为准。
 - 每个 conversation 独占 active run、运行锁和取消原因。客户端 run 与同 thread 的定时 trigger 共锁，其他用户 thread 独立；run 有客户端超时与断流取消，jobs trigger 保留既有无客户端超时语义，不擅自统一两者。
 - pi 的 `createAgentSession` 负责执行循环、工具执行和持久化，SessionManager/JSONL 是唯一历史权威。聊天附件不落工作区、不建附件库：图片通过 SDK prompt images 进入同条 user message，UTF-8 正文以不可信数据包装进 prompt；custom turn 只存附件元数据，展示图片从该条 user message 的 image blocks 读取。展示读取完整 branch，模型 compaction/context edit 仍由 pi 管理，不维护第二套历史。
-- PI 历史唯一权威指聊天正文、附件执行事实与工具结果不再复制；不禁止 Pi Muse 保存自己的业务事实。消息反馈保存在独立 repository，不能 append 到 PI branch、进入模型上下文或改变 expectedRevision。
+- PI 历史唯一权威指聊天正文、附件执行事实与工具结果不再复制；不禁止 Pi Muse 保存自己的业务事实。消息反馈保存在独立 repository，不能 append 到 PI branch、改变 expectedRevision 或自动进入普通聊天上下文；显式启用的信息后台可按空间读取当前反馈例证。
 - 模型与工具诊断在进入模型上下文和 pi 持久化前脱敏，不只是清洗 SSE 副本。默认文案为 `Tool execution failed` / `Model request failed`；仅 guard 声明的受控拒绝（`details.denied`）可透传。文件缺失使用受控 `File not found.`，技能诊断使用 `builtin/...` / `user/...` 逻辑路径。
 - 工具副作用不因最终回复失败而回滚，失败不自动重试。停止后的半截 assistant 文本仍受 pi 的 `error/aborted` 历史过滤规则限制，不为恢复半截文本修改 pi。
 - memory/identity 共用一个 repository 与完整读改写队列；其他持久域各有唯一 repository，同一文档不得在路由或工具中另开 writer。
@@ -45,9 +45,18 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - 反馈归属为 `spaceId + sessionId + messageId`。喜欢/不喜欢互斥且可置空撤销；同一消息允许多条服务端 ID 评论，文本 trim 后非空且最多 4000 字符。工具结果不可反馈，当前生成中的消息不可反馈；同空间旧落盘消息在其他流式运行期间仍可反馈。
 - `messages/<spaceId>/<sessionId>.json` 保存原始操作事件：reaction 变更/撤销、评论新增、编辑（旧新文本）、删除（删除前文本）及服务端时间。当前反馈和事件均由事件流投影，不能只存最终值，也不能把反馈 append 进 PI branch。
 - reset 生成新 sessionId 并按空间清理反馈文件；delete 级联清理。旧 sessionId 返回 409，不迁移到新会话，也不得复活已删除空间。repository 读写、清理与 reset/delete 共用串行队列；文件缺失视为空反馈，损坏文件启动或读取时报错。
-- 反馈接口不触发模型、Dream、自动记忆或偏好学习，也不从 Markdown 拆推荐条目；未来结构化推荐目标必须先有真实服务端结构化入口，再显式扩展业务目标模型。
+- 反馈记录操作本身不触发模型、Dream、自动记忆或偏好学习，也不从 Markdown 拆推荐条目；信息后台启用后可在独立决策轮读取当前空间、当前会话的有限最新例证。这不是训练，也不把点赞泛化为全局偏好；显式空间规则与偏好 notes 优先。
 
-## 后台调度与通知
+## 通用信息后台
+
+- `features/information` 只服务普通空间：设置、偏好 notes、原始条目与执行记录保存在 `information/<spaceId>.json`，不是 PI JSONL。所有 HTTP 入口鉴权且目标必须已存在；GET/迟到输入/后台结果不创建或复活空间。设置默认 `false/15s`，0 表示到期即时聚合；reset 保留该文件但中断在途轮，delete 级联删除。
+- 接入按整批校验，最多 50 条；`source+externalId` 是空间内幂等键。完全相同原始内容、标题与显式来源时间幂等回读稳定 ID；同 key 不同内容返回 409 且不覆盖原文。省略 `receivedAt` 的重复请求以首次落库时间为准；正文与标题仅拒绝全空白，不 trim 或改写。
+- 后台单进程全局只有一个执行槽；手动 run 与 scheduler 在首个 await 前同步争用。每轮最多 20 条、60000 字符，并从最早 pending 条目聚合。pending 落盘；重启将遗留 `running` 标为 failed，也不重放“模型已完成但发布未确认”的轮次。
+- 执行轮使用 `createAgentSession` 的独立内存 SessionManager，只装配 `submit_information_result` 工具；不提供 bash/write/edit/read、网络、memory、instructions 写、skills.save 或委派能力。空间规则与已启用技能的 `SKILL.md` 纯文本作为指引，不能扩权；原始信息、反馈和来源时间都是不可信数据。
+- 结构化提交由 PI 无关的共享校验器强制：每个本批 item 恰好一次 silent/notify 决策，notify item 恰好被一条通知覆盖，silent 不得发布，reason/text 与引用有界。SDK 整轮成功且最终恰好一个有效工具提交才持久化决策；同一 SDK 轮内无效提交可收到工具错误并自行纠正，不触发应用重跑；空自然语言确认不要求，漏调/最终无有效提交/两次有效提交/请求失败均 failed 且不自动重试。
+- 发布经唯一 `conversation.notify` 入口使用稳定 notificationId，repository 记录 run → 原始 items → notificationId/sessionId/messageId。通知排队未落盘前可被 disable/reset/delete/shutdown 撤销；已落盘消息不回滚。发布前检查取消、设置与目标 session，模型成功而投递失败时保留 model succeeded 并单独记录 publication failed。
+- 普通聊天常开只读 `information` 工具，固定闭包到当前空间，仅能查询本空间信息、run、偏好与发布关联；子代理不装配。短信接入、供应商适配与移动端管理界面不在该域内。
+
 ## 后台调度与通知
 
 当前后台行为包含 jobs / monitors / dream；subagent 是父模型调用的工具，不是后台任务域。
@@ -119,7 +128,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 
 ## 生命周期
 
-1. 组装 repository/services，读取并校验持久域（含消息反馈事件文件）；重算 jobs、撤销旧 pending 审批，不恢复崩溃模型轮或旧 worker。所有实际执行源最后才启动。
+1. 组装 repository/services，读取并校验持久域（含消息反馈与信息事件文件）；重算 jobs、撤销旧 pending 审批，校准中断的信息 run，不恢复崩溃模型轮或旧 worker。所有实际执行源最后才启动。
 2. HTTP/协议复用已注入服务，不自行启动 scheduler。service.close 同步关门，新 HTTP 请求返回 503，hub/scheduler/subagent 不再创建或派发新工作。
 3. 先停调度、取消会话并结束工作区通知长连接，等待已发出的执行、通知、状态写入和已接纳 HTTP 请求收尾。关闭必须幂等，某个清理失败也不跳过其他实例。
 4. 进程入口停止接收连接并等待 close；mock 入口额外关闭 fake provider，浏览器域结束 WS 订阅并优雅关闭 Chrome。初始化失败也必须清理本次已分配资源，不能遗留定时器、socket 或进程。
@@ -132,6 +141,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 | --- | --- |
 | `sessions/<threadId>/*.jsonl` | pi 历史唯一权威来源 |
 | `messages/<spaceId>/<sessionId>.json` | Pi Muse 消息反馈原始事件；正文仍在上方 PI JSONL |
+| `information/<spaceId>.json` | 空间局部信息设置、偏好 notes、原始条目、模型决策与发布溯源；reset 保留，delete 级联删除 |
 | `sessions/<threadId>/INSTRUCTIONS.md` | 本会话专属规则（含 `## 空间用途`），下一轮注入 |
 | `sessions/<threadId>/DREAM.md` | 本会话补充 Dream 提示词，按需存在 |
 | `sessions/<threadId>/dream.json` | 本会话 Dream 开关、游标、最近结果与待确认项，按需存在 |
@@ -162,7 +172,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - Web history/SSE/结束刷新绑定 thread 与运行代次，切换/卸载取消原流。客户端同步 revision、恢复冲突草稿并等待 Stop 收尾，具体协议由生成契约约束，不自行用旧快照覆盖服务端事实。
 - 审批单独读取 pending 完整预览、历史摘要与详情，不塞入工作台快照；token 是前端唯一认证事实，401 与跨标签退出及时同步登录状态。
 - `src/bootstrap/service-version.ts` 在源码启动时固定 package/git/白名单源码 SHA-256 快照；构建产物读取 `dist/service-version.json`，不在请求时执行 git 或读取源码。health、OpenAPI 和 Scalar 共用版本身份，dirty=true 时比较 sourceHash，不只比较 commit。
-- `/api/events` 是单向失效通知，不承载执行状态所有权；断开此流不取消聊天。聊天流与工作区通知的事件表和取消语义不得混用，具体协议以各自契约为准。
+- `/api/events` 是单向工作区推送：运行/审批/活动携带展示投影，通知落盘只发送会话身份失效信号；断开此流不取消聊天。聊天流与工作区通知的事件表和取消语义不得混用，具体协议以各自契约为准。
 
 ## 新能力接入
 

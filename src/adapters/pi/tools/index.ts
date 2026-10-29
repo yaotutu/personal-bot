@@ -21,6 +21,7 @@ import { weatherTool } from "./weather.js";
 import { createBrowserTools } from "./browser.js";
 import { instructionsTool } from "./instructions.js";
 import { createActivityTool, ACTIVITY_TOOL_NAME } from "./activity.js";
+import { createInformationTool, INFORMATION_TOOL_NAME } from "./information.js";
 import type { ActivityRun } from "../../../features/activities/types.js";
 import { SUBAGENT_TOOL_NAME } from "../subagent/extension.js";
 import type { WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
@@ -47,6 +48,7 @@ type ToolDependencies = {
   weather?: WeatherService;
   browser?: BrowserService;
   layout?: DataLayout;
+  information?: Pick<import("../../../features/information/service.js").InformationService, "query">;
   sharedDir?: string;
   readOnlyFiles?: readonly ReadOnlyFile[];
   workspaceCommits?: WorkspaceCommitQueue;
@@ -75,6 +77,7 @@ export const skillToToolsMap: Record<string, string[]> = {
 
 const registrations = [
   { names: ["currentTime"], create: (_deps: ToolDependencies) => [currentTimeTool] },
+  { names: [INFORMATION_TOOL_NAME], create: (deps: ToolDependencies) => !isSubagent(deps) && deps.information && deps.spaceId ? [createInformationTool(deps.information, deps.spaceId)] : [] },
   { names: [ACTIVITY_TOOL_NAME], create: (deps: ToolDependencies) => deps.activity && !isSubagent(deps) ? [createActivityTool(deps.activity)] : [] },
   { names: ["instructions"], create: (deps: ToolDependencies) => isSubagent(deps) || !deps.layout ? [] : [instructionsTool(deps.layout, deps.spaceId)] },
   { names: ["memory", "memory_search"], create: (deps: ToolDependencies) => [memoryTool(deps.memory), memorySearchTool(deps.memory)] },

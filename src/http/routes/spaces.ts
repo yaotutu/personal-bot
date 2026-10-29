@@ -27,7 +27,7 @@ import { UnknownSkillError } from "../../features/skills/service.js";
  * 空间管理路由：多空间列表、重置会话、生命周期（含级联删除）、技能覆盖、专属指令与 Dream 配置。
  */
 export const createSpaceRoutes = (dependencies: HttpDependencies) => {
-  const { conversationHub, layout, jobs, monitors, skills, dream, actions, messageFeedbackRepository } = dependencies;
+  const { conversationHub, layout, jobs, monitors, skills, dream, actions, messageFeedbackRepository, information } = dependencies;
   const app = new Hono();
 
   // GET /api/spaces - 列出所有空间（最近活跃倒序，永远包含 local-main）
@@ -48,7 +48,11 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
     }
     const clearSchedules = parsed.data.clearSchedules ?? false;
 
-    return conversationHub.resetSpace(spaceId, async ({ closeCurrent, reopen }) => {
+    // 暂停屏障覆盖完整锁窗口，避免两次 cancel 之间又启动新后台轮。
+    const pause = information.pauseSpace(spaceId);
+    await pause.stopped;
+    try {
+      return await conversationHub.resetSpace(spaceId, async ({ closeCurrent, reopen }) => {
       // 1. 记录重置前归属于该空间的待审批项 ID，用于准确统计作废项
       const pendingBefore = (await actions.snapshotPending()).filter((a) => {
         const actionSpaceId = a.spaceId;
@@ -60,7 +64,7 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
       // 2. 优先取消归属于该空间的待审批项（在 closeCurrent 之前执行，主动触发取消）
       const cancelledFirst = await actions.cancelBySpaceId(spaceId);
 
-      // 3. 关闭当前活跃的协调器与模型运行
+      // 3. 关闭当前活跃的协调器与模型运行；信息在途轮已在进入锁前取消。
       await closeCurrent();
 
       // 4. 补查一次是否有运行关闭期间被撤销或残留的审批项
@@ -113,7 +117,10 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
           monitors: removedMonitors,
         },
       });
-    });
+      });
+    } finally {
+      pause.resume();
+    }
   });
 
   // GET /api/spaces/:spaceId/skills - 读取空间技能生效状态
@@ -259,7 +266,11 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
       return c.json({ error: "Invalid spaceId", code: "INVALID_SPACE_ID" }, 400);
     }
 
-    return conversationHub.deleteSpace(spaceId, async () => {
+    // 删除全程暂停信息后台，且不在 hub 锁内等待 retain。
+    const pause = information.pauseSpace(spaceId);
+    await pause.stopped;
+    try {
+      return await conversationHub.deleteSpace(spaceId, async () => {
       const spaceDir = threadSessionsDir(layout, spaceId);
       const dirExists = existsSync(spaceDir);
       const hasJobs = (await jobs.list()).some((j) => j.originSpaceId === spaceId);
@@ -272,10 +283,14 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
       const removedMonitors = await monitors.removeByOriginSpaceId(spaceId);
       await actions.cancelBySpaceId(spaceId);
       await messageFeedbackRepository.removeSpace(spaceId);
+      await information.removeSpace(spaceId);
       await rm(spaceDir, { recursive: true, force: true });
       await rm(threadWorkspaceDir(layout, spaceId), { recursive: true, force: true });
       return c.json({ ok: true, removed: { jobs: removedJobs, monitors: removedMonitors } });
-    });
+      });
+    } finally {
+      pause.resume();
+    }
   });
 
   return app;
