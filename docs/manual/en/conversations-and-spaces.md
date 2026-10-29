@@ -61,6 +61,8 @@ Ask in an ordinary chat, such as “What happened to the information just receiv
 
 When the background decides to notify, the server appends the notification to that space's history; an open chat page receives a real-time invalidation signal and reloads authoritative history automatically. After the notification connection reconnects, the client also reloads the current conversation, so no manual refresh or space switching is required.
 
+A notification is the background's filtered result for that space. It is not a user request and does not mean the ordinary chat has already performed the action mentioned in it. Ordinary chat recognizes the queryable source of these notifications in its model context and can use the read-only `information` tool to review the original items, decision reasons, and publication links. Items left silent are not written into chat history, and the assistant does not guess their content.
+
 This only refreshes the foreground chat while the app is open; it is not an operating-system push notification.
 
 ## Reset and Delete Spaces {#reset-and-delete-spaces}

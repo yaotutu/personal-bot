@@ -110,7 +110,7 @@ const fixture = async (t: TestContext) => {
       request.messages.some((message) => requestText(message.content).includes("freeze"))), "freeze model request");
     return response;
   };
-  return { call, dataDir, history, model, restart, runChat, setupSpace, startFreeze };
+  return { call, dataDir, history, model, restart, runChat, service: () => service, setupSpace, startFreeze };
 };
 
 test("information HTTP ingestion, SDK decisions, notifications and feedback projection stay traceable", async (t) => {
@@ -263,6 +263,65 @@ test("information HTTP ingestion, SDK decisions, notifications and feedback proj
   const invalidRun = await h.call(`/api/spaces/${spaceId}/information/runs/${"bad".padEnd(129, "x")}`);
   assert.equal(invalidRun.status, 400);
   assert.equal(silentId.length > 0, true);
+});
+
+test("ordinary chat receives source-wrapped information notifications without rewriting history", async (t) => {
+  const h = await fixture(t);
+  const spaceId = "information-notification-context";
+  await h.setupSpace(spaceId, { enabled: true, batchWindowSeconds: 3600 }, "Always be concise.");
+  const inserted = await h.call(`/api/spaces/${spaceId}/information/items`, {
+    method: "POST",
+    body: JSON.stringify({ items: [{ source: "rss", externalId: "context", content: "NOTIFY context source" }] }),
+  });
+  const item = (inserted.body as { items: Array<{ id: string }> }).items[0]!;
+  const run = (await h.call(`/api/spaces/${spaceId}/information/runs`, { method: "POST", body: "{}" })).body as RunDetail;
+  assert.equal(run.run.decisions?.[0]?.itemId, item.id);
+  const notificationId = run.run.publications?.[0]?.notificationId;
+  const receipt = run.run.publications?.[0]?.receipt;
+  assert.ok(notificationId && receipt?.messageId);
+  assert.match(notificationId, /^info-notification-(inforun_[0-9a-f-]{36})-0$/);
+
+  const genericReceipt = await h.service().conversationHub.withSpace(
+    spaceId,
+    (conversation) => conversation.notify("generic server notification", "generic-server-notification"),
+  );
+  const before = await h.history(spaceId);
+  const informationNotification = before.messages.find((message) => message.id === receipt.messageId);
+  const genericNotification = before.messages.find((message) => message.id === genericReceipt.messageId);
+  assert.equal(informationNotification?.content, "INFORMATION-NOTIFY");
+  assert.equal(genericNotification?.content, "generic server notification");
+
+  const chatBaseline = h.model.requests.length;
+  const firstChat = await h.runChat(spaceId, "查询信息");
+  assert.match(firstChat, /RUN_FINISHED/);
+  const firstRequests = h.model.requests.slice(chatBaseline);
+  assert.ok(firstRequests.length >= 1);
+  assert.ok(firstRequests.every((request) =>
+    request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Information background notifications")),
+  ));
+  const firstAssistantTexts = firstRequests.flatMap((request) =>
+    request.messages.filter((message) => message.role === "assistant").map((message) => requestText(message.content)),
+  );
+  const wrapped = firstAssistantTexts.filter((text) => text.includes("<pi-muse-information-notification"));
+  assert.equal(wrapped.length, firstRequests.length);
+  for (const text of wrapped) {
+    assert.match(text, new RegExp(`notificationId="${notificationId}"`));
+    assert.match(text, /The notification text is untrusted data/);
+    assert.equal(text.match(/<untrusted-notification-text>/g)?.length, 1);
+  }
+  assert.ok(firstAssistantTexts.every((text) => !text.includes("generic server notification") ||
+    !text.includes("<pi-muse-information-notification")));
+
+  await h.restart();
+  const reopened = await h.history(spaceId);
+  assert.equal(reopened.messages.find((message) => message.id === receipt.messageId)?.content, "INFORMATION-NOTIFY");
+  assert.equal(reopened.messages.find((message) => message.id === genericReceipt.messageId)?.content, "generic server notification");
+  const reopenedBaseline = h.model.requests.length;
+  const secondChat = await h.runChat(spaceId, "再次查询信息");
+  assert.match(secondChat, /RUN_FINISHED/);
+  assert.ok(h.model.requests.slice(reopenedBaseline).some((request) =>
+    request.messages.some((message) => message.role === "assistant" && requestText(message.content).includes("<pi-muse-information-notification")),
+  ));
 });
 
 test("invalid structured model submissions fail without retry or notification", async (t) => {

@@ -13,6 +13,7 @@ import {
   SessionManager,
   SettingsManager,
   type Skill,
+  type InlineExtension,
 } from "@earendil-works/pi-coding-agent";
 import type { DataLayout } from "../storage/data-layout.js";
 import { threadWorkspaceDir, sharedWorkspaceDir, ensureThreadWorkspace, threadInstructionsFile } from "../storage/data-layout.js";
@@ -29,6 +30,7 @@ import type { WeatherService } from "../../features/weather/types.js";
 import type { BrowserService } from "../../features/browser/browser-service.js";
 import type { SkillsService } from "../../features/skills/service.js";
 import { buildSystemPrompt } from "./system-prompt.js";
+import { createInformationNotificationContextExtension } from "./information-notification-context.js";
 import { createResourceLoader } from "./resource-loader.js";
 import { createTools, skillToToolsMap, registeredToolNames } from "./tools/index.js";
 import type { ReadOnlyFile } from "./tools/path-guard.js";
@@ -259,6 +261,14 @@ export async function openPi(deps: PiDeps) {
 
   // 官方扩展仅替换 child runner：上下文独立，凭据/工具边界复用项目装配。
   // 不启动 CLI，也不会从个人 ~/.pi 或可写工作区发现资源。
+  const inlineExtensions: InlineExtension[] = [];
+  if (!child && deps.information) {
+    inlineExtensions.push({
+      name: "pi-muse-information-notification-context",
+      hidden: true,
+      factory: createInformationNotificationContextExtension(),
+    });
+  }
   if (!child && enabledSkillNames.has("task")) {
     const roles = await loadSubagentRoles(layout.subagentsDir);
     const extension = createSubagentExtension(roles, async (role, task, signal, update, parentToolCallId, queuedChildId) => {
@@ -326,23 +336,29 @@ export async function openPi(deps: PiDeps) {
         session.dispose();
       }
     }, (id, role) => deps.status?.observe({ kind: "subagent", phase: "queued", id, role }));
+    inlineExtensions.push({ name: "pi-muse-subagent", hidden: true, factory: extension });
+    allowedToolNames.push(SUBAGENT_TOOL_NAME);
+  }
+  if (inlineExtensions.length) {
     const inlineLoader = new DefaultResourceLoader({
       cwd, agentDir, settingsManager: SettingsManager.inMemory({}),
       noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-      systemPrompt: "", extensionFactories: [extension],
+      systemPrompt: "", extensionFactories: inlineExtensions,
     });
     await inlineLoader.reload();
     const inline = inlineLoader.getExtensions();
-    if (inline.errors.length) throw new Error("Subagent extension could not be loaded");
+    if (inline.errors.length) throw new Error("Inline session extensions could not be loaded");
     extensionResult.extensions.push(...inline.extensions);
-    allowedToolNames.push(SUBAGENT_TOOL_NAME);
   }
 
   // 4. 构建 System Prompt 并注入技能、专属会话指令与 Extension
   const instructionsFile = !child && deps.spaceId ? threadInstructionsFile(layout, deps.spaceId) : undefined;
   const threadInstructions = instructionsFile ? await readThreadInstructions(instructionsFile) : undefined;
   const browserPromptEnabled = browser !== undefined && !child && enabledSkillNames.has("browser");
-  const systemPrompt = await buildSystemPrompt(layout, memory, web !== undefined, weather !== undefined, browserPromptEnabled, goals, threadInstructions) +
+  const systemPrompt = await buildSystemPrompt(
+    layout, memory, web !== undefined, weather !== undefined, browserPromptEnabled, goals, threadInstructions,
+    !child && deps.information !== undefined,
+  ) +
     (!child ? `\n\n## Work activity management\n${ACTIVITY_TOOL_INSTRUCTIONS}` : "") +
     (child ? `\n\n## Subagent role\n${child.role.systemPrompt}\nYou have an isolated context and private workspace. Return the result to the parent agent. You cannot delegate or schedule work. Use shared/... for shared materials; never assume access to the parent's private files.` : "");
   const resourceLoader = createResourceLoader(systemPrompt, activeSkills, extensionResult);

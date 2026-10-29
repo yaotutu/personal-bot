@@ -56,6 +56,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - 结构化提交由 PI 无关的共享校验器强制：每个本批 item 恰好一次 silent/notify 决策，notify item 恰好被一条通知覆盖，silent 不得发布，reason/text 与引用有界。SDK 整轮成功且最终恰好一个有效工具提交才持久化决策；同一 SDK 轮内无效提交可收到工具错误并自行纠正，不触发应用重跑；空自然语言确认不要求，漏调/最终无有效提交/两次有效提交/请求失败均 failed 且不自动重试。
 - 发布经唯一 `conversation.notify` 入口使用稳定 notificationId，repository 记录 run → 原始 items → notificationId/sessionId/messageId。通知排队未落盘前可被 disable/reset/delete/shutdown 撤销；已落盘消息不回滚。发布前检查取消、设置与目标 session，模型成功而投递失败时保留 model succeeded 并单独记录 publication failed。
 - 普通聊天常开只读 `information` 工具，固定闭包到当前空间，仅能查询本空间信息、run、偏好与发布关联；子代理不装配。短信接入、供应商适配与移动端管理界面不在该域内。
+- 普通主聊天的系统提示词说明信息后台的通知边界；PI 公开 `context` hook 仅在模型请求前把带服务端 marker 且符合稳定 `info-notification-inforun_UUID-index` 格式的通知包装为来源、notificationId、runId 与不可信原文。该投影不修改 PI JSONL/UI 原文/revision，也不运行时查库；通用服务端通知、普通 assistant/user 或用户伪造文本不得获得信息后台来源。
 
 ## 后台调度与通知
 

@@ -333,15 +333,39 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       const chatText = await startChat(mainSpace, "请调用 information 工具查询当前空间的信息处理概览，然后用一句话汇报。不要读取其他空间。");
       assert.ok(sseFinished(chatText));
       const chatTraces = proxy.traces.slice(chatTraceBefore);
+      assert.ok(chatTraces.length > 0);
+      assert.ok(chatTraces.every((trace) => trace.systemMarkers.informationBackground));
       const informationCall = chatTraces.flatMap((trace) => trace.calls).find((call) => call.name === "information");
       assert.ok(informationCall, "ordinary chat must actually call information");
       const informationArgs = JSON.parse(informationCall!.arguments) as { action?: string; spaceId?: string };
       assert.equal(informationArgs.action, "overview");
       assert.equal(informationArgs.spaceId, undefined);
       assert.ok(chatTraces.some((trace) => trace.toolResults.some((result) => result.includes(mixedRun.run.id))));
+      const wrappedSources = chatTraces
+        .flatMap((trace) => trace.assistantContexts)
+        .filter((context) => context.informationNotification);
+      const publishedSources = new Map(
+        [mixedRun, feedbackRun].flatMap((run) =>
+          (run.run.publications ?? [])
+            .filter((entry) => entry.status === "published" && entry.notificationId)
+            .map((entry) => [entry.notificationId!, run.run.id] as const),
+        ),
+      );
+      const targetSources = wrappedSources.filter((source) => source.notificationId === publication?.notificationId);
+      assert.ok(targetSources.length > 0, "the mixed-run notification must remain visible with its server source");
+      for (const source of targetSources) assert.equal(source.informationRunId, mixedRun.run.id);
+      for (const source of wrappedSources) {
+        assert.ok(source.notificationId && publishedSources.has(source.notificationId));
+        assert.equal(source.informationRunId, publishedSources.get(source.notificationId));
+      }
       const itemCountAfterChat = ((await expectApi("items after chat", `/api/spaces/${mainSpace}/information/items?limit=100`, 200)).body as { items: unknown[] }).items.length;
       assert.equal(itemCountAfterChat, mixedItems.length + silentItems.length + feedbackItems.length);
-      record("ordinary-chat-readonly-tool", { toolArguments: informationArgs, referencedRun: mixedRun.run.id });
+      record("ordinary-chat-readonly-tool-and-source", {
+        toolArguments: informationArgs,
+        referencedRun: mixedRun.run.id,
+        notificationId: publication?.notificationId,
+        sourceNotifications: [...new Set(wrappedSources.map((source) => source.notificationId))],
+      });
 
       const autoSpace = "live-information-auto";
       await setupSpace(autoSpace, { enabled: true, batchWindowSeconds: 0 }, policy);

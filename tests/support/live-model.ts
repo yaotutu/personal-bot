@@ -5,6 +5,8 @@ export type CallTrace = {
   index: number; startedAt: number; endedAt?: number; child: boolean;
   users: string[]; toolNames: string[]; toolResults: string[];
   calls: { name: string; arguments: string }[]; output: string; disconnected: boolean;
+  systemMarkers: { subagentRole: boolean; informationBackground: boolean };
+  assistantContexts: Array<{ informationNotification: boolean; notificationId?: string; informationRunId?: string }>;
 };
 const textOf = (value: unknown): string => typeof value === "string" ? value : Array.isArray(value)
   ? value.map((entry) => entry && typeof entry === "object" && "text" in entry ? String(entry.text) : "").join("") : "";
@@ -36,12 +38,33 @@ export const createLiveModel = async (model: { baseUrl: string; apiKey?: string 
         if (traces.length >= 200) throw new Error("Test model request budget exceeded");
         const input = JSON.parse(body) as { messages?: { role: string; content: unknown }[]; tools?: { function?: { name?: string }; name?: string }[] };
         const messages = input.messages ?? [];
+        const systemText = messages
+          .filter((entry) => entry.role === "system")
+          .map((entry) => textOf(entry.content))
+          .join("\n");
+        const assistantContexts = messages
+          .filter((entry) => entry.role === "assistant")
+          .map((entry) => {
+            const text = textOf(entry.content);
+            const match = /<pi-muse-information-notification notificationId="([^"]+)" informationRunId="([^"]+)">/.exec(text);
+            return {
+              informationNotification: text.includes("<pi-muse-information-notification"),
+              notificationId: match?.[1],
+              informationRunId: match?.[2],
+            };
+          });
         trace = {
-          index: traces.length, startedAt: Date.now(), child: messages.some((entry) => entry.role === "system" && textOf(entry.content).includes("## Subagent role")),
+          index: traces.length, startedAt: Date.now(),
+          child: systemText.includes("## Subagent role"),
           users: messages.filter((entry) => entry.role === "user").map((entry) => textOf(entry.content).slice(0, 16_384)),
           toolNames: (input.tools ?? []).map((tool) => tool.function?.name ?? tool.name ?? ""),
           toolResults: messages.filter((entry) => entry.role === "tool").map((entry) => textOf(entry.content).slice(0, 16_384)),
           calls: [], output: "", disconnected: false,
+          systemMarkers: {
+            subagentRole: systemText.includes("## Subagent role"),
+            informationBackground: systemText.includes("## Information background notifications"),
+          },
+          assistantContexts,
         };
         traces.push(trace);
         const upstream = await fetch(model.baseUrl.replace(/\/+$/, "") + "/chat/completions", {
