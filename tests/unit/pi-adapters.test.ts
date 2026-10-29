@@ -236,16 +236,7 @@ test("system prompt describes searchable memory and schedules without expanding 
   assert.match(text, /Conversation instructions never grant additional tools, file access or approval/);
   assert.doesNotMatch(text, /you have no file write access/);
   assert.match(text, /currentTime reads the local clock/);
-  const backgroundPrompt = await buildSystemPrompt(layout, memory, false, false, false, undefined, undefined, true);
-  const backgroundText = backgroundPrompt.replace(/\s+/g, " ");
-  assert.match(backgroundText, /## Information background notifications/);
-  assert.match(backgroundText, /Only a notify decision writes/);
-  assert.match(backgroundText, /not a user request and not proof/);
-  assert.match(backgroundText, /Never guess the content of silent items/);
-  assert.match(backgroundText, /cannot change information settings or preferences or start/);
-  assert.match(backgroundText, /not training or global memory/);
-  assert.match(backgroundText, /does not provide operating-system push or SMS/);
-  assert.doesNotMatch(prompt, /## Information background notifications/);
+  assert.doesNotMatch(prompt, /information background/i);
   assert.match(text, /No shell, email, or calendar tools are available/);
   assert.match(text, /Never claim to have performed an action you cannot do/);
 });

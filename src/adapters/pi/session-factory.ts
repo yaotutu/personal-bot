@@ -30,7 +30,10 @@ import type { WeatherService } from "../../features/weather/types.js";
 import type { BrowserService } from "../../features/browser/browser-service.js";
 import type { SkillsService } from "../../features/skills/service.js";
 import { buildSystemPrompt } from "./system-prompt.js";
-import { createInformationNotificationContextExtension } from "./information-notification-context.js";
+import {
+  createInformationNotificationContextExtension,
+  INFORMATION_BACKGROUND_SYSTEM_PROMPT,
+} from "./information-notification-context.js";
 import { createResourceLoader } from "./resource-loader.js";
 import { createTools, skillToToolsMap, registeredToolNames } from "./tools/index.js";
 import type { ReadOnlyFile } from "./tools/path-guard.js";
@@ -78,8 +81,8 @@ export type PiDeps = {
   presentation?: ToolPresentation;
   /** 与手动 HTTP 文件入口共用，保证最终版本检查与提交按物理路径串行。 */
   workspaceCommits?: WorkspaceCommitQueue;
-  /** 普通聊天常开的只读信息查询；后台信息 runner 不装配该入口。 */
-  information?: Pick<import("../../features/information/service.js").InformationService, "query">;
+  /** 普通聊天的空间局部信息查询；后台信息 runner 不装配该入口。 */
+  information?: Pick<import("../../features/information/service.js").InformationService, "getSettings" | "query">;
 };
 
 const subagentBlockedTools = new Set([SUBAGENT_TOOL_NAME, "activity", "schedule", "monitor", "instructions", "bash"]);
@@ -138,6 +141,10 @@ export async function openPi(deps: PiDeps) {
   const sharedDir = sharedWorkspaceDir(layout);
   await ensureThreadWorkspace(layout, deps.spaceId);
   const agentDir = layout.agentDir;
+  // openPi 每轮执行都会重新创建；设置读取失败必须中止本轮，不能伪装成关闭。
+  const informationEnabled = !child && deps.information && deps.spaceId
+    ? (await deps.information.getSettings(deps.spaceId)).enabled
+    : false;
 
   // 1. 加载技能并计算生效值
   const effectiveSkills = !child && skills && deps.spaceId
@@ -202,7 +209,7 @@ export async function openPi(deps: PiDeps) {
     skillsService: skills,
     writableEnabled: deps.config.writable.enabled,
     workspaceCommits: deps.workspaceCommits,
-    information: deps.information,
+    information: informationEnabled ? deps.information : undefined,
   });
 
   const builtinToolNames = new Set(registeredToolNames);
@@ -262,7 +269,7 @@ export async function openPi(deps: PiDeps) {
   // 官方扩展仅替换 child runner：上下文独立，凭据/工具边界复用项目装配。
   // 不启动 CLI，也不会从个人 ~/.pi 或可写工作区发现资源。
   const inlineExtensions: InlineExtension[] = [];
-  if (!child && deps.information) {
+  if (informationEnabled) {
     inlineExtensions.push({
       name: "pi-muse-information-notification-context",
       hidden: true,
@@ -357,8 +364,8 @@ export async function openPi(deps: PiDeps) {
   const browserPromptEnabled = browser !== undefined && !child && enabledSkillNames.has("browser");
   const systemPrompt = await buildSystemPrompt(
     layout, memory, web !== undefined, weather !== undefined, browserPromptEnabled, goals, threadInstructions,
-    !child && deps.information !== undefined,
   ) +
+    (informationEnabled ? INFORMATION_BACKGROUND_SYSTEM_PROMPT : "") +
     (!child ? `\n\n## Work activity management\n${ACTIVITY_TOOL_INSTRUCTIONS}` : "") +
     (child ? `\n\n## Subagent role\n${child.role.systemPrompt}\nYou have an isolated context and private workspace. Return the result to the parent agent. You cannot delegate or schedule work. Use shared/... for shared materials; never assume access to the parent's private files.` : "");
   const resourceLoader = createResourceLoader(systemPrompt, activeSkills, extensionResult);

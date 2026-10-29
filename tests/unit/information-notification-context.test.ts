@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createNotificationMessage, informationNotificationSourceOf } from "../../src/adapters/pi/notification-message.js";
-import { projectInformationNotificationContext } from "../../src/adapters/pi/information-notification-context.js";
+import {
+  INFORMATION_BACKGROUND_SYSTEM_PROMPT,
+  projectInformationNotificationContext,
+} from "../../src/adapters/pi/information-notification-context.js";
 
 type AgentMessage = Parameters<typeof projectInformationNotificationContext>[0][number];
 
@@ -15,6 +18,19 @@ const contentText = (message: { content?: unknown }): string | undefined =>
   Array.isArray(message.content)
     ? message.content.map((part) => part && typeof part === "object" && "text" in part ? String(part.text) : "").join("")
     : undefined;
+
+test("information adapter prompt states source, read-only and silent-item boundaries", () => {
+  const text = INFORMATION_BACKGROUND_SYSTEM_PROMPT.replace(/\s+/g, " ");
+  assert.match(text, /## Information background notifications/);
+  assert.match(text, /This space has enabled its information background/);
+  assert.match(text, /Only a notify decision writes/);
+  assert.match(text, /not a user request and not proof/);
+  assert.match(text, /Never guess the content of silent items/);
+  assert.match(text, /read-only tool cannot ingest information/);
+  assert.match(text, /change information settings or preferences/);
+  assert.match(text, /not training or global memory/);
+  assert.match(text, /does not provide operating-system push or SMS/);
+});
 
 test("information notification context adds server source once without changing the stored object", () => {
   const projected = projectInformationNotificationContext([baseNotification]);

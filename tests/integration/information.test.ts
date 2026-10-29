@@ -324,6 +324,71 @@ test("ordinary chat receives source-wrapped information notifications without re
   ));
 });
 
+test("information prompt, tool and source extension follow current space settings", async (t) => {
+  const h = await fixture(t);
+  const spaceId = "information-capability-toggle";
+  await h.setupSpace(spaceId, { enabled: false, batchWindowSeconds: 3600 });
+
+  const closedBaseline = h.model.requests.length;
+  await h.runChat(spaceId, "默认关闭时普通回复");
+  const closedRequests = h.model.requests.slice(closedBaseline);
+  assert.ok(closedRequests.length >= 1);
+  for (const request of closedRequests) {
+    assert.ok(!request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Information background notifications")));
+    assert.equal(requestToolNames(request).includes("information"), false);
+  }
+
+  await h.setupSpace(spaceId, { enabled: true, batchWindowSeconds: 3600 });
+  await h.call(`/api/spaces/${spaceId}/information/items`, {
+    method: "POST",
+    body: JSON.stringify({ items: [{ source: "rss", externalId: "toggle", content: "NOTIFY toggle source" }] }),
+  });
+  const run = (await h.call(`/api/spaces/${spaceId}/information/runs`, { method: "POST", body: "{}" })).body as RunDetail;
+  const receipt = run.run.publications?.[0]?.receipt;
+  assert.ok(receipt?.messageId);
+
+  const enabledBaseline = h.model.requests.length;
+  await h.runChat(spaceId, "查询信息");
+  const enabledRequests = h.model.requests.slice(enabledBaseline);
+  assert.ok(enabledRequests.length >= 1);
+  for (const request of enabledRequests) {
+    assert.ok(request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Information background notifications")));
+    assert.equal(requestToolNames(request).includes("information"), true);
+    assert.ok(request.messages.some((message) => message.role === "assistant" && requestText(message.content).includes("<pi-muse-information-notification")));
+  }
+
+  const other = "information-capability-other";
+  await h.setupSpace(other, { enabled: false, batchWindowSeconds: 3600 });
+  const otherBaseline = h.model.requests.length;
+  await h.runChat(other, "另一个空间普通回复");
+  for (const request of h.model.requests.slice(otherBaseline)) {
+    assert.ok(!request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Information background notifications")));
+    assert.equal(requestToolNames(request).includes("information"), false);
+  }
+
+  const beforeDisable = await h.history(spaceId);
+  await h.setupSpace(spaceId, { enabled: false, batchWindowSeconds: 3600 });
+  assert.deepEqual(await h.history(spaceId), beforeDisable);
+  const disabledBaseline = h.model.requests.length;
+  await h.runChat(spaceId, "关闭后普通回复");
+  const disabledRequests = h.model.requests.slice(disabledBaseline);
+  for (const request of disabledRequests) {
+    assert.ok(!request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Information background notifications")));
+    assert.equal(requestToolNames(request).includes("information"), false);
+    assert.ok(request.messages.some((message) => message.role === "assistant" && requestText(message.content).includes("INFORMATION-NOTIFY")));
+    assert.ok(!request.messages.some((message) => message.role === "assistant" && requestText(message.content).includes("<pi-muse-information-notification")));
+  }
+
+  await h.setupSpace(spaceId, { enabled: true, batchWindowSeconds: 3600 });
+  const reenabledBaseline = h.model.requests.length;
+  await h.runChat(spaceId, "重新启用后普通回复");
+  assert.ok(h.model.requests.slice(reenabledBaseline).some((request) =>
+    request.messages.some((message) => message.role === "system" && requestText(message.content).includes("## Information background notifications")) &&
+    requestToolNames(request).includes("information") &&
+    request.messages.some((message) => message.role === "assistant" && requestText(message.content).includes("<pi-muse-information-notification")),
+  ));
+});
+
 test("invalid structured model submissions fail without retry or notification", async (t) => {
   const h = await fixture(t);
   const spaceId = "information-invalid";

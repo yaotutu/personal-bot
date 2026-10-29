@@ -51,7 +51,6 @@ const expectedTools = [
   "get_weather",
   "goal",
   "grep",
-  "information",
   "instructions",
   "ls",
   "memory",
@@ -1710,6 +1709,10 @@ test("subagent: parent delegates to an isolated child and receives its result wi
 }, async (t) => {
   const h = await harness();
   t.after(h.close);
+  await h.request("/api/spaces/local-main/information/settings", {
+    enabled: true,
+    batchWindowSeconds: 3600,
+  }, "PUT");
   const ev = await h.events(input([user("请用子代理完成一次测试")], "subagent-run"));
   assert.equal(ev.at(-1)?.type, "RUN_FINISHED");
   assert.ok(ev.some((event) => event.type === "TOOL_CALL_START" && event.toolCallName === "subagent"));
@@ -1721,8 +1724,9 @@ test("subagent: parent delegates to an isolated child and receives its result wi
   const children = h.model.requests.filter((request) => request.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("Task: Reply SUBAGENT-MARKER")));
   assert.equal(children.length, 1);
   const childTools = (children[0].tools as { function: { name: string } }[]).map((tool) => tool.function.name);
-  for (const name of ["subagent", "delegate_task", "bash", "schedule", "monitor", "instructions", "skills"])
+  for (const name of ["subagent", "delegate_task", "bash", "schedule", "monitor", "instructions", "skills", "information"])
     assert.ok(!childTools.includes(name), `child must not expose ${name}`);
+  assert.ok(!children[0].messages.some((message) => message.role === "system" && String(message.content).includes("## Information background notifications")));
   assert.ok(children[0].messages.every((message) => !JSON.stringify(message.content).includes("请用子代理完成一次测试")), "parent message history must not leak into child context");
   assert.ok((await h.getHistory()).some((message) => String(message.content).includes("SUBAGENT-MARKER")));
   await assert.rejects(readFile(join(h.dataDir, "tasks.json")), { code: "ENOENT" });
