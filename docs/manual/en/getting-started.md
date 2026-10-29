@@ -1,109 +1,121 @@
 # Quick Start Guide
 
-This guide explains how to configure and start the Pi Muse server from scratch, then connect it to the mobile client. For the complete and authoritative description of configuration fields, see [Configuration](configuration.md).
+This guide explains how to configure and start the Pi Muse server from scratch, connect the Android mobile client, send a message, and receive a reply. For the authoritative description of every configuration field, see [Configuration](configuration.md). For daily spaces, attachments, workspace files, and approvals, see [Conversations and spaces](conversations-and-spaces.md) and [Attachments, files, and approvals](files-and-approvals.md).
+
+This manual was checked against the current repository source; source capabilities do not automatically equal those of a released APK in [pi-muse-mobile Releases](https://github.com/yaotutu/pi-muse-mobile/releases). When using a release build, follow its actual UI and release notes.
 
 ## Prerequisites {#prerequisites}
 
 - **Node.js**: `>= 24`
 - **pnpm**: `12.10.1`
-- **Large model service**: any API compatible with the OpenAI Chat Completions protocol. It must provide a `baseUrl` and model `id`, plus the provider's corresponding `apiKey`.
+- **Large model service**: any API compatible with the OpenAI Chat Completions protocol, with a usable `baseUrl`, model `id`, and provider `apiKey`. If you want the model to understand images, the configured model must itself support image input.
+- **Mobile client**: Android is the priority platform. The mobile steps in this manual were verified by source inspection, not as a test of a released APK.
 
-## 1. Install and Configure {#install-and-configure}
+## Install and Configure {#install-and-configure}
 
-Clone the repository and install dependencies:
+1. On the host that will run the server, clone the repository and install dependencies:
 
-```sh
-git clone https://github.com/yaotutu/pi-muse.git
-cd pi-muse
-pnpm install
-```
+   ```sh
+   git clone https://github.com/yaotutu/pi-muse.git
+   cd pi-muse
+   pnpm install
+   ```
 
-Initialize the configuration file. If it already exists, edit it directly instead of overwriting it:
+2. Initialize the configuration file. If `.pi-muse/config.json` already exists, edit it directly instead of overwriting it:
 
-```sh
-mkdir -p .pi-muse
-cp -n config.example.json .pi-muse/config.json
-chmod 600 .pi-muse/config.json
-```
+   ```sh
+   mkdir -p .pi-muse
+   cp -n config.example.json .pi-muse/config.json
+   chmod 600 .pi-muse/config.json
+   ```
 
-Edit `.pi-muse/config.json` and replace the API address, model name, and keys below with your own values. Use a sufficiently long random value for the server access key rather than reusing the example:
+3. Edit `.pi-muse/config.json` and replace the example server address, model, and keys with your own. Use a sufficiently long random value for `server.accessKey`; do not reuse the example:
 
-```json
-{
-  "schemaVersion": 1,
-  "server": {
-    "host": "0.0.0.0",
-    "port": 17890,
-    "accessKey": "your-secure-access-key"
-  },
-  "model": {
-    "baseUrl": "https://your-provider.example/v1",
-    "id": "your-model-id",
-    "apiKey": "your-model-api-key"
-  }
-}
-```
+   ```json
+   {
+     "schemaVersion": 1,
+     "server": {
+       "host": "0.0.0.0",
+       "port": 17890,
+       "accessKey": "your-secure-access-key"
+     },
+     "model": {
+       "baseUrl": "https://your-provider.example/v1",
+       "id": "your-model-id",
+       "apiKey": "your-model-api-key"
+     }
+   }
+   ```
 
 ### Important Configuration Distinctions {#important-configuration-distinctions}
 
 - **Never confuse `model.apiKey` with `server.accessKey`**:
-  - `model.apiKey` is the API credential for calling the external large model provider. The server uses it when making model requests.
-  - `server.accessKey` is the access key for the Pi Muse server. The mobile client and Web workspace use it for authenticated login. Always set it for LAN or public-network deployment.
-- **`model.baseUrl`**: enter the API root address, such as `https://api.openai.com/v1`; do not enter the full `/chat/completions` path.
-- **`server.host`**: defaults to `0.0.0.0`, which accepts connections on every network interface and makes LAN access from the phone convenient. If you only access the service from the same computer through a web page or command line, set it to `127.0.0.1`.
-- For more tool and runtime fields, see [Configuration](configuration.md).
+  - `model.apiKey` is the API credential for the external large model provider and is used only by the server.
+  - `server.accessKey` is the Pi Muse server access key. The mobile client and Web workspace exchange it for a session Token.
+- **`model.baseUrl`** is the API root address, such as `https://api.openai.com/v1`; do not append the complete `/chat/completions` path.
+- **`server.host`** defaults to `0.0.0.0` and listens on every network interface for convenient LAN access. Set `127.0.0.1` for same-computer access only.
+- For tool and runtime fields, see [Configuration](configuration.md).
 
-## 2. Start the Service {#start-service}
+## Start the Service {#start-service}
 
-### Development Debug Mode {#development-debug-mode}
+Development debug mode:
 
 ```sh
 pnpm dev
 ```
 
-This command runs from source in watch mode with hot reloading. By default it listens on port `17890` on every interface; from the server machine, visit `http://127.0.0.1:17890`.
+This runs the source in watch mode and listens on port `17890` on every interface by default. From the server machine, visit `http://127.0.0.1:17890`.
 
-### Production Build and Run {#production-build-and-run}
+Production build and run:
 
 ```sh
 pnpm build
 pnpm start
 ```
 
-> **Note**: `pnpm start` runs the compiled API service and **does not automatically host static frontend pages**. To use the developer Web workspace, see [Development](development.md).
+`pnpm start` runs the compiled API service and does not automatically host the developer Web workspace. For that workspace, see [Development](development.md).
 
-### Keeping the Service Online {#keep-service-online}
+The server also handles periodic reminder scanning, Dream memory consolidation, and webpage monitoring. Deploy it on an always-on host and use a process manager such as tmux, pm2, or systemd as appropriate.
 
-The Pi Muse server handles periodic responsibilities including scheduled reminder scanning, long-term memory consolidation (Dream reflection jobs), and webpage monitoring. To ensure reminders trigger on time and clients stay connected, deploy the server on an always-on host or server, using tools such as tmux, pm2, or systemd for background management.
+Restarting the service does not rerun expired one-off reminders, and failed jobs do not automatically call the model or tools again. If a chat stream disconnects, its run is canceled, but tool operations that already completed are not rolled back.
 
-Restarting the service does not rerun expired one-off reminders, and failed jobs do not automatically call the model or tools again. If a conversation stream disconnects, its run is canceled, but operations that already completed are not rolled back.
+## Connect the Mobile Client {#connect-mobile-client}
 
-## 3. Connect the Mobile Client {#connect-mobile-client}
+1. Download and install the Android APK matching your device architecture from [pi-muse-mobile Releases](https://github.com/yaotutu/pi-muse-mobile/releases). Check that release's notes first; do not assume every capability in current server source is already in the APK.
+2. Confirm the phone can reach the server:
+   - The phone may connect directly over HTTP to a LAN or remote server. A domain, certificate, or HTTPS reverse proxy is not required.
+   - Do not enter `localhost` or `127.0.0.1` on the phone. `localhost` refers to the phone itself, not the computer running the server.
+   - On a LAN, enter the computer's actual address, such as `http://192.168.1.100:17890`, and allow inbound port `17890` through the computer firewall.
+3. Open Pi Muse, go to the bottom「设置」tab, and tap「服务器连接」（Server Connection）under「连接与设备」.
+4. In「连接设置」, enter:
+   - 「服务器地址」: the server base address, without `/api`, `/docs`, or a trailing path slash.
+   - 「访问密钥」: the `server.accessKey` from the configuration file, not `model.apiKey`.
+5. Tap「测试连接」. On success, the app shows「测试通过，尚未保存」.
+6. Tap「连接服务器」. On success, the panel closes and the connection status shows「已连接」.
 
-Pi Muse primarily uses a standalone mobile client, with Android currently prioritized.
+Tapping「测试连接」alone does not save the configuration. If you change to a different server address, the client first asks you to confirm clearing local business cache and old credentials; that action does not delete data on the remote server.
 
-1. **Download and install**: go to [pi-muse-mobile Releases](https://github.com/yaotutu/pi-muse-mobile/releases) and download the latest Android package (APK).
-2. **Confirm network connectivity**:
-   - The phone can connect directly over HTTP to a LAN or remote server. A domain name, certificate, or HTTPS reverse proxy is not required. Secure virtual networking and HTTPS are optional.
-   - **Do not enter `localhost` or `127.0.0.1` on the phone**: `localhost` on the phone refers to the phone itself and cannot reach a service running on the computer.
-   - On a LAN, find the computer's actual LAN IP address (for example, `http://192.168.1.100:17890`) and check the computer's firewall to allow inbound connections on port `17890`.
-3. **Sign in from the client**:
-   - Enter a reachable HTTP base address, such as `http://192.168.1.100:17890` or `http://your-server.example:17890`. Do not append `/api` or `/docs`.
-   - Enter the `server.accessKey` from the configuration file as the access key.
-   - Tap “Test Connection”（「测试连接」）; after it succeeds, tap “Connect Server”（「连接服务器」） to save. A successful test alone does not save the configuration.
+## Send a Message and Receive a Reply {#send-first-real-reply}
 
-## 4. Network Security Boundaries {#network-security-boundaries}
+1. Return to the bottom「聊天」tab. A new installation shows「主空间」and「有什么想聊的？」.
+2. In the input field with the「消息」placeholder, enter a short, verifiable request, such as a question whose answer you already know.
+3. Tap the send arrow on the right of the input field. Your message bubble appears and the header status changes to an executing state.
+4. Wait for the assistant reply. A real reply streams into the chat page; if the model calls tools, their status appears in tool cards or the session panel's activity view.
+
+If the chat page reports that the model is not configured, the connection is offline, or reauthentication is required, diagnose it with the [FAQ](troubleshooting.md) instead of repeatedly resending the same message. For attachments, see [Attachments, files, and approvals](files-and-approvals.md#send-attachments). For stopping a run, resynchronizing, and unknown-result handling, see [Conversations and spaces](conversations-and-spaces.md#send-and-stop-conversations).
+
+## Network Security Boundaries {#network-security-boundaries}
 
 - **LAN access**: when `server.host` is `0.0.0.0`, set a strong random `server.accessKey` to prevent unauthorized devices on the same LAN from making calls.
-- **HTTP and remote access**: HTTP is fully supported and the server port must be reachable by the phone. However, the access key, Token, and chat content are not encrypted in transit, so an AccessKey is not a substitute for encryption. Prefer trusted networks; HTTPS or secure virtual networking is optional protection, not a prerequisite for starting or connecting.
-- **Instance data protection**: the `.pi-muse/` instance directory contains the model API key, server access key, token signing key, and all plaintext conversations and memory. Never expose or upload it.
+- **HTTP and remote access**: HTTP connections work, but the AccessKey, Token, and chat content are not encrypted in transit. Prefer trusted networks; HTTPS or secure virtual networking is optional protection, not a startup or connection prerequisite.
+- **Instance data protection**: `.pi-muse/` contains the model API key, server access key, token signing key, and plaintext conversations and memory. Do not expose or upload the directory.
 
-## 5. Verify the Service {#verify-service}
+## Verify the Service {#verify-service}
 
-After the service starts, use these endpoints to verify its status:
+After the service starts, check these endpoints from the server machine:
 
-- **Health check**: `http://127.0.0.1:17890/api/health` (returns service status and whether model configuration is ready)
-- **API documentation**: `http://127.0.0.1:17890/docs` (interactive Scalar API documentation)
-- **OpenAPI specification**: `http://127.0.0.1:17890/openapi.json`
+- **Health check**: `http://127.0.0.1:17890/api/health`, which returns service status and whether model configuration is ready.
+- **API documentation**: `http://127.0.0.1:17890/docs`, generated by the running instance.
+- **OpenAPI specification**: `http://127.0.0.1:17890/openapi.json`.
 
-For local interactive integration without real model credentials, see [Local Business Development](development.md#local-business-development); mock mode uses a fake provider and cannot replace acceptance testing against the real backend and external model.
+A passing health check does not mean model requests work. Send a message from the phone and receive a reply from the external model to confirm that installation, connection, and model configuration work together.
