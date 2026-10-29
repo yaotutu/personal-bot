@@ -50,9 +50,12 @@ pnpm build                     # 服务端构建
 pnpm test                      # unit + integration
 pnpm test:e2e                  # 自动先 build，再串行执行真实 dist 进程套件
 pnpm test:live --config <path> --allow-live [--keep-artifacts]  # 显式真实模型验收
+node --import tsx tests/live/skill-authoring.ts --config <path> --allow-live --keep-artifacts
 node --import tsx tests/live/message-feedback.ts --allow-live --base-url <url> --token-file <path> --context-file <path> --phase record|verify
 pnpm check                     # typecheck + test + test:e2e + Web build + diff 检查
 ```
+
+`skill-authoring.ts` 单独启动隔离实例，验证技能及参考文件创建、默认关闭、启用后下一轮普通读取、修改、拒绝与 Stop。运行时必须逐次查看完整预览，并在终端输入审批决定；不写入所给配置对应的真实实例数据。
 
 代码改动完成后运行 `pnpm check`，任一步失败都必须报告，不以跑过旧版本替代本次验证。仅文档改动可检查差异、引用和规则一致性，不必重复全量测试。真实模型和页面验收不包含在 `pnpm check` 中，按变更范围与授权另行执行。
 

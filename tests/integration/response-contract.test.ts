@@ -183,6 +183,15 @@ test("approval contract preserves complete text, cancellation and optional execu
     workspaceSpaceId: null,
   };
   assert.deepEqual(approvalView.strict().parse(shared), shared);
+  // scope=skill 是实例级资源，不属于任何空间工作区，也不能用 workspace 归属伪装。
+  const skill = {
+    ...legacy,
+    preview: { ...preview, scope: "skill" as const, ownerSpaceId: null, path: "notes/SKILL.md" },
+    workspaceSpaceId: null,
+  };
+  assert.deepEqual(approvalView.strict().parse(skill), skill);
+  assert.equal(approvalView.safeParse({ ...legacy, preview: { ...preview, scope: "skill" } }).success, false);
+  assert.equal(approvalView.safeParse({ ...shared, preview: { ...shared.preview, ownerSpaceId: "thread-a" } }).success, false);
   assert.equal(approvalView.safeParse({ ...legacy, revision: 0 }).success, false);
   assert.equal(approvalView.safeParse({ ...legacy, preview: { ...preview, ownerSpaceId: "" } }).success, false);
 });

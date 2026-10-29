@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, rmdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { isThreadId } from "../../src/features/conversation/space-id.js";
 import {
   createDataLayout,
@@ -276,9 +276,12 @@ test("readOnlyFiles opens only the exact SKILL.md path; siblings, listing tools 
   const skillsBase = join(directory, "skills");
   const skillPath = join(skillsBase, "weather", "SKILL.md");
   const siblingPath = join(skillsBase, "weather", "OTHER.md");
+  const deepResourcePath = join(skillsBase, "weather", "references", "deep", "note.md");
   await mkdir(join(skillsBase, "weather"), { recursive: true });
   await writeFile(skillPath, "# weather skill\nbody");
   await writeFile(siblingPath, "private neighbour");
+  await mkdir(dirname(deepResourcePath), { recursive: true });
+  await writeFile(deepResourcePath, "deep resource");
   // thread 里再放一份普通文件，验证 ls/grep/find 不因 SKILL 路径被读取而扩大视野
   const rootA = threadWorkspaceDir(layout, "local-main");
   await ensureThreadWorkspace(layout, "local-main");
@@ -286,7 +289,15 @@ test("readOnlyFiles opens only the exact SKILL.md path; siblings, listing tools 
 
   const tools = createFileTools(rootA, sharedWorkspaceDir(layout), {
     boundaryDir: layout.workspaceDir,
-    readOnlyFiles: [skillPath],
+    readOnlyFiles: [{
+      path: skillPath,
+      root: join(skillsBase, "weather"),
+      boundaryDir: skillsBase,
+    }, {
+      path: deepResourcePath,
+      root: join(skillsBase, "weather", "references"),
+      boundaryDir: skillsBase,
+    }],
   });
 
   // 精确 SKILL.md 路径可读
@@ -294,6 +305,9 @@ test("readOnlyFiles opens only the exact SKILL.md path; siblings, listing tools 
   assert.equal(readSkill.isError, undefined);
   const skillText = readSkill.content.map((block) => block.text).join("");
   assert.match(skillText, /weather skill/);
+  const readResource = await callTool(readTool(tools), { path: deepResourcePath });
+  assert.equal(readResource.isError, undefined);
+  assert.match(readResource.content.map((block) => block.text).join(""), /deep resource/);
 
   // 同目录邻居、其他文件名都必须拒绝
   for (const path of [siblingPath, join(skillsBase, "weather", "ABSENT.md"), join(skillsBase, "weather"), join(skillsBase, "OTHER.md")]) {
@@ -314,6 +328,21 @@ test("readOnlyFiles opens only the exact SKILL.md path; siblings, listing tools 
   // 把 SKILL.md 换成符号链接（指向 thread 已有文件），read 仍然拒绝访问
   await rm(skillPath);
   await symlink(join(rootA, "inside.md"), skillPath);
+  den(await callTool(readTool(tools), { path: skillPath }));
+
+  // 深层资源同样从 skillsDir 开始复核；中间目录换成链接后不能保留旧授权。
+  await rm(join(skillsBase, "weather", "references"), { recursive: true });
+  await symlink(rootA, join(skillsBase, "weather", "references"));
+  den(await callTool(readTool(tools), { path: deepResourcePath }));
+
+  // 技能根或 skillsDir 本身换成链接同样失效；不能沿用装配时收集的授权。
+  await rm(join(skillsBase, "weather"), { recursive: true });
+  await symlink(rootA, join(skillsBase, "weather"));
+  den(await callTool(readTool(tools), { path: skillPath }));
+  den(await callTool(readTool(tools), { path: deepResourcePath }));
+  await rm(join(skillsBase, "weather"));
+  await rmdir(skillsBase);
+  await symlink(rootA, skillsBase);
   den(await callTool(readTool(tools), { path: skillPath }));
 });
 

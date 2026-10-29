@@ -296,7 +296,7 @@ test("approvals: detail returns full preview with execution appearing only after
   const action = await service.actions.submit(
     "file_write", "Detail preview",
     { path: "detail.md", content: "DETAIL-CONTENT " + "x".repeat(5000), originalContent: "" },
-    { spaceId: "local-main", runId: "run-detail", activityId: "act-detail" },
+    { spaceId: "local-main", workspaceSpaceId: "local-main", runId: "run-detail", activityId: "act-detail" },
   );
   await service.actions.decide(action.id, "approve");
 
@@ -345,6 +345,7 @@ test("approvals: /api/approvals exposes settled summaries only, omits preview, i
   // 现场新提交一条 pending：它不能进入历史，但能进入 /pending。
   await service.actions.submit(
     "file_write", "P", { path: "p.md", content: "p", originalContent: "" },
+    { spaceId: "local-main", workspaceSpaceId: "local-main" },
   );
 
   const history = approvalPage.parse(
@@ -513,6 +514,7 @@ test("approvals: execution running and succeeded are reported, but approved with
   const { service, headers } = await openService(t);
   const a = await service.actions.submit(
     "file_write", "a", { path: "a.md", content: "a", originalContent: "" },
+    { spaceId: "local-main", workspaceSpaceId: "local-main" },
   );
   await service.actions.decide(a.id, "approve");
 

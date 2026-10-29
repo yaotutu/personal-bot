@@ -1,6 +1,6 @@
 import { access, lstat, open, readdir, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import {
   createReadToolDefinition,
   createGrepToolDefinition,
@@ -8,7 +8,7 @@ import {
   createLsToolDefinition,
   detectSupportedImageMimeTypeFromFile,
 } from "@earendil-works/pi-coding-agent";
-import { guardTool, type FileGuardOptions } from "./path-guard.js";
+import { guardTool, safeReadOnlyFile, type FileGuardOptions } from "./path-guard.js";
 import { safeWorkspacePath, UnsafeFilePathError } from "./workspace-path.js";
 
 const inside = (root: string, path: string) => path === root || path.startsWith(root + sep);
@@ -20,8 +20,9 @@ const inside = (root: string, path: string) => path === root || path.startsWith(
  */
 export const createFileTools = (root: string, sharedDir?: string, options: FileGuardOptions = {}) => {
   const check = async (path: string, allowSkill = false): Promise<string> => {
-    if (allowSkill && options.readOnlyFiles?.includes(path)) {
-      return safeWorkspacePath(dirname(path), path, { boundaryDir: dirname(dirname(path)) });
+    if (allowSkill && typeof path === "string") {
+      const skillFile = options.readOnlyFiles?.find((file) => resolve(path) === resolve(file.path));
+      if (skillFile) return safeReadOnlyFile(skillFile);
     }
     for (const base of [root, ...(sharedDir ? [sharedDir] : [])]) {
       const lexicalRoot = resolve(base);

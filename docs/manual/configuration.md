@@ -90,7 +90,7 @@ chmod 600 .pi-muse/config.json
 | `runtime.schedulerIntervalMs` | `30000` | 定时任务扫描间隔 |
 | `runtime.monitorScanIntervalMs` | `60000` | 网页监控扫描间隔 |
 | `runtime.dataDir` | 配置文件所在目录 | 相对路径按配置文件所在目录解析；推荐绝对路径，但不强制 |
-| `tools.writable.enabled` | `true` | 是否注册 `write` / `edit`；开启后仍需逐次人工审批 |
+| `tools.writable.enabled` | `true` | 是否注册 `write` / `edit`，并允许 `skills.save`；开启后仍需逐次人工审批，`skills.list/read` 不受该开关影响 |
 | `tools.writable.actionTimeoutMs` | `300000` | 文件操作审批有效期（毫秒）；过期不能提交修改 |
 | `tools.web.enabled` | `true` | 是否向模型声明 `search_web` / `web_fetch` |
 | `tools.web.timeoutMs` | `30000` | 整个 Web 抓取总超时预算（毫秒，含最多 6 次重定向，每跳使用剩余时间） |
@@ -106,7 +106,7 @@ chmod 600 .pi-muse/config.json
 | `tools.browser.allowPrivateTargets` | `false` | 仅本机联调/测试时允许回环与私网页面；默认保持公网 HTTP(S) 边界 |
 | `tools.browser.timeoutMs` | `30000` | 标签导航和元素操作超时 |
 | `tools.presentation.default` | `hidden` | 客户端实时流与历史投影的工具展示策略：`hidden` 隐藏工具调用，`summary` 只发送受控摘要 |
-| `tools.presentation.overrides` | `{}` | 按工具名覆盖默认策略；名称以 `src/adapters/pi/tools/index.ts` 的显式注册表为准，包括 `currentTime`、`instructions`、`memory`、`memory_search`、`schedule`、`subagent`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`search_web`、`web_fetch`、`get_weather`、`navigate`、`snapshot`、`act`、`tab` |
+| `tools.presentation.overrides` | `{}` | 按工具名覆盖默认策略；名称以 `src/adapters/pi/tools/index.ts` 的显式注册表为准，包括 `currentTime`、`instructions`、`memory`、`memory_search`、`schedule`、`subagent`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`skills`、`search_web`、`web_fetch`、`get_weather`、`navigate`、`snapshot`、`act`、`tab` |
 
 默认情况下，`.pi-muse/config.json` 所在的 `.pi-muse/` 同时也是实例数据目录。当前默认实例目录已统一为 `.pi-muse/`，旧目录不会被自动读取或迁移。也就是说 sessions、memory、jobs、workspace 和配置文件保持在同一个实例目录内。
 `runtime.dataDir: "."` 也表示该配置文件目录，与启动进程的 cwd 无关；若在 `.pi-muse/config.json` 中填 `".pi-muse"`，则会指向其下嵌套的 `.pi-muse/`，不是项目根目录下的同名目录。
@@ -133,12 +133,16 @@ chmod 600 .pi-muse/config.json
 ├── workspace/
 │   ├── shared/                          # 用 shared/... 显式访问
 │   └── threads/<threadId>/              # 各会话私有文件区
-├── skills/<name>/SKILL.md                # 可选的实例技能
+├── skills/<name>/                         # 可选实例技能；config 由系统维护
+│   ├── SKILL.md                           # 技能定义
+│   ├── config.json                        # defaultEnabled，新技能默认 false
+│   ├── references/                        # 可选受支持文本参考
+│   └── assets/                            # 可选受支持文本资产
 ├── subagents/<role>.md                  # 可选的实例角色覆盖
 └── agent/                               # pi 运行资源
 ```
 
-内置技能和子代理角色位于仓库 `assets/skills/`、`assets/subagents/`，构建时复制到 `dist/assets/`，不放入实例目录。实例中的同名技能或角色可以覆盖内置定义，但不能绕过既有权限。
+内置技能和子代理角色位于仓库 `assets/skills/`、`assets/subagents/`，构建时复制到 `dist/assets/`，不放入实例目录。实例中的同名技能或角色可以覆盖内置定义，但不能绕过既有权限；`skill-creator` 内置技能默认启用，提供产品技能维护工具。
 
 ## 数据存储与安全边界 {#data-storage-and-security-boundaries}
 
@@ -156,7 +160,18 @@ chmod 600 .pi-muse/config.json
 - 每次操作都需独立人工审批，审批载荷保留完整修改前后文本和文件版本；`edit` 的待替换文本必须唯一命中。
 - 提交前重新检查路径安全与文件版本。文件在等待期间变化时，旧审批不能授权覆盖，需重新发起操作和审批。
 - 拒绝、审批过期或运行取消均不会提交该次修改；服务重启会取消上一进程遗留的 pending 审批。审批有效期由登记时的 `expiresAt` 固定，提交前再次校验期限和取消状态。
-- 关闭 `tools.writable.enabled` 会移除这两个工具；工具展示策略不能跳过审批或开启被关闭的写入能力。
+- `skills` 工具参数为 `action=list|read|save`、`name`、可选 `file`（默认 `SKILL.md`）与 save 必填的完整 `content`。`name` 只能是小写字母、数字或单个连字符，最长 64 位；允许 `SKILL.md` 及 `references/`、`assets/` 下 `.md/.txt/.json/.csv/.yaml/.yml` 普通 UTF-8 文本，单文件最大 100KB。
+- `skills.save` 只能在用户明确要求时使用，写入 `DATA_DIR/skills/<name>`；同名内置技能会创建实例覆盖，内置文件不变。保存资源前必须先保存合法实例 `SKILL.md`。审批预览为 `scope=skill`、`ownerSpaceId=null`、path=`<name>/<file>`，同样绑定版本并在提交前复查路径、取消、过期与文件变化。
+- 新技能的 `config.json` 固定为 `{ "defaultEnabled": false }`，不会自动在当前空间启用。通过空间技能开关启用后，新定义、参考与资产从下一轮模型装配生效；当前轮不会获得新技能指令或扩展能力。拒绝、过期、Stop 或等待期间文件变化均不落盘，结果未明不自动重发。
+- 技能维护拒绝删除、目录操作、`config.json` 直接编辑、脚本/代码、二进制、嵌套 `SKILL.md`、绝对路径、穿越与符号链接。已启用技能的普通 `read` 只额外开放该技能的 `SKILL.md` 与受支持资源文本，不开放 ls/grep/find 或邻居文件；子代理没有 `skills` 工具。
+- 关闭 `tools.writable.enabled` 会移除 `write` / `edit` 并受控拒绝 `skills.save`，但保留 `skills.list/read`；工具展示策略不能跳过审批或开启被关闭的写入能力。
+
+在手机客户端中创建并使用技能：
+
+1. 在聊天中告诉助手需要创建或修改的技能，例如“创建一个 Linux 新闻筛选技能，优先关注内核和发行版更新”。
+2. 点击顶部虚拟形象打开会话面板，进入审批页，查看“技能库”中的目标文件及完整修改前后内容；确认符合预期后批准，并等待“文件写入成功”的执行回执。
+3. 在同一会话面板的工作区中找到该技能，打开开关并保存空间技能；新技能默认关闭，需要在希望使用它的空间分别启用。
+4. 发送下一条消息使用该技能。修改已启用技能后，也从下一轮对话开始加载新内容；批准保存本身不代表已经启用。
 
 ## 工具展示策略 {#tool-presentation-policy}
 

@@ -3,6 +3,25 @@ import type { PendingAction } from "../features/actions/types.js";
 /** 预览只投影当次绑定的完整文本，不读当前文件替代，不返回物理路径/版本指纹。 */
 export const presentApproval = (action: PendingAction) => {
   const path = action.payload.path;
+  const resourceScope = action.payload.resourceScope;
+  if (resourceScope === "skill") {
+    const { payload: _payload, ...summary } = action;
+    const spaceId = action.spaceId ?? null;
+    return {
+      ...summary,
+      spaceId,
+      workspaceSpaceId: null,
+      execution: action.execution ?? null,
+      preview: {
+        scope: "skill" as const,
+        ownerSpaceId: null,
+        path,
+        before: action.payload.originalContent,
+        after: action.payload.content,
+        beforeExists: action.payload.beforeExists === "true",
+      },
+    };
+  }
   const shared = path === "shared" || path.startsWith("shared/");
   const { payload: _payload, ...summary } = action;
   const spaceId = action.spaceId ?? null;

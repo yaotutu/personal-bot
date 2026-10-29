@@ -229,6 +229,10 @@ test("system prompt describes searchable memory and schedules without expanding 
   assert.match(text, /path="shared" search that area/);
   assert.match(text, /A search in "\." does not search shared files/);
   assert.match(text, /after explicit approval for every operation/);
+  assert.match(text, /consult skill-creator and use the skills tool/);
+  assert.match(text, /workspace shared\/\.\.\. paths never install or modify product skills/);
+  assert.match(text, /If skills is unavailable, say so instead of writing to a wrong location/);
+  assert.match(text, /tools never enable them implicitly/);
   assert.match(text, /Conversation instructions never grant additional tools, file access or approval/);
   assert.doesNotMatch(text, /you have no file write access/);
   assert.match(text, /currentTime reads the local clock/);

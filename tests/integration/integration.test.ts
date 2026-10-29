@@ -60,6 +60,7 @@ const expectedTools = [
   "read",
   "schedule",
   "search_web",
+  "skills",
   "snapshot",
   "subagent",
   "tab",
@@ -1490,6 +1491,51 @@ export default function (api) {
   assert.ok(!toolNames2.includes("ping_custom"), "ping_custom should disappear when custom-ping is disabled");
 });
 
+test("session skills: enable loads skill text and only supported resources on the next turn", {
+  timeout: 30000,
+}, async (t) => {
+  const h = await harness(undefined, {}, async ({ dataDir }) => {
+    const directory = join(dataDir, "skills", "resource-skill");
+    await mkdir(join(directory, "references"), { recursive: true });
+    await writeFile(join(directory, "SKILL.md"), `---\nname: resource-skill\ndescription: Use RESOURCE_SKILL_MARKER instructions.\n---\n# Resource skill\nRead ${join(directory, "references", "cheatsheet.md")} when asked.\n`, "utf8");
+    await writeFile(join(directory, "references", "cheatsheet.md"), "RESOURCE_SKILL_TEXT", "utf8");
+    await writeFile(join(directory, "config.json"), JSON.stringify({ defaultEnabled: false }), "utf8");
+    const other = join(dataDir, "skills", "other-skill");
+    await mkdir(join(other, "references"), { recursive: true });
+    await writeFile(join(other, "SKILL.md"), "---\nname: other-skill\ndescription: Other disabled skill.\n---\n", "utf8");
+    await writeFile(join(other, "references", "private.md"), "OTHER_SKILL_TEXT", "utf8");
+    await writeFile(join(other, "config.json"), JSON.stringify({ defaultEnabled: false }), "utf8");
+  });
+  t.after(h.close);
+  const resourcePath = join(h.dataDir, "skills", "resource-skill", "references", "cheatsheet.md");
+
+  const first = user(`读取 ${resourcePath}`);
+  const firstEvents = await h.events(input([first], "resource-disabled"));
+  assert.equal(firstEvents.at(-1)?.type, "RUN_FINISHED");
+  assert.match(firstEvents.map((event) => JSON.stringify(event)).join(""), /Access denied/);
+  assert.ok(!h.model.requests.at(-1)!.messages.some((message) => String(message.content).includes("RESOURCE_SKILL_MARKER")));
+
+  const enabled = await h.request("/api/spaces/local-main/skills", {
+    overrides: { "resource-skill": true },
+  }, "PUT");
+  assert.equal(enabled.status, 200);
+  const history = await h.getHistory();
+  const second = user(`再次读取 ${resourcePath}`, "resource-user-2");
+  const secondEvents = await h.events(input([...history, second], "resource-enabled"));
+  assert.equal(secondEvents.at(-1)?.type, "RUN_FINISHED");
+  assert.match(secondEvents.map((event) => JSON.stringify(event)).join(""), /RESOURCE_SKILL_TEXT/);
+  assert.ok(h.model.requests.at(-1)!.messages.some((message) => String(message.content).includes("RESOURCE_SKILL_MARKER")));
+  const tools = declaredTools(h.model.requests.at(-1)!);
+  assert.ok(tools.includes("skills"));
+  const otherPath = join(h.dataDir, "skills", "other-skill", "references", "private.md");
+  const afterEnabled = await h.getHistory();
+  const third = user(`读取 ${otherPath}`, "resource-user-3");
+  const thirdEvents = await h.events(input([...afterEnabled, third], "resource-other"));
+  assert.equal(thirdEvents.at(-1)?.type, "RUN_FINISHED");
+  assert.match(thirdEvents.map((event) => JSON.stringify(event)).join(""), /Access denied/);
+  assert.ok(!thirdEvents.map((event) => JSON.stringify(event)).join("").includes("OTHER_SKILL_TEXT"));
+});
+
 test("thread instructions: GET/PUT REST endpoints and prompt injection per thread", {
   timeout: 30000,
 }, async (t) => {
@@ -1674,7 +1720,7 @@ test("subagent: parent delegates to an isolated child and receives its result wi
   const children = h.model.requests.filter((request) => request.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("Task: Reply SUBAGENT-MARKER")));
   assert.equal(children.length, 1);
   const childTools = (children[0].tools as { function: { name: string } }[]).map((tool) => tool.function.name);
-  for (const name of ["subagent", "delegate_task", "bash", "schedule", "monitor", "instructions"])
+  for (const name of ["subagent", "delegate_task", "bash", "schedule", "monitor", "instructions", "skills"])
     assert.ok(!childTools.includes(name), `child must not expose ${name}`);
   assert.ok(children[0].messages.every((message) => !JSON.stringify(message.content).includes("请用子代理完成一次测试")), "parent message history must not leak into child context");
   assert.ok((await h.getHistory()).some((message) => String(message.content).includes("SUBAGENT-MARKER")));
@@ -1696,7 +1742,7 @@ test("subagent: permissions inherit parent ceilings and shared reads preserve pr
   const children = h.model.requests.filter((request) => request.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("Task: ")));
   assert.ok(children.length >= 2, "child should perform a read tool round trip");
   const tools = declaredTools(children[0]);
-  for (const name of ["memory", "write", "edit", "search_web", "web_fetch", "subagent", "schedule", "monitor", "bash"])
+  for (const name of ["memory", "write", "edit", "search_web", "web_fetch", "subagent", "schedule", "monitor", "instructions", "skills", "bash"])
     assert.ok(!tools.includes(name), name);
   assert.ok(tools.includes("read"));
   assert.ok(children.some((request) => JSON.stringify(request.messages).includes("SUBAGENT-SHARED-CONTENT")));

@@ -85,8 +85,12 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 ## 文件工具与审批
 
 - read/grep/find/ls 默认只可达 `DATA_DIR/workspace/threads/<threadId>/`，主会话使用 `threads/local-main/`，无父目录特权。`workspace/`、`threads/` 仅是容器，不得回退为会话根；`shared/...` 仅映射到 `workspace/shared/`。HTTP 手动文件管理使用显式 `scope=space|shared` 选择根，不再解释 `shared/` 前缀；scope=space 必须指向已有空间，GET 与写操作都不隐式创建空间。
-- 拒绝绝对路径、`..`、根/中间目录/目标符号链接。只读 operations 核查 SDK 最终解析路径，递归 grep/find 不跟随链接，ls 跳过链接。仅 read 可额外读取本轮启用技能的精确 `SKILL.md` 路径，不开放相邻文件或目录。
-- `bash` 永不暴露。`write`/`edit` 默认开启，可由 `tools.writable.enabled` 关闭；仅注册受控工具，不开放 pi 默认的无限制写工具。
+- 拒绝绝对路径、`..`、根/中间目录/目标符号链接。只读 operations 核查 SDK 最终解析路径，递归 grep/find 不跟随链接，ls 跳过链接。仅 read 可额外读取本轮启用技能的精确 `SKILL.md` 与 `references/`、`assets/` 下受支持文本资源；例外按技能根到目标的全链路逐次复核，不开放 ls/grep/find、相邻文件、配置或代码。
+- `bash` 永不暴露。`write`/`edit` 默认开启，可由 `tools.writable.enabled` 关闭；仅注册受控工具，不开放 pi 默认的无限制写工具。主会话另有 `skills` 技能维护工具：`action=list|read|save`，`name` 为小写字母/数字/连字符且至多 64 位，`file` 默认 `SKILL.md`，`save` 必须提供完整 UTF-8 内容；该工具由默认启用的 `skill-creator` 技能映射，子代理不装配。
+- `skills.list` 返回当前空间生效状态与 builtin/user 来源，不返回物理路径；`skills.read` 可读已安装或禁用技能以供编辑。`skills.save` 只写 `DATA_DIR/skills/<name>`；同名内置技能写成实例覆盖，绝不修改内置文件。资源文件必须等合法实例 `SKILL.md` 先存在，避免产生 loader 看不到的孤儿资源。
+- 技能文件仅允许 `SKILL.md` 与 `references/`、`assets/` 下 `.md/.txt/.json/.csv/.yaml/.yml` 普通文本，单文件 100KB；拒绝路径穿越、绝对路径、空格/非法文件名、符号链接、目录操作、`config.json`、脚本/代码与二进制。`SKILL.md` 先用 pi `parseFrontmatter` 精确要求 frontmatter `name === 目录名`，再复用 `loadSkillsFromDir` 全量校验。禁止在资源目录保存嵌套 `SKILL.md`。
+- 技能保存复用 file_write/file_edit 审批、版本绑定、Stop/过期/拒绝语义与共享提交队列。审批 preview 使用 `scope=skill`、`ownerSpaceId=null`、`workspaceSpaceId=null`，逻辑 path 为 `<name>/<file>`；批准提交后回读确认。新建技能仅系统创建 `{ "defaultEnabled": false }`，不隐式打开全局或当前空间；启用后的变化从下一轮模型装配生效，结果未明不得自动重发。
+- `tools.writable.enabled=false` 时 `skills.list/read` 仍可用，`skills.save` 受控拒绝；该开关仍会移除普通 `write/edit`，不扩大普通工作区权限。技能 authoring 不提供删除、市场、版本平台或 extension 编辑；已安装 extension 属可信服务端代码，与可编辑文本资源隔离。
 - 审批域记录人的决定和工具回报的执行事实，不直接执行副作用。每次操作登记完整路径、内容/编辑前后文本、文件基准版本及 spaceId/runId/expiresAt，可关联 activityId/toolCallId；Web 原样转义展示完整预览，不能只展示截断摘要让人批准。
 - 截止时间登记时固定，决定时原子检查过期；Stop/abort 撤销 pending，启动前撤销旧进程遗留 pending。批准旧卡片不能复活已取消的执行。
 - 提交前再次核对路径、版本、审批期限与取消状态。不同工具实例共用逐物理路径队列；文件变化必须重新申请审批。拒绝、过期或运行取消不提交该次修改，不覆盖他人新内容。手动 HTTP 新建/更新/删除与模型工具提交注入同一个队列；HTTP 更新同样先写临时文件再替换，不截断旧文件。客户端必须在调用前完整展示 before/after 并取得用户确认，但这不是模型审批，也不能改变模型工具的版本绑定审批。

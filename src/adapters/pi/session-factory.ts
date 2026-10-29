@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { lstat, readdir } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { safeWorkspacePath } from "./tools/workspace-path.js";
 import {
   createAgentSession,
   createExtensionRuntime,
@@ -29,6 +31,7 @@ import type { SkillsService } from "../../features/skills/service.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { createResourceLoader } from "./resource-loader.js";
 import { createTools, skillToToolsMap, registeredToolNames } from "./tools/index.js";
+import type { ReadOnlyFile } from "./tools/path-guard.js";
 import { loadSubagentRoles } from "../storage/subagent-roles.js";
 import { createSubagentExtension, SUBAGENT_TOOL_NAME, type SubagentRole } from "./subagent/extension.js";
 import { projectExecutionEvent } from "./execution.js";
@@ -76,6 +79,51 @@ export type PiDeps = {
 };
 
 const subagentBlockedTools = new Set([SUBAGENT_TOOL_NAME, "activity", "schedule", "monitor", "instructions", "bash"]);
+const skillTextResourceExtensions = new Set([".md", ".txt", ".json", ".csv", ".yaml", ".yml"]);
+
+/** 只把启用技能的精确文本文件交给 read；目录、代码、配置和其他邻居仍不可见。 */
+const collectReadableSkillFiles = async (skills: readonly Skill[]): Promise<ReadOnlyFile[]> => {
+  const files: ReadOnlyFile[] = [];
+  const entryFor = async (
+    root: string,
+    target: string,
+    boundaryDir: string,
+  ): Promise<ReadOnlyFile | undefined> => {
+    const safe = await safeWorkspacePath(root, target, { boundaryDir }).catch(() => undefined);
+    // 保留 SDK 提示中的词法路径；每次 read 再由 guard/operations 重新解析并复核全链路。
+    return safe ? { path: resolve(target), root: resolve(root), boundaryDir: resolve(boundaryDir) } : undefined;
+  };
+  const walkResources = async (directory: string, boundaryDir: string) => {
+    let entries;
+    try { entries = await readdir(directory, { withFileTypes: true }); }
+    catch { return; }
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      const stat = await lstat(path).catch(() => undefined);
+      if (!stat || stat.isSymbolicLink()) continue;
+      if (stat.isDirectory()) await walkResources(path, boundaryDir);
+      else if (stat.isFile() && entry.name !== "SKILL.md" &&
+        skillTextResourceExtensions.has(entry.name.slice(entry.name.lastIndexOf(".")))) {
+        const file = await entryFor(directory, path, boundaryDir).catch(() => undefined);
+        if (file) files.push(file);
+      }
+    }
+  };
+  for (const skill of skills) {
+    // 技能根或任一祖先若是链接，整体不进入只读例外。
+    const skillBoundary = dirname(skill.baseDir);
+    const skillFile = await entryFor(skill.baseDir, skill.filePath, skillBoundary).catch(() => undefined);
+    if (!skillFile) continue;
+    files.push(skillFile);
+    const root = skillFile.root;
+    for (const resourceDir of ["references", "assets"]) {
+      const directory = join(root, resourceDir);
+      const stat = await lstat(directory).catch(() => undefined);
+      if (stat?.isDirectory() && !stat.isSymbolicLink()) await walkResources(directory, skillBoundary);
+    }
+  }
+  return files;
+};
 
 /** 仅装配 pi 运行环境；agent loop 与 JSONL 持久化继续完全交给 SDK。 */
 export async function openPi(deps: PiDeps) {
@@ -124,7 +172,7 @@ export async function openPi(deps: PiDeps) {
   const allCustomTools = createTools({
     root: cwd,
     sharedDir,
-    readOnlyFiles: activeSkills.map((skill) => skill.filePath),
+    readOnlyFiles: await collectReadableSkillFiles(activeSkills),
     spaceId: child?.ownerSpaceId ?? deps.spaceId,
     runId: child?.ownerRunId ?? deps.runId,
     isSubagent: Boolean(child),
@@ -147,6 +195,8 @@ export async function openPi(deps: PiDeps) {
     weather,
     browser,
     layout,
+    skillsService: skills,
+    writableEnabled: deps.config.writable.enabled,
     workspaceCommits: deps.workspaceCommits,
   });
 

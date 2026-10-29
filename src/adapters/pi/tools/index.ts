@@ -13,7 +13,9 @@ import { scheduleTool } from "./schedule.js";
 import { goalTool } from "./goal.js";
 import { monitorTool } from "./monitor.js";
 import { createFileTools } from "./files.js";
+import type { ReadOnlyFile } from "./path-guard.js";
 import { createWritableFileTools, type ActivityToolObservation } from "./files-writable.js";
+import { createSkillsTool } from "./skills.js";
 import { createWebTools } from "./web.js";
 import { weatherTool } from "./weather.js";
 import { createBrowserTools } from "./browser.js";
@@ -35,6 +37,8 @@ type ToolDependencies = {
   currentActivityId?: () => string | null;
   activity?: ActivityRun;
   activityObservation?: ActivityToolObservation;
+  skillsService?: import("../../../features/skills/service.js").SkillsService;
+  writableEnabled?: boolean;
   goals?: GoalService;
   actions?: ActionService;
   actionTimeoutMs?: number;
@@ -44,7 +48,7 @@ type ToolDependencies = {
   browser?: BrowserService;
   layout?: DataLayout;
   sharedDir?: string;
-  readOnlyFiles?: readonly string[];
+  readOnlyFiles?: readonly ReadOnlyFile[];
   workspaceCommits?: WorkspaceCommitQueue;
 };
 
@@ -66,6 +70,7 @@ export const skillToToolsMap: Record<string, string[]> = {
   web: ["search_web", "web_fetch"],
   browser: ["navigate", "snapshot", "act", "tab"],
   write: ["write", "edit"],
+  "skill-creator": ["skills"],
 };
 
 const registrations = [
@@ -81,7 +86,22 @@ const registrations = [
   {
     names: ["write", "edit"],
     create: (deps: ToolDependencies) =>
-      deps.actions ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { spaceId: deps.spaceId, runId: deps.runId, subagentId: deps.subagentId, workspaceSpaceId: deps.workspaceSpaceId ?? deps.spaceId, activityId: deps.currentActivityId }, deps.sharedDir, deps.layout?.workspaceDir, deps.activityObservation, deps.workspaceCommits) : [],
+      deps.actions && deps.writableEnabled !== false ? createWritableFileTools(deps.root, deps.actions, deps.actionTimeoutMs ?? 300_000, { spaceId: deps.spaceId, runId: deps.runId, subagentId: deps.subagentId, workspaceSpaceId: deps.workspaceSpaceId ?? deps.spaceId, activityId: deps.currentActivityId }, deps.sharedDir, deps.layout?.workspaceDir, deps.activityObservation, deps.workspaceCommits) : [],
+  },
+  {
+    names: ["skills"],
+    create: (deps: ToolDependencies) => !isSubagent(deps) && deps.skillsService && deps.actions && deps.layout
+      ? [createSkillsTool({
+        layout: deps.layout,
+        skills: deps.skillsService,
+        actions: deps.actions,
+        timeoutMs: deps.actionTimeoutMs ?? 300_000,
+        saveEnabled: deps.writableEnabled !== false,
+        spaceId: deps.spaceId,
+        runId: deps.runId,
+        observation: deps.activityObservation,
+      })]
+      : [],
   },
   { names: ["search_web", "web_fetch"], create: (deps: ToolDependencies) => deps.web ? createWebTools(deps.web) : [] },
   { names: ["get_weather"], create: (deps: ToolDependencies) => deps.weather ? [weatherTool(deps.weather)] : [] },

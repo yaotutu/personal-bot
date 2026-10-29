@@ -90,7 +90,7 @@ Every section and field may be omitted as needed; omitted values use built-in de
 | `runtime.schedulerIntervalMs` | `30000` | Scheduled-task scan interval. |
 | `runtime.monitorScanIntervalMs` | `60000` | Webpage-monitor scan interval. |
 | `runtime.dataDir` | Directory containing the configuration file | Relative paths are resolved against the configuration file's directory. An absolute path is recommended but not required. |
-| `tools.writable.enabled` | `true` | Whether to register `write` / `edit`; when enabled, every operation still requires individual manual approval. |
+| `tools.writable.enabled` | `true` | Whether to register `write` / `edit` and allow `skills.save`; when enabled, every operation still requires individual manual approval. `skills.list/read` remains available when this is disabled. |
 | `tools.writable.actionTimeoutMs` | `300000` | Validity period for file-operation approval, in milliseconds; an expired approval cannot commit a modification. |
 | `tools.web.enabled` | `true` | Whether to declare `search_web` / `web_fetch` to the model. |
 | `tools.web.timeoutMs` | `30000` | Total timeout budget for one web fetch, in milliseconds. It includes up to 6 redirects, with each hop consuming the remaining time. |
@@ -106,7 +106,7 @@ Every section and field may be omitted as needed; omitted values use built-in de
 | `tools.browser.allowPrivateTargets` | `false` | Allows loopback and private-network pages only for local integration/testing; the default keeps the public HTTP(S) boundary. |
 | `tools.browser.timeoutMs` | `30000` | Timeout for tab navigation and element operations. |
 | `tools.presentation.default` | `hidden` | Tool presentation policy for the client's live stream and history projection: `hidden` hides tool calls, while `summary` sends only a controlled summary. |
-| `tools.presentation.overrides` | `{}` | Overrides the default policy by tool name. Names follow the explicit registry in `src/adapters/pi/tools/index.ts`: `currentTime`, `instructions`, `memory`, `memory_search`, `schedule`, `subagent`, `goal`, `monitor`, `read`, `grep`, `find`, `ls`, `write`, `edit`, `search_web`, `web_fetch`, `get_weather`, `navigate`, `snapshot`, `act`, and `tab`. |
+| `tools.presentation.overrides` | `{}` | Overrides the default policy by tool name. Names follow the explicit registry in `src/adapters/pi/tools/index.ts`: `currentTime`, `instructions`, `memory`, `memory_search`, `schedule`, `subagent`, `goal`, `monitor`, `read`, `grep`, `find`, `ls`, `write`, `edit`, `skills`, `search_web`, `web_fetch`, `get_weather`, `navigate`, `snapshot`, `act`, and `tab`. |
 
 By default, the `.pi-muse/` directory containing `.pi-muse/config.json` is also the instance data directory. The current default instance directory is unified as `.pi-muse/`; legacy directories are neither read nor migrated automatically. In other words, sessions, memory, jobs, the workspace, and the configuration file stay in the same instance directory.
 
@@ -135,12 +135,16 @@ Sessions are stored under `sessions/<threadId>/`; each thread has an independent
 ├── workspace/
 │   ├── shared/                          # accessed explicitly with shared/...
 │   └── threads/<threadId>/              # each conversation's private file area
-├── skills/<name>/SKILL.md                # optional instance skill
+├── skills/<name>/                         # optional instance skill; config is system-maintained
+│   ├── SKILL.md                           # skill definition
+│   ├── config.json                        # defaultEnabled; false for newly saved skills
+│   ├── references/                        # optional supported text references
+│   └── assets/                            # optional supported text assets
 ├── subagents/<role>.md                  # optional instance role override
 └── agent/                               # pi runtime resources
 ```
 
-Built-in skills and subagent roles are stored in the repository at `assets/skills/` and `assets/subagents/`, then copied to `dist/assets/` during the build; they are not placed in the instance directory. An identically named skill or role in the instance can override the built-in definition, but it cannot bypass existing permissions.
+Built-in skills and subagent roles are stored in the repository at `assets/skills/` and `assets/subagents/`, then copied to `dist/assets/` during the build; they are not placed in the instance directory. An identically named skill or role in the instance can override the built-in definition, but it cannot bypass existing permissions. The built-in `skill-creator` skill is enabled by default and provides the product skill-maintenance tool.
 
 ## Data Storage and Security Boundaries {#data-storage-and-security-boundaries}
 
@@ -158,7 +162,18 @@ The legacy `.personal-bot/` is not automatically used as a fallback. Migration m
 - Every operation requires separate manual approval. The approval payload retains the complete before/after text and file version; the text to replace for `edit` must match exactly one location.
 - Path safety and file version are checked again before commit. If the file changes while waiting, the old approval cannot authorize an overwrite; the operation and approval must be initiated again.
 - Rejection, approval expiration, or cancellation of the run prevents that modification from being committed. A service restart cancels pending approvals left by the previous process. Approval validity is fixed by the `expiresAt` recorded when it is created, and expiry and cancellation state are checked again before commit.
-- Disabling `tools.writable.enabled` removes these two tools. Tool presentation policy cannot skip approval or enable write capability that has been disabled.
+- The `skills` tool takes `action=list|read|save`, `name`, optional `file` (default `SKILL.md`), and the complete `content` required by save. A name may contain only lowercase letters, digits, or single hyphens and is limited to 64 characters. Allowed files are `SKILL.md` and supported UTF-8 text under `references/` or `assets/` with `.md`, `.txt`, `.json`, `.csv`, `.yaml`, or `.yml` extensions; each file is limited to 100KB.
+- Use `skills.save` only for an explicit user request. It writes only `DATA_DIR/skills/<name>`; saving a built-in name creates an instance override and never changes the built-in file. A resource can be saved only after a valid instance `SKILL.md` exists. Its approval preview uses `scope=skill`, `ownerSpaceId=null`, and path `<name>/<file>`, with the same version binding and pre-commit path, cancellation, expiry, and file-change checks.
+- A new skill's `config.json` is exactly `{ "defaultEnabled": false }`; neither the global catalog nor the current space is enabled implicitly. After you enable it for a space, its new definition, references, and assets take effect on the next model turn—the current turn does not gain new instructions or extension capabilities. Rejection, expiry, Stop, or a file change while waiting writes nothing, and an unknown result is never resent automatically.
+- Skill maintenance refuses deletion, directory operations, direct `config.json` edits, scripts/code, binaries, nested `SKILL.md`, absolute paths, traversal, and symlinks. For an enabled skill, ordinary `read` additionally exposes only its `SKILL.md` and supported resource text—not ls/grep/find or neighboring files. Subagents do not receive `skills`.
+- Disabling `tools.writable.enabled` removes `write` / `edit` and refuses `skills.save` in a controlled way while retaining `skills.list/read`. Tool presentation policy cannot skip approval or enable write capability that has been disabled.
+
+To create and use a skill in the mobile client:
+
+1. Tell the assistant which skill to create or revise in chat, for example, "Create a Linux news filtering skill that prioritizes kernel and distribution updates."
+2. Tap the avatar at the top to open the session panel, then open approvals. Review the target file and complete before/after content under "技能库" (skill library). Approve only if it matches your intent, then wait for the "文件写入成功" (file written successfully) execution receipt.
+3. In the same panel, open the workspace, find the skill, turn it on, and save the space's skills. New skills are off by default and must be enabled separately in each space where you want to use them.
+4. Send the next message to use the skill. Revisions to an enabled skill also load on the next turn; approving a save does not itself enable the skill.
 
 ## Tool Presentation Policy {#tool-presentation-policy}
 

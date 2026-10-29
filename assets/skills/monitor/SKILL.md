@@ -17,9 +17,12 @@ description: 监控网页内容变化或关键词。当用户要求“盯着这�
 **参数说明：**
 - `action`: 操作类型，可选 `create`（创建）、`list`（列出）、`pause`（暂停）、`resume`（恢复）、`stop`（停止）。
 - `url`: （创建时必填）要监控的网页链接，必须是公网可访问的 HTTP/HTTPS 链接。
-- `type`: （创建时必填）监控类型，`change`（内容任何变化）或 `contains`（出现特定关键词）。
-- `keyword`: （type 为 contains 时必填）要监控的关键词。
+- `condition`: （创建时可选，默认 `change`）监控类型，`change`（内容任何变化）或 `contains`（出现特定关键词）。
+- `value`: （`condition="contains"` 时必填）要监控的关键词。
+- `intervalMinutes`: （创建时可选）检查间隔分钟数，最小 5，默认 30。
+- `title`: （创建时可选）监控的短标题。
+- `monitorId`: （暂停/恢复/停止时必填）监控 ID，先由 `list` 查询。
 
 ## 调用示例
 用户：“帮我盯着 https://example.com/item，如果出现‘补货’两个字就告诉我”
-调用工具：`monitor({ action: "create", url: "https://example.com/item", type: "contains", keyword: "补货" })`
+调用工具：`monitor({ action: "create", url: "https://example.com/item", condition: "contains", value: "补货", intervalMinutes: 10, title: "商品补货" })`

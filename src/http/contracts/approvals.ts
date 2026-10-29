@@ -75,11 +75,12 @@ export const approvalKinds = ["file_write", "file_edit"] as const;
 export const approvalPreview = z
   .strictObject({
     scope: z
-      .enum(["space", "shared"])
+      .enum(["space", "shared", "skill"])
       .describe(
-        "文件作用域：space=当前空间私有工作区；shared=显式 shared/... 共享区。" +
+        "文件作用域：space=当前空间私有工作区；shared=显式 shared/... 共享区；skill=实例级技能资源。" +
           "scope=space 时 ownerSpaceId 指向文件归属的工作区空间；子代理发起的审批" +
-          "仍归属其 ownerSpaceId，而不是子空间自身。",
+          "仍归属其 ownerSpaceId，而不是子空间自身；scope=skill 表示写入 DATA_DIR/skills，" +
+          "不属于任何工作区，ownerSpaceId 固定为 null。",
       ),
     ownerSpaceId: z
       .string()
@@ -88,7 +89,7 @@ export const approvalPreview = z
       .nullable()
       .describe(
         "文件归属的工作区空间 ID。scope=space 时必填，并覆盖 child/subagent 的真实归属；" +
-          "scope=shared 时为 null。",
+          "scope=shared 或 scope=skill 时为 null。",
       ),
     path: z
       .string()
@@ -103,6 +104,11 @@ export const approvalPreview = z
     beforeExists: z
       .boolean()
       .describe("登记时目标文件是否已存在；false 表示新建，不能据此推断最终落盘结果"),
+  })
+  .superRefine((preview, ctx) => {
+    const ownerIsNull = preview.ownerSpaceId === null;
+    if ((preview.scope === "space") === ownerIsNull)
+      ctx.addIssue({ code: "custom", path: ["ownerSpaceId"], message: "scope 与 ownerSpaceId 归属不一致" });
   })
   .describe(
     "审批的完整、不可变预览。用于让用户看到本次将写入/替换的全部文本；" +

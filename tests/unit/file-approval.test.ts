@@ -157,6 +157,14 @@ test("new-file write approval records beforeExists=false with an empty before", 
   assert.equal(await readFile(join(root, "nested/new.md"), "utf8"), "new");
 });
 
+test("approved text preserves a leading UTF-8 BOM through read-back", async (t) => {
+  const { root, actions } = await fixture(t);
+  const content = "\uFEFFBOM preserved";
+  const result = await execute(createWritableFileTools(root, approving(actions), 5_000), "write", { path: "note.md", content });
+  assert.equal(result.isError, undefined);
+  assert.equal(await readFile(join(root, "note.md"), "utf8"), content);
+});
+
 test("execution claim failure stops file effects and receipt failure never reports that a committed file is absent", async (t) => {
   const { root, actions } = await fixture(t);
   const refused = { ...approving(actions), markExecuting: async () => false };

@@ -177,7 +177,7 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
             memory,
             jobs,
             goals,
-            actions: config.writable.enabled ? actions : undefined,
+            actions,
             actionTimeoutMs: config.writable.actionTimeoutMs,
             monitors,
             web,

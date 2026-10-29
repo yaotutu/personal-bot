@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { guardTool } from "../../src/adapters/pi/tools/path-guard.js";
@@ -68,10 +68,12 @@ test("guardTool rethrows non-ENOENT errors so they fall through to generic sanit
   );
 });
 
-test("guardTool still refuses unsafe paths and exposes readOnly skill paths verbatim", async (t: TestContext) => {
+test("guardTool still refuses unsafe paths and validates readOnly skill paths", async (t: TestContext) => {
   const root = await mkdtemp(join(tmpdir(), "pi-guard-skills-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const skillFile = resolve(root, "..", "skill-assets", "demo", "SKILL.md");
+  const skillFile = join(root, "skill-assets", "demo", "SKILL.md");
+  await mkdir(dirname(skillFile), { recursive: true });
+  await writeFile(skillFile, "# demo skill");
   const calls: unknown[] = [];
   const definition: ToolDefinition<any, any> = {
     name: "read", label: "Read", description: "test", parameters: Type.Object({
@@ -82,7 +84,9 @@ test("guardTool still refuses unsafe paths and exposes readOnly skill paths verb
       return { content: [{ type: "text", text: "skill body" }], details: undefined };
     },
   };
-  const guarded = guardTool(definition, root, undefined, { readOnlyFiles: [skillFile] });
+  const guarded = guardTool(definition, root, undefined, {
+    readOnlyFiles: [{ path: skillFile, root: dirname(skillFile), boundaryDir: dirname(dirname(skillFile)) }],
+  });
   const allowed = await guarded.execute("call", { path: skillFile }, undefined, undefined, {} as never);
   assert.equal(allowed.isError, undefined);
   assert.deepEqual(allowed.content, [{ type: "text", text: "skill body" }]);

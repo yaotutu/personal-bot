@@ -17,9 +17,26 @@ export const createSkillsService = (repository: SkillRepository) => {
       diagnostics,
     };
   };
+  /** Agent 技能维护视图：保留来源但不暴露物理路径；HTTP 技能开关继续使用 describeSpace。 */
+  const describeAuthoring = async (spaceId: string) => {
+    const { skills, diagnostics } = await repository.listSkills();
+    const overrides = await repository.getSpaceOverrides(spaceId);
+    return {
+      skills: skills.map((skill) => ({
+        name: skill.name,
+        description: skill.description,
+        source: skill.isBuiltin ? ("builtin" as const) : ("user" as const),
+        defaultEnabled: skill.defaultEnabled,
+        enabled: overrides[skill.name] ?? skill.defaultEnabled,
+      })),
+      diagnostics,
+    };
+  };
   return {
     describeSpace,
     describeThread: describeSpace,
+    describeAuthoring,
+    findSkill: async (name: string) => (await repository.listSkills()).skills.find((skill) => skill.name === name),
     getEffectiveSkills: async (spaceId: string) => (await describeSpace(spaceId)).skills,
     /** 整份替换覆盖表自然移除旧引用；拒绝本次请求中的未知名称，不静默吞掉用户输入。 */
     updateSpaceOverrides: async (spaceId: string, overrides: Record<string, boolean>) => {

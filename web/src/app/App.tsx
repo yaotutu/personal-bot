@@ -36,9 +36,12 @@ const ActionApproval = ({
 
   const { preview } = action;
   const expired = Date.parse(action.expiresAt) <= Date.now();
-  const scopeText = preview.scope === "shared"
-    ? "共享区 shared/..."
-    : `空间私有工作区 · 归属空间 ${preview.ownerSpaceId ?? "未知"}`;
+  // 技能库是实例共享内容；发起空间不是文件归属，未知作用域不能显示成技能库。
+  const scopeText = preview.scope === "skill"
+    ? "技能库"
+    : preview.scope === "shared"
+      ? "共享区 shared/..."
+      : `空间私有工作区 · 归属空间 ${preview.ownerSpaceId ?? "未知"}`;
   const beforeLabel = action.kind === "file_edit"
     ? "替换前内容"
     : preview.beforeExists ? "写入前内容" : "写入前内容（文件不存在）";

@@ -1,29 +1,23 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import { createHash, randomUUID } from "node:crypto";
-import { constants } from "node:fs";
-import { link, lstat, mkdir, open, rename, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { ApprovalCapacityError, type ActionService } from "../../../features/actions/action-service.js";
 import type { ActivityObservation } from "../../../features/activities/types.js";
 import { resolveWorkspacePath, safeWorkspacePath } from "./workspace-path.js";
-import { createWorkspaceCommitQueue, type WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
+import type { WorkspaceCommitQueue } from "../../workspace/file-commit-queue.js";
+import {
+  awaitFileApproval,
+  commitApprovedFile,
+  deniedResult,
+  MAX_TEXT_FILE_BYTES,
+  readFileSnapshot,
+  type ActivityApprovalObservation,
+  type ApprovalActions,
+  type ApprovalContext,
+  type FileSnapshot,
+} from "./file-approval.js";
 
-const MAX_BYTES = 100_000;
-const POLL_INTERVAL_MS = 2_000;
-type ApprovalContext = { spaceId?: string; runId?: string; toolCallId?: string; subagentId?: string; workspaceSpaceId?: string; activityId?: (() => string | null) | string };
-type Actions = Pick<ActionService, "submit" | "poll" | "cancel" | "markExecuting" | "finishExecution">;
-type Snapshot = { content: string; version: string };
-export type ActivityToolObservation = { observe: (event: ActivityObservation) => void; prefix: string; getActivityId?: () => string | undefined };
+export type ActivityToolObservation = ActivityApprovalObservation;
 
-/** 兼容独立工具工厂测试；生产 bootstrap 注入与 HTTP 手动写入共用的队列。 */
-const fallbackCommits = createWorkspaceCommitQueue();
-
-const denied = (text: string) => ({
-  content: [{ type: "text" as const, text }], details: { denied: true }, isError: true,
-});
-const aborted = () => denied("Operation aborted; nothing was written.");
-const isMissing = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
+const aborted = () => deniedResult("Operation aborted; nothing was written.");
 
 /** 新文件可缺失，已有祖先和根目录仍逐段拒绝链接；审批后用同一规则重查。 */
 const safeTarget = async (root: string, path: string, sharedDir?: string, boundaryDir?: string): Promise<string> => {
@@ -33,177 +27,16 @@ const safeTarget = async (root: string, path: string, sharedDir?: string, bounda
   return safeWorkspacePath(selected.base, selected.path, { allowMissing: true, boundaryDir });
 };
 
-/** 内容摘要和 inode/纳秒时间戳共同绑定版本：同内容重建或改后复原也不能复用旧审批。 */
-const readSnapshot = async (target: string): Promise<Snapshot | undefined> => {
-  let file;
-  try { file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
-  catch (error) { if (isMissing(error)) return undefined; throw error; }
-  try {
-    const before = await file.stat({ bigint: true });
-    if (!before.isFile()) throw new Error("Not a regular file");
-    const bytes = await file.readFile();
-    const after = await file.stat({ bigint: true });
-    const metadata = (stat: typeof before) =>
-      `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
-    const atPath = await lstat(target, { bigint: true });
-    if (atPath.isSymbolicLink() || metadata(before) !== metadata(after) || metadata(after) !== metadata(atPath))
-      throw new Error("File changed while reading");
-    return {
-      content: bytes.toString("utf8"),
-      version: `${metadata(after)}:${createHash("sha256").update(bytes).digest("hex")}`,
-    };
-  } finally { await file.close(); }
-};
-
-/**
- * abort 监听覆盖 submit/poll/休眠：即使中止发生在登记落盘期间，也会补撤销刚登记的 pending。
- * 只以服务端持久化的 expiresAt 过期；poll 的旧 timeout 参数不能延长授权。
- */
-const awaitApproval = async (
-  actions: Actions, kind: "file_write" | "file_edit", title: string,
-  payload: Record<string, string>, timeoutMs: number, signal?: AbortSignal, context?: ApprovalContext,
-  observe?: (event: ActivityObservation) => void,
-): Promise<{ id: string; expiresAt: number } | undefined> => {
-  if (signal?.aborted) return undefined;
-  let wakeAbort!: () => void;
-  const interrupted = new Promise<undefined>((resolve) => { wakeAbort = () => resolve(undefined); });
-  signal?.addEventListener("abort", wakeAbort, { once: true });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const action = await actions.submit(kind, title, payload, {
-      ...context, timeoutMs,
-      activityId: typeof context?.activityId === "function" ? context.activityId() : context?.activityId,
-    });
-    observe?.({
-      id: `approval:${action.id}`,
-      kind: "approval",
-      phase: "start",
-      title: "Approval requested",
-    });
-    for (;;) {
-      if (signal?.aborted) {
-        await actions.cancel(action.id);
-        observe?.({
-          id: `approval:${action.id}`,
-          kind: "approval",
-          phase: "end",
-          status: "cancelled",
-          title: "Approval cancelled",
-          result: "Operation aborted by user",
-        });
-        return undefined;
-      }
-      const decision = await Promise.race([actions.poll(action.id), interrupted]);
-      if (signal?.aborted) {
-        await actions.cancel(action.id);
-        observe?.({
-          id: `approval:${action.id}`,
-          kind: "approval",
-          phase: "end",
-          status: "cancelled",
-          title: "Approval cancelled",
-          result: "Operation aborted by user",
-        });
-        return undefined;
-      }
-      if (decision?.status === "approved") {
-        observe?.({
-          id: `approval:${action.id}`,
-          kind: "approval",
-          phase: "end",
-          status: "succeeded",
-          title: "Approval granted",
-          result: "Action was approved",
-        });
-        return { id: action.id, expiresAt: Date.parse(action.expiresAt) };
-      }
-      if (decision?.status !== "pending") {
-        const status = decision?.status === "denied" ? "denied" : decision?.status === "expired" ? "expired" : "cancelled";
-        observe?.({
-          id: `approval:${action.id}`,
-          kind: "approval",
-          phase: "end",
-          status,
-          title: `Approval ${decision?.status ?? "refused"}`,
-          result: `Approval was ${decision?.status ?? "refused"}`,
-        });
-        return undefined;
-      }
-      // 休眠可被 signal 立即唤醒，finally 清除计时器和监听器，不遗留轮询资源。
-      await Promise.race([
-        new Promise<void>((resolve) => { timer = setTimeout(resolve, POLL_INTERVAL_MS); }),
-        interrupted,
-      ]);
-      clearTimeout(timer);
-    }
-  } catch (error) {
-    if (error instanceof ApprovalCapacityError) return undefined;
-    throw error;
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", wakeAbort);
-  }
-};
-
-/**
- * 在共享逐路径锁内重查版本；先写同目录临时文件，最后一次检查 signal/路径/版本才提交。
- * 不截断原文件，避免写失败留下半份内容；新建用 link 的排他语义防止覆盖刚出现的文件。
- * 这是单进程工具间的并发保护，不声称提供针对外部恶意进程的操作系统级路径 CAS。
- */
-const commitFile = async (
-  root: string, path: string, target: string, original: Snapshot | undefined,
-  content: string, approval: { id: string; expiresAt: number }, actions: Actions, signal?: AbortSignal, sharedDir?: string, boundaryDir?: string,
-  commitQueue: WorkspaceCommitQueue = fallbackCommits,
-) => commitQueue(target, async () => {
-  // 先持久化真实执行开始，避免文件已提交后才第一次登记执行；写失败时不执行副作用。
-  if (!await actions.markExecuting(approval.id)) {
-    return denied("Approval cannot execute (expired or already used); nothing was written.");
-  }
-  const unchanged = async () =>
-    await safeTarget(root, path, sharedDir, boundaryDir) === target && (await readSnapshot(target))?.version === original?.version;
-  const expired = () => !Number.isFinite(approval.expiresAt) || Date.now() >= approval.expiresAt;
-  let temporary: string | undefined;
-  let committed = false;
-  const refused = async (text: string, cancelled = false) => {
-    await actions.finishExecution(approval.id, cancelled ? "cancelled" : "failed", text);
-    return denied(text);
-  };
-  try {
-    if (signal?.aborted) return await refused("Operation aborted; nothing was written.", true);
-    if (expired()) return await refused("Approval expired before commit; nothing was written.");
-    if (!await unchanged()) return await refused("File changed since approval was requested; request a new approval.");
-    if (signal?.aborted) return await refused("Operation aborted; nothing was written.", true);
-    await mkdir(dirname(target), { recursive: true });
-    if (await safeTarget(root, path, sharedDir, boundaryDir) !== target) return await refused("Access denied: unsafe file path.");
-    if (signal?.aborted) return await refused("Operation aborted; nothing was written.", true);
-    temporary = join(dirname(target), `.approval-${randomUUID()}.tmp`);
-    const file = await open(temporary, "wx", 0o600);
-    try {
-      if (signal?.aborted) return await refused("Operation aborted; nothing was written.", true);
-      await file.writeFile(content, "utf8");
-    } finally { await file.close(); }
-    if (!await unchanged()) return await refused("File changed since approval was requested; request a new approval.");
-    if (signal?.aborted) return await refused("Operation aborted; nothing was written.", true);
-    if (expired()) return await refused("Approval expired before commit; nothing was written.");
-    if (original) await rename(temporary, target);
-    else await link(temporary, target);
-    committed = true;
-    // 结果保存失败不能把真实落盘伪装成“什么也没写”；保留running供重启诚实标记unknown。
-    await actions.finishExecution(approval.id, "succeeded", "File committed after approval and version checks");
-    return { content: [{ type: "text" as const, text: `Saved ${path}.` }], details: undefined };
-  } catch {
-    if (committed) return denied("File was committed, but its execution receipt could not be saved. Verify the file before repeating.");
-    return refused("File commit refused: the file changed, the path is unsafe, or writing failed.");
-  } finally {
-    if (temporary) await unlink(temporary).catch((error) => { if (!isMissing(error)) throw error; });
-  }
-});
-
-/** 每次 run 由组合方传入新的上下文；此工厂不推断或缓存当前 runId。 */
+/** 每次 run 由组合方传入新的上下文；此工厂不推断当前 runId。 */
 export const createWritableFileTools = (
-  root: string, actions: Actions, timeoutMs: number, context?: ApprovalContext, sharedDir?: string, boundaryDir?: string,
+  root: string,
+  actions: ApprovalActions,
+  timeoutMs: number,
+  context?: ApprovalContext,
+  sharedDir?: string,
+  boundaryDir?: string,
   observation?: ActivityToolObservation,
-  commitQueue: WorkspaceCommitQueue = fallbackCommits,
+  commitQueue?: WorkspaceCommitQueue,
 ) => [
   defineTool({
     name: "write", label: "Write file",
@@ -214,21 +47,48 @@ export const createWritableFileTools = (
     }, { additionalProperties: false }),
     async execute(_id, params, signal) {
       if (signal?.aborted) return aborted();
-      if (Buffer.byteLength(params.content, "utf8") > MAX_BYTES)
-        return denied("File too large: writes are limited to 100KB.");
+      if (Buffer.byteLength(params.content, "utf8") > MAX_TEXT_FILE_BYTES)
+        return deniedResult("File too large: writes are limited to 100KB.");
       let target: string;
-      let original: Snapshot | undefined;
-      try { target = await safeTarget(root, params.path, sharedDir, boundaryDir); original = await readSnapshot(target); }
-      catch { return denied("Access denied: unsafe or unreadable file path."); }
-      // 保存完整原文和新内容供 UI 比较，不再用截断 preview 隐藏真正的写入内容。
-      const approved = await awaitApproval(actions, "file_write", `写入 ${params.path}`, {
-        path: params.path, content: params.content, originalContent: original?.content ?? "",
-        baseVersion: original?.version ?? "missing", beforeExists: String(original !== undefined),
-      }, timeoutMs, signal, { ...context, toolCallId: _id }, observation ? (event) => observation.observe({
-        ...event, id: `${observation.prefix}:${event.id}`, parentId: `${observation.prefix}:tool:${_id}`,
-      }) : undefined);
-      if (approved === undefined) return denied("Write not approved (denied, expired or cancelled); nothing was written.");
-      return commitFile(root, params.path, target, original, params.content, approved, actions, signal, sharedDir, boundaryDir, commitQueue);
+      let original: FileSnapshot | undefined;
+      try {
+        target = await safeTarget(root, params.path, sharedDir, boundaryDir);
+        original = await readFileSnapshot(target);
+      } catch {
+        return deniedResult("Access denied: unsafe or unreadable file path.");
+      }
+      const approved = await awaitFileApproval(
+        actions,
+        "file_write",
+        `写入 ${params.path}`,
+        {
+          path: params.path,
+          content: params.content,
+          originalContent: original?.content ?? "",
+          baseVersion: original?.version ?? "missing",
+          beforeExists: String(original !== undefined),
+        },
+        timeoutMs,
+        signal,
+        { ...context, toolCallId: _id },
+        observation ? (event: ActivityObservation) => observation.observe({
+          ...event,
+          id: `${observation.prefix}:${event.id}`,
+          parentId: `${observation.prefix}:tool:${_id}`,
+        }) : undefined,
+      );
+      if (!approved) return deniedResult("Write not approved (denied, expired or cancelled); nothing was written.");
+      return commitApprovedFile({
+        target,
+        successPath: params.path,
+        original,
+        content: params.content,
+        approval: approved,
+        actions,
+        signal,
+        commitQueue,
+        validateTarget: async (candidate) => await safeTarget(root, params.path, sharedDir, boundaryDir) === candidate,
+      });
     },
   }),
   defineTool({
@@ -241,29 +101,56 @@ export const createWritableFileTools = (
     }, { additionalProperties: false }),
     async execute(_id, params, signal) {
       if (signal?.aborted) return aborted();
-      if (!params.oldText.length) return denied("oldText must not be empty.");
       let target: string;
-      let original: Snapshot | undefined;
-      try { target = await safeTarget(root, params.path, sharedDir, boundaryDir); original = await readSnapshot(target); }
-      catch { return denied("Access denied: unsafe or unreadable file path."); }
-      if (!original) return denied("File not found.");
+      let original: FileSnapshot | undefined;
+      try {
+        target = await safeTarget(root, params.path, sharedDir, boundaryDir);
+        original = await readFileSnapshot(target);
+      } catch {
+        return deniedResult("Access denied: unsafe or unreadable file path.");
+      }
+      if (!original) return deniedResult("File not found.");
       const first = original.content.indexOf(params.oldText);
-      if (first < 0) return denied("oldText not found in the file.");
-      // 从下一字符查找也能识别重叠命中，防止有歧义的替换通过唯一性检查。
+      if (first < 0) return deniedResult("oldText not found in the file.");
       if (original.content.indexOf(params.oldText, first + 1) >= 0)
-        return denied("oldText appears more than once; make it unique first.");
-      // 按索引拼接而非 replace 字符串模板，保证 $&/$`/$' 等也是字面内容。
+        return deniedResult("oldText appears more than once; make it unique first.");
       const content = original.content.slice(0, first) + params.newText + original.content.slice(first + params.oldText.length);
-      if (Buffer.byteLength(content, "utf8") > MAX_BYTES)
-        return denied("File too large: edited files are limited to 100KB.");
-      const approved = await awaitApproval(actions, "file_edit", `编辑 ${params.path}`, {
-        path: params.path, oldText: params.oldText, newText: params.newText,
-        originalContent: original.content, content, baseVersion: original.version, beforeExists: "true",
-      }, timeoutMs, signal, { ...context, toolCallId: _id }, observation ? (event) => observation.observe({
-        ...event, id: `${observation.prefix}:${event.id}`, parentId: `${observation.prefix}:tool:${_id}`,
-      }) : undefined);
-      if (approved === undefined) return denied("Edit not approved (denied, expired or cancelled); nothing was written.");
-      return commitFile(root, params.path, target, original, content, approved, actions, signal, sharedDir, boundaryDir, commitQueue);
+      if (Buffer.byteLength(content, "utf8") > MAX_TEXT_FILE_BYTES)
+        return deniedResult("File too large: edited files are limited to 100KB.");
+      const approved = await awaitFileApproval(
+        actions,
+        "file_edit",
+        `编辑 ${params.path}`,
+        {
+          path: params.path,
+          oldText: params.oldText,
+          newText: params.newText,
+          originalContent: original.content,
+          content,
+          baseVersion: original.version,
+          beforeExists: "true",
+        },
+        timeoutMs,
+        signal,
+        { ...context, toolCallId: _id },
+        observation ? (event: ActivityObservation) => observation.observe({
+          ...event,
+          id: `${observation.prefix}:${event.id}`,
+          parentId: `${observation.prefix}:tool:${_id}`,
+        }) : undefined,
+      );
+      if (!approved) return deniedResult("Edit not approved (denied, expired or cancelled); nothing was written.");
+      return commitApprovedFile({
+        target,
+        successPath: params.path,
+        original,
+        content,
+        approval: approved,
+        actions,
+        signal,
+        commitQueue,
+        validateTarget: async (candidate) => await safeTarget(root, params.path, sharedDir, boundaryDir) === candidate,
+      });
     },
   }),
 ];

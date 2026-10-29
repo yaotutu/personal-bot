@@ -4,9 +4,18 @@ import { resolveWorkspacePath, safeWorkspacePath, UnsafeFilePathError } from "./
 
 export type FileGuardOptions = {
   boundaryDir?: string;
-  /** pi 技能提示给出绝对 SKILL.md 路径；只允许已启用技能的精确文件，不开放目录。 */
-  readOnlyFiles?: readonly string[];
+  /** pi 技能提示给出绝对资源路径；只允许已启用技能的精确文件，执行前后都按其技能根逐段复核。 */
+  readOnlyFiles?: readonly ReadOnlyFile[];
 };
+
+export type ReadOnlyFile = {
+  path: string;
+  root: string;
+  boundaryDir: string;
+};
+
+export const safeReadOnlyFile = async (file: ReadOnlyFile): Promise<string> =>
+  safeWorkspacePath(file.root, resolve(file.path), { boundaryDir: file.boundaryDir });
 
 export const guardPath = (root: string, raw: unknown, sharedDir?: string): string | null =>
   resolveWorkspacePath(root, raw, sharedDir)?.path ?? null;
@@ -35,18 +44,20 @@ export const guardTool = (
   options: FileGuardOptions = {},
 ): ToolDefinition<any, any> => ({
   ...definition,
-  description: definition.description + " Paths are relative to this conversation's private workspace; use shared/... for shared files. Absolute paths, .. and symlinks are refused." +
-    (definition.name === "read" && options.readOnlyFiles?.length ? " The exact SKILL.md paths of enabled skills are also readable." : ""),
+    description: definition.description + " Paths are relative to this conversation's private workspace; use shared/... for shared files. Absolute paths, .. and symlinks are refused." +
+      (definition.name === "read" && options.readOnlyFiles?.length ? " The exact SKILL.md and supported text resource paths of enabled skills are also readable." : ""),
   execute: async (toolCallId, params, signal, onUpdate, ctx) => {
     const rawPath = (params as { path?: unknown }).path;
-    const skillFile = definition.name === "read" && typeof rawPath === "string" &&
-      options.readOnlyFiles?.includes(rawPath) ? resolve(rawPath) : undefined;
+    const skillFile = definition.name === "read" && typeof rawPath === "string"
+      ? options.readOnlyFiles?.find((file) => resolve(rawPath) === resolve(file.path))
+      : undefined;
     const selected = resolveWorkspacePath(root, rawPath, sharedDir);
     if (!selected && !skillFile) return denied("Access denied: path is outside the documents directory or contains a symlink.");
     try {
       // 缺失文件交给 pi 保留原有 not-found 行为；实际读取 operations 再核验 SDK 最终解析的路径。
       if (selected) await safeWorkspacePath(selected.base, selected.path, { allowMissing: true, boundaryDir: options.boundaryDir });
-      return await definition.execute(toolCallId, { ...(params as Record<string, unknown>), path: skillFile ?? selected!.path }, signal, onUpdate, ctx);
+      if (skillFile) await safeReadOnlyFile(skillFile);
+      return await definition.execute(toolCallId, { ...(params as Record<string, unknown>), path: skillFile ? skillFile.path : selected!.path }, signal, onUpdate, ctx);
     } catch (error) {
       if (error instanceof UnsafeFilePathError) return denied("Access denied: path is outside the documents directory or contains a symlink.");
       // 文件不存在（ENOENT）或目录位置不是目录（ENOTDIR）统一翻成受控 "File not found."，

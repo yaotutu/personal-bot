@@ -555,7 +555,7 @@ export const endpoints: EndpointSpec[] = [
     hint:
       "返回完整审批视图，包含 title、kind 与 preview 全文；预览在登记时固定，不读取当前文件替换，也不截断。" +
       "pending 与历史审批都可用同一路径读取；不存在返回 404。execution 字段始终存在，null 表示尚未观察到执行，不代表成功；已回报的执行结果独立于人的决定。" +
-      "scope=space 时 ownerSpaceId 指向文件归属的工作区空间（子代理发起仍归属 ownerSpaceId）；scope=shared 时为 null。" +
+      "scope=space 时 ownerSpaceId 指向文件归属的工作区空间（子代理发起仍归属 ownerSpaceId）；scope=shared/skill 时为 null，skill 的 path 形如 <技能名>/<文件>。" +
       "单项按 UTF-8 JSON 最大 1.5MB；所有 pending 累计最大 6MB 且最多 32 项；超限时服务端拒绝登记，不截断预览。",
     auth: true, response: approval.approvalView,
     errorResponses: {

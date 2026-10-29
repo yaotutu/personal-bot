@@ -20,7 +20,7 @@
 | 上下文压缩 | SDK compaction 与 `SettingsManager` | 压缩参数按模型窗口收缩；展示读完整 branch，不拿压缩摘要替代长期记忆或完整 UI 历史 |
 | 只读文件工具 | `createReadToolDefinition`、`createGrepToolDefinition`、`createFindToolDefinition`、`createLsToolDefinition` | 入口 guard 和 operations 路径复核，私有/shared 边界、符号链接拒绝、技能精确读取例外 |
 | 写入工具接入 | SDK `defineTool` 与工具执行机制 | write/edit 是本项目实现，不直接开放 SDK 默认 write/edit；完整预览、版本绑定、逐次审批与提交检查由项目控制 |
-| 技能解析与加载 | `loadSkillsFromDir`，将生效技能传给 ResourceLoader | 内置 assets 与实例 skills 发现、会话开关与诊断，不自动加载个人或父目录资源 |
+| 技能解析与加载 | `parseFrontmatter`、`loadSkillsFromDir`，将生效技能传给 ResourceLoader | 内置 assets 与实例 skills 发现、会话开关与诊断；authoring 精确校验 frontmatter name 后复用 loader，不另写 YAML 解析器 |
 | Extension 宿主 | SDK 扩展加载与运行机制、内联 extension factory | 仅装配已启用技能的显式 extension 路径和受控 subagent factory，不自造通用插件框架 |
 | Subagent 编排 | 官方 1.3.0 示例的 single/parallel/chain 语义 | CLI runner 改为注入的独立 SDK session，权限继承与收窄、父取消、审批归属和展示适配 |
 
@@ -33,12 +33,13 @@
 - `src/adapters/pi/resource-loader.ts`：向 SDK 提供明确的 system prompt、已启用技能和扩展，不发现个人 CLI 的 context files、prompt templates 或 themes。
 - `src/adapters/pi/session-history.ts`、`history-projection.ts`：权威 JSONL 读取、custom entry/context edit、revision 与展示历史投影。
 - `src/adapters/pi/execution.ts`：SDK 事件投影、取消/idle port，以及进入模型上下文和 JSONL 前的错误脱敏。
-- `src/adapters/pi/tools/files.ts`、`path-guard.ts`、`workspace-path.ts`：只读工具复用及路径收口；`src/adapters/pi/tools/files-writable.ts`：本项目逐次审批写入。
+- `src/adapters/pi/tools/files.ts`、`path-guard.ts`、`workspace-path.ts`：只读工具复用、启用技能资源精确读取例外与路径收口；`src/adapters/pi/tools/files-writable.ts`、`file-approval.ts`、`skills.ts`：本项目逐次审批写入与技能维护。
 - `src/adapters/pi/tools/index.ts`：显式工具注册及技能映射；`src/adapters/storage/skill-repository.ts`：会话技能覆盖与诊断。
 
 ## 资源、技能与扩展
 
 - 技能不再为空。会话装配通过 SDK 解析内置 `assets/skills/`（构建后 `dist/assets/skills/`）和实例 `DATA_DIR/skills/`，根据生效开关选择技能；同名实例技能优先。普通会话指令单独从本会话 `INSTRUCTIONS.md` 注入，不交给 SDK 默认目录发现。
+- `skills` 只维护产品技能文本：实例保存仍由 pi 解析规则验收；允许的 references/assets 文本作为启用技能的 read-only 例外装配。资源必须依附合法实例 `SKILL.md`，不能创建/修改 `extension.ts`、脚本、config 或嵌套技能根。
 - 已启用技能目录中的 `extension.ts` 通过显式路径装配；保留名或重复工具不会靠加载覆盖已注册工具。全局可选能力、技能开关与子角色约束共同收窄工具，不因发现资源就扩大权限。
 - 技能正文属于模型可读资源，extension 则是可信服务端代码；路径 guard 不是执行 extension 的操作系统沙箱。不能把“复用了 SDK 加载器”表述为恶意代码隔离保证。
 - 子代理只接收父会话许可的资源/工具上限，不加载个人 `~/.pi`，不复制父历史或会话指令。精确例外与隔离细则见 [文件工具与审批](architecture.md#文件工具与审批)和 [子代理](architecture.md#子代理subagent)。
