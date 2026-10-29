@@ -1,0 +1,27 @@
+{
+  "character": "T1",
+  "scope": "Pi Muse project-wide mascot and default visual character",
+  "characterState": "selected",
+  "canonicalReference": "mascot/reference.png",
+  "backgroundState": "not-selected-peach-rejected",
+  "transparentMasterState": "not-ready-edge-cleanup-required",
+  "runtimeIntegration": false,
+  "files": [
+    {
+      "file": "mascot/reference.png",
+      "role": "project-wide-character-reference-background-not-approved",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGB",
+      "sha256": "93788b65006a061cbd2861a2db046f34fca99d057d289e0d3e56486c6b4b96fb"
+    },
+    {
+      "file": "mascot/selected-concept-board.png",
+      "role": "selection-evidence-top-left-T1-only",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGB",
+      "sha256": "afb6c0197bea03c0e47cb047202415d60e70f8340a8d28e8b8a43941f267b9f1"
+    }
+  ]
+}

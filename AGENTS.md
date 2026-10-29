@@ -15,6 +15,7 @@
 | 修改配置、启动、部署或联调环境 | [开发与联调指南](docs/development.md)、[快速上手](docs/manual/getting-started.md)、[配置说明](docs/manual/configuration.md) |
 | 编写文档或修改用户可见行为 | [Agent 文档编写指南](docs/agent-documentation-guide.md) |
 | 修改虚拟形象素材或展示能力 | [虚拟形象素材说明](docs/avatar.md) |
+| 制作或修改项目吉祥物、默认角色、品牌图标及其派生素材 | [项目级品牌资产基准](docs/assets/brand/README.md)，所有端以同一 T1 形象为来源 |
 
 ## 技术底线
 
