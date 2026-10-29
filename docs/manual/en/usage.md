@@ -12,11 +12,17 @@ Message attachments enter model context with chat history; workspace files are p
 
 ## Tasks, Goals, and Memory {#tasks-goals-and-memory}
 
-You can request one-off or daily tasks, webpage monitors, and long-term goals in a conversation, then manage them in the corresponding client pages. Webpage monitors work with public HTTP(S) pages. Long-term memory is retrieved on demand; periodic Dream consolidation must be enabled separately. Failed tasks display an error and do not automatically rerun the model or tools.
+- [Tasks and webpage monitors](tasks-and-monitors.md): scheduled execution, webpage change checks, management actions, and activity records.
+- [Goals and milestones](goals.md): status and progress tracking for long-term goals, not scheduled task execution.
+- [Memory and Dream](memory-and-dream.md): long-term memory search and management, plus separately configured consolidation.
+
+## Profile and Settings {#profile-and-settings}
+
+For editing assistant identity, persona, and user profile, as well as themes, connection maintenance, browser access, and Android app updates, see [Profile and settings](profile-and-settings.md).
 
 ## Browser {#browser}
 
-The server provides a real graphical browser capability, with enabling and access scope controlled by configuration. For Docker and noVNC deployment, see [the browser guide](browser-docker.md). Browser integration inside a mobile build is defined by that released version.
+The server provides a real graphical browser capability, with enabling and access scope controlled by configuration. For Docker and noVNC deployment, see [the browser guide](browser-docker.md). The mobile app opens the configured noVNC address in the system browser; see [Profile and settings](profile-and-settings.md) for the entry point.
 
 ## Data and Network {#data-and-network}
 

@@ -1,6 +1,6 @@
 # FAQ
 
-This page starts from visible symptoms and low-risk checks. When the result of a write is unknown, verify the server state first instead of automatically resending. Current operation entry points are defined by [Quick Start](getting-started.md) and the two daily-operation guides.
+This page starts from visible symptoms and low-risk checks. When the result of a write is unknown, verify the server state first instead of automatically resending. For the initial connection, see [Quick Start](getting-started.md); for daily-operation guides, see the [manual home](index.md).
 
 ## The Phone Cannot Connect to the Server {#phone-cannot-connect-to-server}
 
@@ -50,3 +50,19 @@ Manual workspace edits are confirmed in the save preview on the「工作区」pa
 Reset and delete are destructive requests. A network error does not prove that the server did not execute them. The client keeps an unconfirmed notice and does not retry automatically. Refresh the space list and check the new session ID or whether the space disappeared before continuing.
 
 Reset clears chat history and cancels unresolved approvals. Deleting a space also removes its workspace files, rules, skills, jobs, and monitors. Neither operation can be recovered. For the complete impact, see [Conversations and spaces](conversations-and-spaces.md#reset-and-delete-spaces).
+
+## Tasks, Monitors, or Goals Are Missing {#missing-tasks-monitors-or-goals}
+
+Check the current space and the page's space and status filters, then refresh the list. A failed read of an old list does not mean its items were deleted. An assistant promising to create an item is not proof of success; verify the list and details read back from the server. For task and monitor creation and control, see [Tasks and webpage monitors](tasks-and-monitors.md); for goals and milestones, see [Goals and milestones](goals.md). Check an unknown result before creating duplicates.
+
+## Memory or Dream Did Not Change as Expected {#memory-or-dream-not-updated}
+
+First distinguish long-term memory, assistant and user profiles, and Dream pending suggestions; they are not the same content. Check save status, consolidation settings, and pending-item decisions rather than clearing history as a general repair. For entry points and scope, see [Memory and Dream](memory-and-dream.md) and [Profile and settings](profile-and-settings.md).
+
+## The Real Browser Cannot Open {#browser-cannot-open}
+
+The mobile noVNC address must be entered separately. Do not reuse the API base address or expect the app to infer a port. Check the complete saved address and phone network, then follow [Profile and settings](profile-and-settings.md). For containers and ports, see [Browser deployment](browser-docker.md). Do not expose the default unauthenticated noVNC port publicly while troubleshooting.
+
+## App Update Check or Installation Failed {#app-update-failed}
+
+Check that the Android environment supports installing updates, and review the network, download, or installation notice shown in the app. A GitHub failure does not imply a Pi Muse backend failure; do not clear server data to fix it. For built-in updates and manual downloads from official Releases, see [Profile and settings](profile-and-settings.md). Do not uninstall the app first just to retry an update, as that can remove local connection information.

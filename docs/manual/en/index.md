@@ -7,6 +7,10 @@ This manual introduces installation, connection, daily use, and security boundar
 - [Quick Start](getting-started.md): install the server, connect the phone, send a message, and receive a reply.
 - [Conversations and spaces](conversations-and-spaces.md): send and stop conversations, switch spaces, reset sessions, and delete spaces.
 - [Attachments, files, and approvals](files-and-approvals.md): distinguish message attachments, workspace files, and model file-write approvals.
+- [Tasks and webpage monitors](tasks-and-monitors.md): create and manage scheduled tasks and webpage monitors, and review activity records.
+- [Goals and milestones](goals.md): create goals, update status and milestones, and distinguish goals from scheduled execution.
+- [Memory and Dream](memory-and-dream.md): manage long-term memory, configure consolidation, and review pending suggestions.
+- [Profile and settings](profile-and-settings.md): edit assistant and user profiles, choose a theme, and manage connections, browser access, and app updates.
 - [Core Capabilities](usage.md): overview of tasks, goals, memory, browser, and data boundaries.
 - [Configuration](configuration.md): look up server configuration fields and the data directory.
 - [Browser Docker and noVNC](browser-docker.md): deploy a graphical browser when needed.

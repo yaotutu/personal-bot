@@ -50,6 +50,15 @@ Limits:
 
 Manual creation and editing support UTF-8 text only, with complete content limited to 100,000 bytes. A new path is relative to the selected scope root; each path segment may contain only ASCII letters, numbers, `.`, `-`, and `_`, separated by `/`. If a directory exceeds 1,000 entries or reading a file exceeds 8 MiB, the server rejects the request instead of truncating the list or content.
 
+### Download to Device {#download-to-device}
+
+1. In the Android client, open the file detail and confirm that the complete file has been read. Download copies the content read at that moment; it does not represent a later server-side version.
+2. Tap 「下载到设备」.
+3. Choose a target directory in the system directory picker and follow the system prompt to allow Pi Muse access. The system picker scopes this permission to the selected directory; the app does not require an “all files” permission.
+4. Return to Pi Muse and check the save result. A successful save shows the actual file name and confirms that it was written to the selected device directory; cancelling directory selection writes nothing.
+
+If the selected directory already contains a file with the same name, the app only reports a conflict and does not overwrite the old file. Choose another directory, or first verify and move or rename the existing file in the system file manager. If the original name contains characters unsupported by the device, it is changed to a safe ASCII name and the page shows that result. If the directory provider forces a rename or same-name inspection fails, the download stops instead of guessing the target.
+
 ### Save or Delete {#save-or-delete-files}
 
 1. After entering or replacing complete text in the editor, tap 「预览保存」.
@@ -90,6 +99,8 @@ If the execution receipt is `unknown`, or you are unsure after stopping or disco
 | Attachments cannot be selected | Whether you are in the Android client; whether a run or unconfirmed submission is active | Wait for the run to finish and synchronize; select local files with the Android system picker |
 | Attachment sending fails | Count, size, UTF-8 validity, and actual image type | Fix the limits above and select again; a rejected attachment does not enter the draft |
 | File not found | Whether the scope is 「当前空间」 or 「共享文件」 | Check scope and path, then refresh the directory; a read failure is not shown as an empty directory |
+| Download unavailable | Whether you are in the Android client and whether the system picker was cancelled or access denied | The current Web preview cannot save to a device directory. On Android, choose a directory again and allow access when prompted |
+| Same-name conflict | Whether the selected device directory already has a file with that name | The app never overwrites it. Choose another directory, or verify and move or rename the old file in the system file manager |
 | Manual save fails | More than 100,000 bytes, invalid path, existing create target, or missing edit target | Fix content or path; use another path to create, and refresh the current file before editing |
 | Approval buttons unavailable | Whether approvals are synchronizing, expired, or missing loaded details | Tap 「重新同步审批」 and reopen details; the model must request again after expiry |
 | File unchanged after approval | Whether the execution receipt succeeded and whether the file changed meanwhile | Read the complete file first; do not repeatedly approve the old approval |

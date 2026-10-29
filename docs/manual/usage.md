@@ -12,11 +12,17 @@
 
 ## 任务、目标与记忆 {#tasks-goals-and-memory}
 
-可在对话中提出一次性或每日任务、网页监控和长期目标，再到客户端对应页面查看。网页监控面向公开 HTTP(S) 页面。长期记忆可按需检索；Dream 周期整理需单独启用。失败任务会显示错误，不会自动重跑模型或工具。
+- [任务与网页监控](tasks-and-monitors.md)：定时执行、网页变化检查、管理操作和活动记录。
+- [目标与里程碑](goals.md)：长期目标的状态和进度管理，不等同于定时执行任务。
+- [记忆与 Dream](memory-and-dream.md)：长期记忆查询和管理，以及独立配置的记忆整理。
+
+## 资料与设置 {#profile-and-settings}
+
+助手身份、人设和用户资料的编辑，以及主题、连接维护、真实浏览器入口和 Android 应用更新，见[资料与设置](profile-and-settings.md)。
 
 ## 浏览器 {#browser}
 
-服务端提供真实图形浏览器能力，启用与访问范围由配置控制。Docker 与 noVNC 部署见[浏览器说明](browser-docker.md)；移动客户端内的浏览器集成以对应发布版本为准。
+服务端提供真实图形浏览器能力，启用与访问范围由配置控制。Docker 与 noVNC 部署见[浏览器说明](browser-docker.md)；手机通过系统浏览器打开已配置的 noVNC 地址，入口见[资料与设置](profile-and-settings.md)。
 
 ## 数据与网络 {#data-and-network}
 
