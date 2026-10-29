@@ -80,7 +80,19 @@ export default defineConfig({
         ],
         sidebar: [
           { text: '开始', items: [{ text: '手册首页', link: '/' }, { text: '快速上手', link: '/getting-started' }] },
-          { text: '使用', items: [{ text: '核心能力', link: '/usage' }, { text: '常见问题', link: '/troubleshooting' }] },
+          {
+            text: '使用',
+            items: [
+              { text: '核心能力', link: '/usage' },
+              { text: '对话与空间', link: '/conversations-and-spaces' },
+              { text: '附件、文件与审批', link: '/files-and-approvals' },
+              { text: '任务与网页监控', link: '/tasks-and-monitors' },
+              { text: '目标与里程碑', link: '/goals' },
+              { text: '记忆与 Dream', link: '/memory-and-dream' },
+              { text: '资料与设置', link: '/profile-and-settings' },
+              { text: '常见问题', link: '/troubleshooting' },
+            ],
+          },
           { text: '配置', items: [{ text: '配置说明', link: '/configuration' }] },
           { text: '浏览器', items: [{ text: 'Docker 与 noVNC', link: '/browser-docker' }, { text: 'Viewer 控制桥', link: '/browser-viewer-bridge' }] },
           { text: '开发', items: [{ text: '开发入口', link: '/development' }] },
@@ -117,7 +129,19 @@ export default defineConfig({
         ],
         sidebar: [
           { text: 'Start', items: [{ text: 'Manual home', link: '/en/' }, { text: 'Getting started', link: '/en/getting-started' }] },
-          { text: 'Usage', items: [{ text: 'Core features', link: '/en/usage' }, { text: 'Troubleshooting', link: '/en/troubleshooting' }] },
+          {
+            text: 'Usage',
+            items: [
+              { text: 'Core features', link: '/en/usage' },
+              { text: 'Conversations and spaces', link: '/en/conversations-and-spaces' },
+              { text: 'Attachments, files, and approvals', link: '/en/files-and-approvals' },
+              { text: 'Tasks and webpage monitors', link: '/en/tasks-and-monitors' },
+              { text: 'Goals and milestones', link: '/en/goals' },
+              { text: 'Memory and Dream', link: '/en/memory-and-dream' },
+              { text: 'Profile and settings', link: '/en/profile-and-settings' },
+              { text: 'Troubleshooting', link: '/en/troubleshooting' },
+            ],
+          },
           { text: 'Configuration', items: [{ text: 'Configuration guide', link: '/en/configuration' }] },
           { text: 'Browser', items: [{ text: 'Docker and noVNC', link: '/en/browser-docker' }, { text: 'Viewer control bridge', link: '/en/browser-viewer-bridge' }] },
           { text: 'Development', items: [{ text: 'Development guide', link: '/en/development' }] },

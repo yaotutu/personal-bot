@@ -18,7 +18,7 @@ Agent
 
 ## Startup {#startup}
 
-First prepare an independent configuration. Do not bake a real model key into the image:
+Run these commands from the server repository root. First prepare an independent configuration; do not bake a real model key into the image:
 
 ```sh
 mkdir -p .pi-muse
@@ -39,7 +39,7 @@ http://<any-host-or-domain>:17890/browser
 http://<any-host-or-domain>:6080/vnc.html?autoconnect=1&resize=scale
 ```
 
-Desktop and mobile share the `vnc.html` entry point. The default is `layout=auto`: when the viewport width is no wider than 700px, the page automatically switches to the mobile page, and it automatically returns to official noVNC once desktop width is restored. An explicit `layout=desktop` or `layout=mobile` pins the current page and prevents navigation based on window size. Redirects preserve query and `#` parameters. The mobile page connects to `/websockify` on the current address by default, and also supports overriding `path`, `host`, or `port` through query parameters. If x11vnc is later configured with a password, `password` can be supplied in the query or `#` fragment:
+Desktop and mobile share the `vnc.html` entry point. The default is `layout=auto`: when the viewport width is no wider than 700px, the page automatically switches to the mobile page, and it automatically returns to official noVNC once desktop width is restored. An explicit `layout=desktop` or `layout=mobile` pins the current page and prevents navigation based on window size. Redirects preserve query and `#` parameters. The mobile page connects to `/websockify` on the current address by default, and also supports overriding `path`, `host`, or `port` through query parameters. If a custom x11vnc setup later requires credentials, `password` can be supplied in the query or `#` fragment:
 
 ```text
 http://<any-host-or-domain>:6080/pimuse-mobile.html
@@ -47,7 +47,13 @@ http://<any-host-or-domain>:6080/pimuse-mobile.html?password=<VNC-password>
 http://<any-host-or-domain>:6080/pimuse-mobile.html#password=<VNC-password>
 ```
 
-The current Compose entry still starts with `-nopw`, so there is no VNC password by default.
+The current Compose entry still starts with `-nopw`, so VNC access does not require credentials by default.
+
+::: danger Remote desktop access boundary
+The noVNC port is not protected by the Pi Muse API AccessKey. With no VNC credentials required by default, anyone who can reach the port can view and operate the entire remote desktop, including signed-in websites. Do not expose the default port directly to untrusted networks. Restrict source addresses with a firewall, or use secure virtual networking or an authenticated proxy. HTTPS encrypts transport but does not replace access authentication.
+:::
+
+For saving the noVNC address in the mobile app and opening it in the system browser, see [Profile and settings](profile-and-settings.md). The app does not infer a noVNC port from the API address.
 
 ### External Toolbar and Built-in Bar {#external-toolbar-and-built-in-bar}
 

@@ -18,7 +18,7 @@ Agent
 
 ## 启动 {#startup}
 
-先准备独立配置。不要把真实模型密钥构建进镜像：
+在服务端仓库根目录执行以下命令。先准备独立配置；不要把真实模型密钥构建进镜像：
 
 ```sh
 mkdir -p .pi-muse
@@ -48,6 +48,12 @@ http://<任意主机或域名>:6080/pimuse-mobile.html#password=<VNC密码>
 ```
 
 当前 Compose 入口仍以 `-nopw` 启动，默认没有 VNC 密码。
+
+::: danger 远程桌面访问边界
+noVNC 端口不受 Pi Muse API 的 AccessKey 保护。默认无 VNC 密码，能访问该端口的人可以查看并操作整个远端桌面，包括已登录的网站。不要把默认端口直接暴露到不可信网络；用防火墙限制来源，或通过安全虚拟组网、带鉴权的代理访问。HTTPS 只加密传输，不能替代访问鉴权。
+:::
+
+在手机客户端保存 noVNC 地址并通过系统浏览器打开的步骤见[资料与设置](profile-and-settings.md)；客户端不会从 API 地址自动推导 noVNC 端口。
 
 ### 外部工具条与内置栏 {#external-toolbar-and-built-in-bar}
 
