@@ -6,7 +6,7 @@
   <rect width="1400" height="980" fill="#f0f1ed"/>
   <g fill="#263e4b" font-family="Avenir, sans-serif">
     <text x="60" y="75" font-size="42" font-weight="700">T1 / Pi Muse</text>
-    <text x="60" y="117" font-size="21" fill="#61717a">One character. Same-source exports. Neutral background preview only.</text>
+    <text x="60" y="117" font-size="21" fill="#61717a">One character. Same-source exports. User-approved light background.</text>
     <rect x="60" y="165" width="620" height="620" rx="24" fill="#ffffff"/>
     <image x="70" y="175" width="600" height="600" xlink:href="exports/neutral-icon-1024.png"/>
     <text x="60" y="824" font-size="23" font-weight="700">Full-body composition</text>
@@ -25,6 +25,6 @@
     <text x="1158" y="797" font-size="19" text-anchor="middle">32 px</text>
     <text x="760" y="858" font-size="18" fill="#61717a">Masks are previews, not native launcher validation.</text>
     <path d="M60 903H1340" stroke="#d1d9da"/>
-    <text x="60" y="943" font-size="18" fill="#61717a">Background not selected / transparent foreground pending / no application integration</text>
+    <text x="60" y="943" font-size="18" fill="#61717a">Artwork approved / transparent foreground pending / no application integration</text>
   </g>
 </svg>

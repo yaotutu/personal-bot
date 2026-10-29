@@ -2,14 +2,14 @@
   "character": "T1",
   "scope": "Pi Muse project-wide mascot and default visual character",
   "characterState": "selected",
-  "canonicalReference": "mascot/reference.png",
-  "backgroundState": "not-selected-peach-rejected",
+  "canonicalReference": "previews/neutral-icon-master.png",
+  "backgroundState": "selected-light-porcelain-artwork",
   "transparentMasterState": "not-ready-edge-cleanup-required",
   "runtimeIntegration": false,
   "files": [
     {
       "file": "mascot/reference.png",
-      "role": "project-wide-character-reference-background-not-approved",
+      "role": "historical-character-source-peach-background-rejected",
       "width": 1254,
       "height": 1254,
       "mode": "RGB",
@@ -25,7 +25,7 @@
     },
     {
       "file": "previews/neutral-icon-master.png",
-      "role": "neutral-background-preview-only",
+      "role": "approved-project-wide-visual-reference",
       "sha256": "53182c9e203f7dfb5d6af30202862e851fabc2a565a276b62f79a79e96850245",
       "width": 1254,
       "height": 1254,
@@ -33,7 +33,7 @@
     },
     {
       "file": "exports/neutral-icon-1024.png",
-      "role": "neutral-background-preview-only",
+      "role": "same-source-export-from-approved-artwork",
       "sha256": "c29bdf8a616ea928cde6ac96db13eadde93f7fda96fcc669e06adc889ddd7a73",
       "width": 1024,
       "height": 1024,
@@ -41,7 +41,7 @@
     },
     {
       "file": "exports/neutral-icon-128.png",
-      "role": "neutral-background-preview-only",
+      "role": "same-source-export-from-approved-artwork",
       "sha256": "a92502fcb278f64f106af344b4deb3396541e6b4087d8e2669990f375322c99f",
       "width": 128,
       "height": 128,
@@ -49,7 +49,7 @@
     },
     {
       "file": "exports/neutral-icon-256.png",
-      "role": "neutral-background-preview-only",
+      "role": "same-source-export-from-approved-artwork",
       "sha256": "a4be2d57fce96f20607daae68b3460a9cd7ec2c17d92904544401a151386b5d7",
       "width": 256,
       "height": 256,
@@ -57,7 +57,7 @@
     },
     {
       "file": "exports/neutral-icon-32.png",
-      "role": "neutral-background-preview-only",
+      "role": "same-source-export-from-approved-artwork",
       "sha256": "a6c2d725db3a8800cf009268112517265f75312378475e6177ccfbbfc79b9485",
       "width": 32,
       "height": 32,
@@ -65,7 +65,7 @@
     },
     {
       "file": "exports/neutral-icon-512.png",
-      "role": "neutral-background-preview-only",
+      "role": "same-source-export-from-approved-artwork",
       "sha256": "0d5ade646a44daa7e2d2ca9e438bb597732745807bafb76a3b947f94b2e4edaf",
       "width": 512,
       "height": 512,
@@ -73,7 +73,7 @@
     },
     {
       "file": "exports/neutral-icon-64.png",
-      "role": "neutral-background-preview-only",
+      "role": "same-source-export-from-approved-artwork",
       "sha256": "b1cf49ebec067dd08911c5360434a0be694bcc001b49b11e7b5fd590ed130c5a",
       "width": 64,
       "height": 64,
@@ -81,28 +81,28 @@
     },
     {
       "file": "previews/neutral-icon-sheet.png",
-      "role": "neutral-background-preview-only",
-      "sha256": "22bb7c59f0279cf4dc826942db7d5f589bd0c2a3d77487551b637284e1573554",
+      "role": "approved-artwork-preview-layout",
+      "sha256": "b24ce70ea1bb482acdd3d1cbde2483643af20b3045e0f590b6315496567624cb",
       "width": 1400,
       "height": 980,
       "mode": "RGB"
     },
     {
       "file": "neutral-icon-sheet.svg",
-      "role": "neutral-background-preview-only",
-      "sha256": "da5ef32ae1ddee0a44111a2563a9d6bc277b3f2fcf872b91d46be16430348fe0"
+      "role": "approved-artwork-preview-layout",
+      "sha256": "45720bdc4616d974edc8177b8aea0a7ae7d2c3a8ff676570292faa1b6f68b5f5"
     },
     {
       "file": "generation-brief.txt",
-      "role": "neutral-background-preview-only",
-      "sha256": "238e907440a172ec41b851f9fc518ef52da24a57967dce3ca08ea168763c4cb3"
+      "role": "generation-and-approval-provenance",
+      "sha256": "b17ca7a8a9940a2cd7b4449124766cd73e89cca6bc149dd4ab11690fba0d0e88"
     }
   ],
-  "neutralPreview": {
-    "state": "opaque-size-and-composition-study",
+  "approvedArtwork": {
+    "state": "user-approved-opaque-artwork",
     "source": "previews/neutral-icon-master.png",
     "identitySource": "mascot/reference.png",
-    "backgroundApproved": false,
+    "backgroundApproved": true,
     "transparentForegroundReady": false,
     "platformIntegration": false,
     "sizes": [
@@ -113,6 +113,7 @@
       64,
       32
     ],
-    "notes": "Same-source mechanical exports. AI-edited neutral study is not a replacement mascot master. Transparent attempts rejected for colored edge artifacts."
+    "notes": "User accepted the light-background T1 artwork. Derive from this exact approved image. Transparent foreground and platform integration remain incomplete.",
+    "approvedOn": "2026-10-29"
   }
 }
