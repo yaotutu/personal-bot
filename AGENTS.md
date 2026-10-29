@@ -46,7 +46,7 @@
 | 新增功能、修复问题或修改代码 | [测试规范](docs/testing.md)：回归补强、命令、证据标准与验收边界 |
 | 修改 HTTP/SSE、工具报文或客户端接入/展示 | [API 开发规范](docs/api-development.md)；同时核对 `src/http/contracts/` 与自有 `web/` |
 | 修改配置、启动或部署 | [配置说明](docs/manual/configuration.md)、[快速上手](docs/manual/getting-started.md)与 [开发指南](docs/development.md)：端口、代理、凭据、DATA_DIR 与操作边界 |
-| 编写文档或修改用户可见行为 | [文档规范](docs/documentation.md)：用户手册范围、页面组织、写作要求与中英文配对同步 |
+| 编写文档或修改用户可见行为 | [Agent 文档编写指南](docs/agent-documentation-guide.md)：用户手册范围、页面组织、写作要求与中英文配对同步 |
 | 调整 pi 集成或子代理 | 架构规范与 [pi 复用边界](docs/pi-reuse.md)；不照搬历史版本结论 |
 
 ## 最低完成标准
@@ -69,5 +69,5 @@
 ## 文档维护规则
 
 - 每项详细规则只有一个归属：架构边界放架构规范，测试与验收放测试规范，契约开发与文档交付放 API 开发规范；根文件只保留全局底线和阅读入口。
-- 使用说明放 README / `docs/manual/`，文档写作规则见 [文档规范](docs/documentation.md)；当前状态核对源码与实际验证，暂缓需求放 backlog / discussions，带版本范围的历史放 archive。不维护独立交接文档；新增功能不默认向本文件追加实现说明或验收流水。
+- 使用说明放 README / `docs/manual/`，文档写作规则见 [Agent 文档编写指南](docs/agent-documentation-guide.md)；当前状态核对源码与实际验证，暂缓需求放 backlog / discussions，带版本范围的历史放 archive。不维护独立交接文档；新增功能不默认向本文件追加实现说明或验收流水。
 - 调整规则时同步检查引用；合并重复内容不得降低已有安全和验收标准。核对源码后修正过时事实，不把历史记录改写成当前结论。
