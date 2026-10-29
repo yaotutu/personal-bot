@@ -11,7 +11,7 @@
 - [selected-concept-board.png](mascot/selected-concept-board.png)：用户选型的原始对照图，仅左上角 T1 被选定。它保留最初选型证据，不是第二份可自行修改的母版。
 - [manifest.json](manifest.json)：文件职责、尺寸、校验和及交付状态。校验和只用于识别来源，不引入运行时校验或同步框架。
 
-独立形象基准是从选型稿生成的细化图，并非原始 T1 的逐像素放大；如需判断身份差异，回看原始选型图。已有透明草稿存在彩色边缘与零散透明度像素，尚无合格透明母版；不得把不透明参考图、草稿或带背景的裁图冒充透明前景、3D 源文件或分层设计源文件。
+独立形象基准是从选型稿生成的细化图，并非原始 T1 的逐像素放大；如需判断身份差异，回看原始选型图。早期透明草稿有彩色边缘与零散透明度像素，已被拒绝；本次 `mascot/transparent.png` 是从已确认浅底图稿确定性抠出的透明母版。透明图不是 3D、矢量或可编辑分层设计源文件。
 
 ## 已确认的图稿与派生素材
 
@@ -21,9 +21,25 @@
 - `exports/neutral-icon-{size}.png`：1024、512、256、128、64、32 六种正方形 RGB PNG，全部从同一张确认稿缩放。可用于头像、文档和图标尺寸评估；没有预先烘焙圆角或圆形遮罩。
 - [预览排版源](neutral-icon-sheet.svg)与[生成说明](generation-brief.txt)：保留实际提示词、缩放方式和已知限制，便于后续继续制作。
 
-用户已认可图稿中的浅瓷白背景，以实际图片为准，不把生成提示中的色值当作经过测量的品牌色标准。预览中的圆角、圆形仅用于观察裁切效果，不是 iOS 或 Android 原生验收。透明输出仍有彩色杂边，已拒绝，不进入导出目录；透明母版与平台分层素材仍未完成。图稿认可不等于这些技术交付已完成。不从不透明图稿伪造透明前景，不宣称已有可编辑矢量或 3D 源文件。
+用户已认可图稿中的浅瓷白背景，以实际图片为准，不把生成提示中的色值当作经过测量的品牌色标准。历史预览中的圆角、圆形仅用于观察裁切效果，不是 iOS 或 Android 原生验收。
 
-本批素材在独立 `brand-assets` 分支维护，未改动应用图标配置，也未合入主分支或发布。后续由各消费端复制需要的派生文件并分别接入。
+## 客户端图标素材包
+
+![T1 客户端图标模拟预览](previews/client-icon-sheet.png)
+
+- [透明吉祥物](mascot/transparent.png)：1254 × 1254 RGBA，保留脸腹、短翅和双脚；从确认稿按颜色、连通区域与边缘平滑确定性抠图。透明母版可在浅色和深色表面复用。
+- `client/icon.png`：1024 × 1024 RGB，不透明、无预烘焙圆角；作为 iOS 通用源图，不另存同内容副本。
+- `client/android-icon-foreground.png`、`client/android-icon-background.png`、`client/android-icon-monochrome.png`：各 1024 × 1024；前景与单色层为 RGBA，背景为 RGB。单色层白色主体的 alpha 留出了眼睛与嘴部。前景和单色层的所有非零 alpha 像素均落在中央 66/108 直径安全圆内。
+- `client/favicon.png`：48 × 48；`client/web/icon-{16,32,192,512}.png`：相应像素尺寸，均是不透明 RGB 图。没有增加 splash 素材。
+- [预览排版源](client-icon-sheet.svg)、[可复现脚本](build-client-icons.py)：预览模拟 iOS 圆角、Android 圆形和圆角遮罩、主题单色、多尺寸与浅深底透明效果。Android 预览将完整 108dp 图层放在居中的 72dp 可见视口后裁切；模拟预览不是原生启动器验收。
+
+在仓库根目录运行 `python3 docs/assets/brand/build-client-icons.py` 可重建本批素材；需本机有 ImageMagick 7 和 librsvg 的 `rsvg-convert`。Python 仅编排命令，抠图阈值、连通区域、填小孔、alpha 边缘平滑、单色特征镂空及尺寸导出均由 ImageMagick 完成。脚本读取唯一已确认母版，不读取历史桃色来源，不调用生图服务，不修改原图。Android 纯色背景 `#F1F6FA` 是与图稿浅底协调的派生色，不替代原图背景或建立新的标准品牌色。
+
+文件尺寸、模式、SHA-256 和静态安全区结果见 [manifest.json](manifest.json)。本批素材仅做静态检查与模拟预览，未在 iOS/Android 原生启动器中测试。
+
+图层尺寸与安全区按 [Android adaptive icon 规范](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive) 制作；PNG、iOS 源图和 Android 三层命名参考 [Expo 图标说明](https://docs.expo.dev/develop/user-interface/splash-screen-and-app-icon/)。
+
+本批素材在独立 `brand-assets` worktree 维护，未改动应用图标配置，也未合入主分支或发布。后续由各消费端复制需要的派生文件并分别接入。
 
 ## 固定形象，分离用途
 

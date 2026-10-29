@@ -34,3 +34,15 @@ Scope:
 Asset-only work in the dedicated brand-assets Git worktree.
 No application source/config edits, native build, runtime integration,
 release, push or changes to the other development worktree.
+
+Client asset derivation update - 2026-10-29:
+The generation request and failed transparent attempts above are historical.
+The user subsequently authorized deterministic ImageMagick extraction and
+edge cleanup from the exact approved neutral-icon-master.png, without repainting.
+mascot/transparent.png and the client/ platform exports now follow that process.
+No new image-generation prompt or image API call was used for these derivatives.
+Rebuild: python3 build-client-icons.py (from this brand directory).
+The script uses Python only to orchestrate ImageMagick and librsvg commands;
+temporary images stay inside this asset worktree and are automatically removed.
+File roles, source hashes and current static validation are in manifest.json.
+The application has not been modified, integrated, built or released by this work.
