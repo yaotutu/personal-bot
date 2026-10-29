@@ -6,17 +6,57 @@
 
 用户选定的 T1 蓝白小企鹅是项目吉祥物，也是默认角色的视觉基准，供客户端、网站、README、文档、宣传图及后续动作和视频共同使用。T1 是设计稿编号，不是正式角色名字，也不是业务模型或人设配置。
 
-- [reference.png](mascot/reference.png)：当前独立形象基准，1254 × 1254、不透明 RGB PNG。从移动端已有独立图原样复制，未重新生图、调色或改变形象。其桃色背景已被用户拒绝，只参考角色，不把背景作为品牌标准。
+- [neutral-icon-master.png](previews/neutral-icon-master.png)：用户已确认满意的当前完整视觉基准，1254 × 1254、不透明 RGB PNG。后续角色与图标派生默认使用这张蓝白企鹅、浅瓷白底的图片，不再重新选形象或背景；文件保留原路径，避免不必要的改名。
+- [reference.png](mascot/reference.png)：早期独立形象来源，1254 × 1254、不透明 RGB PNG。从移动端已有独立图原样复制，保留选型和生成溯源。桃色背景已被用户拒绝，不再作为当前完整视觉基准。
 - [selected-concept-board.png](mascot/selected-concept-board.png)：用户选型的原始对照图，仅左上角 T1 被选定。它保留最初选型证据，不是第二份可自行修改的母版。
 - [manifest.json](manifest.json)：文件职责、尺寸、校验和及交付状态。校验和只用于识别来源，不引入运行时校验或同步框架。
 
-独立形象基准是从选型稿生成的细化图，并非原始 T1 的逐像素放大；如需判断身份差异，回看原始选型图。已有透明草稿存在彩色边缘与零散透明度像素，尚无合格透明母版；不得把不透明参考图、草稿或带背景的裁图冒充透明前景、3D 源文件或分层设计源文件。
+独立形象基准是从选型稿生成的细化图，并非原始 T1 的逐像素放大；如需判断身份差异，回看原始选型图。早期透明草稿有彩色边缘与零散透明度像素，已被拒绝；本次 `mascot/transparent.png` 是从已确认浅底图稿确定性抠出的透明母版。透明图不是 3D、矢量或可编辑分层设计源文件。
+
+## 已确认的图稿与派生素材
+
+![T1 中性浅底图标与尺寸预览](previews/neutral-icon-sheet.png)
+
+- [已确认浅底图稿](previews/neutral-icon-master.png)：由早期形象来源通过内置生图工具编辑得到，用户于 2026-10-29 确认满意。生成过程可能轻微改变细节，不称为逐像素抠图；后续从本张确认稿派生，不重新生图替换。
+- `exports/neutral-icon-{size}.png`：1024、512、256、128、64、32 六种正方形 RGB PNG，全部从同一张确认稿缩放。可用于头像、文档和图标尺寸评估；没有预先烘焙圆角或圆形遮罩。
+- [预览排版源](neutral-icon-sheet.svg)与[生成说明](generation-brief.txt)：保留实际提示词、缩放方式和已知限制，便于后续继续制作。
+
+用户已认可图稿中的浅瓷白背景，以实际图片为准，不把生成提示中的色值当作经过测量的品牌色标准。历史预览中的圆角、圆形仅用于观察裁切效果，不是 iOS 或 Android 原生验收。
+
+## 客户端静态素材与交接包
+
+![T1 客户端图标模拟预览](previews/client-icon-sheet.png)
+
+- [透明吉祥物](mascot/transparent.png)：1254 × 1254 RGBA，保留脸腹、短翅和双脚；从确认稿按颜色、连通区域与边缘平滑确定性抠图。透明母版可在浅色和深色表面复用。
+- `client/icon.png`：1024 × 1024 RGB，不透明、无预烘焙圆角；作为 iOS 通用源图，不另存同内容副本。
+- `client/android-icon-foreground.png`、`client/android-icon-background.png`、`client/android-icon-monochrome.png`：各 1024 × 1024；前景与单色层为 RGBA，背景为 RGB。单色层白色主体的 alpha 留出了眼睛与嘴部。前景和单色层的所有非零 alpha 像素均落在中央 66/108 直径安全圆内。
+- `client/favicon.png`：48 × 48；`client/web/icon-{16,32,192,512}.png`：相应像素尺寸，均是不透明 RGB 图。
+- `client/images/muse-companion.png`：512 × 512 真 RGBA 静态默认形象，从透明母版机械缩放并居中留白，可完整落入圆形头像遮罩；不包含动画状态。
+- `client/splash-icon.png`：1024 × 1024 真 RGBA，与 Android 前景**字节相同**，复用其中央安全圆构图。供后续启动页接入；当前 `app.json` 尚未启用启动页插件。
+- [移动端交接指南](client-handoff.md)和[便携 ZIP](delivery/pi-muse-client-assets.zip)：列出目标路径、实际引用状态与接入边界；ZIP 仅含正式 PNG、指南副本及包内校验和。
+- [预览排版源](client-icon-sheet.svg)、[可复现脚本](build-client-icons.py)：预览模拟 iOS 圆角、Android 圆形和圆角遮罩、主题单色、多尺寸、透明形象、圆形头像和启动图构图。Android 预览将完整 108dp 图层放在居中的 72dp 可见视口后裁切；整张图都是 asset mock，不是原生验收。
+
+在仓库根目录运行 `python3 docs/assets/brand/build-client-icons.py` 可重建本批 PNG、预览与 ZIP；需本机有 ImageMagick 7 和 librsvg 的 `rsvg-convert`。Python 只编排命令、复制相同字节的启动图及制作确定性 ZIP，像素操作均由 ImageMagick 完成。临时文件只在本目录创建并自动清理。脚本读取唯一已确认母版，不读取历史桃色来源，不调用生图服务，不修改原图。Android 纯色背景 `#F1F6FA` 是与图稿浅底协调的派生色，不替代原图背景或建立新的标准品牌色。
+
+文件尺寸、模式、SHA-256 和静态安全区结果见 [manifest.json](manifest.json)。本批素材仅做静态检查与模拟预览，未在 iOS/Android 原生启动器或启动页中测试。
+
+图层尺寸与安全区按 [Android adaptive icon 规范](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive) 制作；PNG、iOS 源图和 Android 三层命名参考 [Expo 图标说明](https://docs.expo.dev/develop/user-interface/splash-screen-and-app-icon/)。
+
+本批素材已合入主仓库 `main`，统一从 `docs/assets/brand/` 读取，不再依赖独立素材工作树。此次合并未改动应用配置、替换客户端运行资源或发布；后续由各消费端复制需要的派生文件并分别接入。
+
+## 主线资产与后续接入
+
+- 用户已于 2026-10-29 认可整套静态素材；T1 形象与浅瓷白配色定稿，不再重新选型或生成替代角色。
+- 素材来自主仓库（`pi-muse-server`）的 `brand-assets` 分支，交付范围仅为 `docs/assets/brand/`。主线保留其他模块的当前代码；原素材分支和独立工作树在合并收尾时清理，后续工作直接使用主仓库的同路径。
+- 客户端接入按 [client-handoff.md](client-handoff.md) 复制正式资源并局部更新配置；移动端改动在其独立仓库提交。静态素材完成不代表已经安装到手机，启动页插件也尚未启用；接入后由接手 Agent 完成当前版本的 Android 原生验收。
+- 保留母版、透明图、正式导出、预览与 SVG 源、重建脚本、清单、生成溯源及交付 ZIP。历史选型证据与旧动作素材不属于正式包，不在本次收尾中跨模块删除。
+- 本次收尾核查未发现素材目录内的临时日志、备份、缓存或未跟踪文件；不为制造清理记录删除有用途的素材。根级 `project-map.md` 不受本仓库 Git 管理，素材入口已指向主仓库路径。
 
 ## 固定形象，分离用途
 
 固定特征：饱满蛋形身体、粉蓝色外壳、连续的暖象牙白脸腹、额头中间浅凹、深色椭圆眼睛、橙杏色小嘴和小脚、两侧短翅，以及简洁柔软的哑光质感。不加毛绒头冠、腮红、衣物或复杂羽毛，不因换背景顺带改变脸型、比例或蓝白配色。
 
-背景、构图、安全留白、输出尺寸和平台遮罩属于派生设计，不属于吉祥物身份。图标背景尚未选定；不同场景可以使用不同背景，不必等 App 背景定稿才开始其他用途。派生动作可以变化，但仍须看得出是同一个角色；更换形象身份须由用户决定。
+背景、构图、安全留白、输出尺寸和平台遮罩属于派生设计，不属于吉祥物身份。当前图标沿用已确认的浅瓷白背景；其他场景可按用途适配背景，不顺带改变角色。派生动作可以变化，但仍须看得出是同一个角色；更换形象身份须由用户决定。
 
 ## 使用与派生
 

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1400" height="980" viewBox="0 0 1400 980">
+  <defs>
+    <clipPath id="rounded"><rect x="760" y="205" width="240" height="240" rx="56"/></clipPath>
+    <clipPath id="circle"><circle cx="1170" cy="325" r="120"/></clipPath>
+  </defs>
+  <rect width="1400" height="980" fill="#f0f1ed"/>
+  <g fill="#263e4b" font-family="Avenir, sans-serif">
+    <text x="60" y="75" font-size="42" font-weight="700">T1 / Pi Muse</text>
+    <text x="60" y="117" font-size="21" fill="#61717a">One character. Same-source exports. User-approved light background.</text>
+    <rect x="60" y="165" width="620" height="620" rx="24" fill="#ffffff"/>
+    <image x="70" y="175" width="600" height="600" xlink:href="exports/neutral-icon-1024.png"/>
+    <text x="60" y="824" font-size="23" font-weight="700">Full-body composition</text>
+    <text x="60" y="858" font-size="18" fill="#61717a">1254 px source / 1024 px largest export / opaque PNG</text>
+    <image x="760" y="205" width="240" height="240" clip-path="url(#rounded)" xlink:href="exports/neutral-icon-512.png"/>
+    <image x="1050" y="205" width="240" height="240" clip-path="url(#circle)" xlink:href="exports/neutral-icon-512.png"/>
+    <text x="880" y="489" font-size="20" text-anchor="middle">Rounded mask study</text>
+    <text x="1170" y="489" font-size="20" text-anchor="middle">Circle mask study</text>
+    <path d="M760 535H1300" stroke="#d1d9da"/>
+    <text x="760" y="586" font-size="23" font-weight="700">Actual pixel sizes</text>
+    <image x="760" y="625" width="128" height="128" xlink:href="exports/neutral-icon-128.png"/>
+    <image x="972" y="689" width="64" height="64" xlink:href="exports/neutral-icon-64.png"/>
+    <image x="1142" y="721" width="32" height="32" xlink:href="exports/neutral-icon-32.png"/>
+    <text x="824" y="797" font-size="19" text-anchor="middle">128 px</text>
+    <text x="1004" y="797" font-size="19" text-anchor="middle">64 px</text>
+    <text x="1158" y="797" font-size="19" text-anchor="middle">32 px</text>
+    <text x="760" y="858" font-size="18" fill="#61717a">Masks are previews, not native launcher validation.</text>
+    <path d="M60 903H1340" stroke="#d1d9da"/>
+    <text x="60" y="943" font-size="18" fill="#61717a">Artwork approved / transparent foreground pending / no application integration</text>
+  </g>
+</svg>

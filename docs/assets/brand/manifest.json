@@ -2,14 +2,14 @@
   "character": "T1",
   "scope": "Pi Muse project-wide mascot and default visual character",
   "characterState": "selected",
-  "canonicalReference": "mascot/reference.png",
-  "backgroundState": "not-selected-peach-rejected",
-  "transparentMasterState": "not-ready-edge-cleanup-required",
+  "canonicalReference": "previews/neutral-icon-master.png",
+  "backgroundState": "selected-light-porcelain-artwork",
+  "transparentMasterState": "deterministic-cutout-static-checked",
   "runtimeIntegration": false,
   "files": [
     {
       "file": "mascot/reference.png",
-      "role": "project-wide-character-reference-background-not-approved",
+      "role": "historical-character-source-peach-background-rejected",
       "width": 1254,
       "height": 1254,
       "mode": "RGB",
@@ -22,6 +22,263 @@
       "height": 1254,
       "mode": "RGB",
       "sha256": "afb6c0197bea03c0e47cb047202415d60e70f8340a8d28e8b8a43941f267b9f1"
+    },
+    {
+      "file": "previews/neutral-icon-master.png",
+      "role": "approved-project-wide-visual-reference",
+      "sha256": "53182c9e203f7dfb5d6af30202862e851fabc2a565a276b62f79a79e96850245",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGB"
+    },
+    {
+      "file": "exports/neutral-icon-1024.png",
+      "role": "same-source-export-from-approved-artwork",
+      "sha256": "c29bdf8a616ea928cde6ac96db13eadde93f7fda96fcc669e06adc889ddd7a73",
+      "width": 1024,
+      "height": 1024,
+      "mode": "RGB"
+    },
+    {
+      "file": "exports/neutral-icon-128.png",
+      "role": "same-source-export-from-approved-artwork",
+      "sha256": "a92502fcb278f64f106af344b4deb3396541e6b4087d8e2669990f375322c99f",
+      "width": 128,
+      "height": 128,
+      "mode": "RGB"
+    },
+    {
+      "file": "exports/neutral-icon-256.png",
+      "role": "same-source-export-from-approved-artwork",
+      "sha256": "a4be2d57fce96f20607daae68b3460a9cd7ec2c17d92904544401a151386b5d7",
+      "width": 256,
+      "height": 256,
+      "mode": "RGB"
+    },
+    {
+      "file": "exports/neutral-icon-32.png",
+      "role": "same-source-export-from-approved-artwork",
+      "sha256": "a6c2d725db3a8800cf009268112517265f75312378475e6177ccfbbfc79b9485",
+      "width": 32,
+      "height": 32,
+      "mode": "RGB"
+    },
+    {
+      "file": "exports/neutral-icon-512.png",
+      "role": "same-source-export-from-approved-artwork",
+      "sha256": "0d5ade646a44daa7e2d2ca9e438bb597732745807bafb76a3b947f94b2e4edaf",
+      "width": 512,
+      "height": 512,
+      "mode": "RGB"
+    },
+    {
+      "file": "exports/neutral-icon-64.png",
+      "role": "same-source-export-from-approved-artwork",
+      "sha256": "b1cf49ebec067dd08911c5360434a0be694bcc001b49b11e7b5fd590ed130c5a",
+      "width": 64,
+      "height": 64,
+      "mode": "RGB"
+    },
+    {
+      "file": "previews/neutral-icon-sheet.png",
+      "role": "approved-artwork-preview-layout",
+      "sha256": "b24ce70ea1bb482acdd3d1cbde2483643af20b3045e0f590b6315496567624cb",
+      "width": 1400,
+      "height": 980,
+      "mode": "RGB"
+    },
+    {
+      "file": "neutral-icon-sheet.svg",
+      "role": "approved-artwork-preview-layout",
+      "sha256": "45720bdc4616d974edc8177b8aea0a7ae7d2c3a8ff676570292faa1b6f68b5f5"
+    },
+    {
+      "file": "generation-brief.txt",
+      "role": "generation-and-approval-provenance",
+      "sha256": "489e85165d59888cf05ace605e8e289b6b257f8071ab36a3e66f8e13043e29fb"
+    },
+    {
+      "file": "mascot/transparent.png",
+      "role": "deterministic-transparent-mascot-master",
+      "sha256": "2b6133f0056caa29dc6f89c67b2524407588f537ba5bef7ece6534362e149e3b",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA"
+    },
+    {
+      "file": "client/icon.png",
+      "role": "ios-and-general-opaque-square-icon",
+      "sha256": "c29bdf8a616ea928cde6ac96db13eadde93f7fda96fcc669e06adc889ddd7a73",
+      "width": 1024,
+      "height": 1024,
+      "mode": "RGB"
+    },
+    {
+      "file": "client/android-icon-foreground.png",
+      "role": "android-adaptive-transparent-foreground-safe-circle",
+      "sha256": "7d59434c5a2c4a501e3077509483f3bd436182a3621d7ca32b278cdc1056d8ad",
+      "width": 1024,
+      "height": 1024,
+      "mode": "RGBA"
+    },
+    {
+      "file": "client/android-icon-background.png",
+      "role": "android-adaptive-opaque-light-background",
+      "sha256": "a8ad47d657448e2345b7cce448cb7689a5c8700645d1676da081afbe5b53ed2f",
+      "width": 1024,
+      "height": 1024,
+      "mode": "RGB"
+    },
+    {
+      "file": "client/android-icon-monochrome.png",
+      "role": "android-themed-white-alpha-with-eye-and-beak-cutouts",
+      "sha256": "84eeded5de3edab4142d7a5619bdb9ed8d29e29b685da62ffce0cba3ac402577",
+      "width": 1024,
+      "height": 1024,
+      "mode": "RGBA"
+    },
+    {
+      "file": "client/favicon.png",
+      "role": "web-favicon-48",
+      "sha256": "9f17458dbe369962ffe7ce34dc413b2ea075f7153f9aed3b38e169343a574966",
+      "width": 48,
+      "height": 48,
+      "mode": "RGB"
+    },
+    {
+      "file": "client/web/icon-16.png",
+      "role": "web-opaque-icon-16",
+      "sha256": "5d97ef6d2fca189ee9d0071c63e2f240ec675c11017508ab262f7febc0bd19c0",
+      "width": 16,
+      "height": 16,
+      "mode": "RGB"
+    },
+    {
+      "file": "client/web/icon-32.png",
+      "role": "web-opaque-icon-32",
+      "sha256": "a6c2d725db3a8800cf009268112517265f75312378475e6177ccfbbfc79b9485",
+      "width": 32,
+      "height": 32,
+      "mode": "RGB"
+    },
+    {
+      "file": "client/web/icon-192.png",
+      "role": "web-opaque-icon-192",
+      "sha256": "f4bedc5c3293e8932addbe301a4a7642003ef498b934fca0a62282cd931538ce",
+      "width": 192,
+      "height": 192,
+      "mode": "RGB"
+    },
+    {
+      "file": "client/web/icon-512.png",
+      "role": "web-opaque-icon-512",
+      "sha256": "0d5ade646a44daa7e2d2ca9e438bb597732745807bafb76a3b947f94b2e4edaf",
+      "width": 512,
+      "height": 512,
+      "mode": "RGB"
+    },
+    {
+      "file": "client-icon-sheet.svg",
+      "role": "client-asset-mock-preview-layout",
+      "sha256": "6746f6eff1f2e5b74e4a822a6837dd463c8d0f0c88beee7ed8ba52eddc483559"
+    },
+    {
+      "file": "previews/client-icon-sheet.png",
+      "role": "client-asset-mock-preview",
+      "sha256": "821aac2d3faab66fb15c5af34dc2edb6b14c55d5292f682cd807f31607e62b66",
+      "width": 1600,
+      "height": 1530,
+      "mode": "RGB"
+    },
+    {
+      "file": "build-client-icons.py",
+      "role": "deterministic-client-asset-and-delivery-build-script",
+      "sha256": "dac64de463afb782dd58a3b1413078290a1fe45a6fd8baacd40ef3f2a021a9fb"
+    },
+    {
+      "file": "client/images/muse-companion.png",
+      "role": "static-default-avatar-from-transparent-master-circle-safe",
+      "sha256": "1fb8a413bdebaec3840e70865c188da12a30fa479353386884663c2dce37bdf1",
+      "width": 512,
+      "height": 512,
+      "mode": "RGBA"
+    },
+    {
+      "file": "client/splash-icon.png",
+      "role": "splash-candidate-byte-copy-of-android-foreground-not-integrated",
+      "sha256": "7d59434c5a2c4a501e3077509483f3bd436182a3621d7ca32b278cdc1056d8ad",
+      "width": 1024,
+      "height": 1024,
+      "mode": "RGBA"
+    },
+    {
+      "file": "client-handoff.md",
+      "role": "mobile-static-asset-handoff-guide",
+      "sha256": "52e679356025cdeee3dcbb6709200eba041fa1f464f2ec5bcb8e23cf3d57924e"
+    },
+    {
+      "file": "delivery/pi-muse-client-assets.zip",
+      "role": "reproducible-portable-client-asset-package",
+      "sha256": "7aa54b620cb60febb780f4a6f29fae9a86c009b47348f3e96896ee02c82b3d32",
+      "sizeBytes": 1831241
     }
-  ]
+  ],
+  "approvedArtwork": {
+    "state": "user-approved-opaque-artwork",
+    "source": "previews/neutral-icon-master.png",
+    "identitySource": "mascot/reference.png",
+    "backgroundApproved": true,
+    "transparentForegroundReady": true,
+    "platformIntegration": false,
+    "sizes": [
+      1024,
+      512,
+      256,
+      128,
+      64,
+      32
+    ],
+    "notes": "User accepted the light-background T1 artwork. The static client handoff pack is complete; native launcher, splash, app integration and runtime validation remain pending.",
+    "approvedOn": "2026-10-29"
+  },
+  "clientAssetPack": {
+    "state": "complete-static-handoff-not-integrated",
+    "source": "previews/neutral-icon-master.png",
+    "sourceSha256": "53182c9e203f7dfb5d6af30202862e851fabc2a565a276b62f79a79e96850245",
+    "transparentMaster": "mascot/transparent.png",
+    "iosSource": "client/icon.png",
+    "androidLayers": [
+      "client/android-icon-foreground.png",
+      "client/android-icon-background.png",
+      "client/android-icon-monochrome.png"
+    ],
+    "webIcons": [
+      "client/favicon.png",
+      "client/web/icon-16.png",
+      "client/web/icon-32.png",
+      "client/web/icon-192.png",
+      "client/web/icon-512.png"
+    ],
+    "preview": "previews/client-icon-sheet.png",
+    "safeCircleDiameterFraction": "66/108",
+    "maximumAlphaRadiusPx": 303.73,
+    "safeCircleRadiusPx": 312.89,
+    "nativeLauncherValidated": false,
+    "platformIntegration": false,
+    "previewViewportFraction": "72/108",
+    "opaqueMascotCoreRgbMismatchPixels": 0,
+    "defaultAvatar": "client/images/muse-companion.png",
+    "defaultAvatarSource": "mascot/transparent.png",
+    "defaultAvatarAlphaBoundingBox": "348x316+82+103",
+    "defaultAvatarCircleOutsideAlphaPixels": 0,
+    "splashIcon": "client/splash-icon.png",
+    "splashByteCopyOf": "client/android-icon-foreground.png",
+    "splashSafeCircleDiameterFraction": "2/3",
+    "splashSafeCircleOutsideAlphaPixels": 0,
+    "splashIntegrated": false,
+    "handoffGuide": "client-handoff.md",
+    "delivery": "delivery/pi-muse-client-assets.zip",
+    "deliverySha256": "7aa54b620cb60febb780f4a6f29fae9a86c009b47348f3e96896ee02c82b3d32",
+    "nativeSplashValidated": false
+  }
 }

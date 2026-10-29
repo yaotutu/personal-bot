@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1600" height="1530" viewBox="0 0 1600 1530">
+  <defs>
+    <clipPath id="ios"><rect x="70" y="225" width="290" height="290" rx="66"/></clipPath>
+    <clipPath id="android-circle"><circle cx="590" cy="370" r="145"/></clipPath>
+    <clipPath id="android-round"><rect x="875" y="225" width="290" height="290" rx="81"/></clipPath>
+    <clipPath id="mono-round"><rect x="1240" y="225" width="290" height="290" rx="81"/></clipPath>
+    <clipPath id="avatar-circle"><circle cx="290" cy="1300" r="100"/></clipPath>
+  </defs>
+  <rect width="1600" height="1530" fill="#edf2f4"/>
+  <g font-family="Avenir, Arial, sans-serif" fill="#223849">
+    <text x="70" y="89" font-size="44" font-weight="700">Pi Muse / T1 client icon assets</text>
+    <text x="70" y="130" font-size="21" fill="#617583">Same approved artwork · transparent mascot · platform layer studies</text>
+    <text x="70" y="186" font-size="21" font-weight="700">iOS square art</text>
+    <text x="445" y="186" font-size="21" font-weight="700">Android circle</text>
+    <text x="875" y="186" font-size="21" font-weight="700">Android rounded mask</text>
+    <text x="1240" y="186" font-size="21" font-weight="700">Themed mono</text>
+    <rect x="70" y="225" width="290" height="290" rx="66" fill="#fff"/>
+    <image x="70" y="225" width="290" height="290" clip-path="url(#ios)" xlink:href="client/icon.png"/>
+    <circle cx="590" cy="370" r="145" fill="#f1f6fa"/>
+    <g clip-path="url(#android-circle)">
+      <image x="372.5" y="152.5" width="435" height="435" xlink:href="client/android-icon-background.png"/>
+      <image x="372.5" y="152.5" width="435" height="435" xlink:href="client/android-icon-foreground.png"/>
+    </g>
+    <g clip-path="url(#android-round)">
+      <image x="802.5" y="152.5" width="435" height="435" xlink:href="client/android-icon-background.png"/>
+      <image x="802.5" y="152.5" width="435" height="435" xlink:href="client/android-icon-foreground.png"/>
+    </g>
+    <rect x="1240" y="225" width="290" height="290" rx="81" fill="#365368"/>
+    <image x="1167.5" y="152.5" width="435" height="435" clip-path="url(#mono-round)" xlink:href="client/android-icon-monochrome.png"/>
+    <text x="70" y="555" font-size="17" fill="#617583">1024 px opaque art · platform adds mask</text>
+    <text x="445" y="550" font-size="16" fill="#617583">108dp layers / 72dp simulated viewport</text>
+    <text x="875" y="550" font-size="16" fill="#617583">108dp layers / 72dp simulated viewport</text>
+    <text x="1240" y="550" font-size="16" fill="#617583">108dp / 72dp viewport</text>
+    <text x="1240" y="578" font-size="16" fill="#617583">White RGB · feature cutouts</text>
+    <path d="M70 600H1530" stroke="#cfdbdf" stroke-width="2"/>
+    <text x="70" y="651" font-size="24" font-weight="700">Transparent mascot on surfaces</text>
+    <text x="935" y="651" font-size="24" font-weight="700">Web sizes</text>
+    <rect x="70" y="685" width="390" height="335" rx="24" fill="#f9fbfd"/>
+    <rect x="485" y="685" width="390" height="335" rx="24" fill="#304657"/>
+    <image x="98" y="700" width="335" height="305" preserveAspectRatio="xMidYMid meet" xlink:href="mascot/transparent.png"/>
+    <image x="513" y="700" width="335" height="305" preserveAspectRatio="xMidYMid meet" xlink:href="mascot/transparent.png"/>
+    <text x="95" y="1060" font-size="18">Light surface</text>
+    <text x="510" y="1060" font-size="18">Dark surface</text>
+    <rect x="935" y="685" width="595" height="335" rx="24" fill="#fff"/>
+    <image x="960" y="734" width="192" height="192" xlink:href="client/web/icon-192.png"/>
+    <image x="1192" y="806" width="48" height="48" xlink:href="client/favicon.png"/>
+    <image x="1294" y="814" width="32" height="32" xlink:href="client/web/icon-32.png"/>
+    <image x="1382" y="822" width="16" height="16" xlink:href="client/web/icon-16.png"/>
+    <text x="1056" y="968" font-size="18" text-anchor="middle">192</text>
+    <text x="1216" y="968" font-size="18" text-anchor="middle">48</text>
+    <text x="1310" y="968" font-size="18" text-anchor="middle">32</text>
+    <text x="1390" y="968" font-size="18" text-anchor="middle">16 px</text>
+    <path d="M70 1100H1530" stroke="#cfdbdf" stroke-width="2"/>
+    <text x="70" y="1145" font-size="24" font-weight="700">Default avatar and static mascot</text>
+    <text x="1050" y="1145" font-size="24" font-weight="700">Splash icon composition</text>
+    <rect x="70" y="1175" width="440" height="270" rx="24" fill="#f9fbfd"/>
+    <circle cx="290" cy="1300" r="100" fill="#dceaf4"/>
+    <image x="190" y="1200" width="200" height="200" clip-path="url(#avatar-circle)" xlink:href="client/images/muse-companion.png"/>
+    <text x="92" y="1420" font-size="17">512 RGBA · circular cover mock</text>
+    <rect x="560" y="1175" width="440" height="270" rx="24" fill="#304657"/>
+    <image x="677" y="1190" width="206" height="206" xlink:href="client/images/muse-companion.png"/>
+    <text x="582" y="1420" font-size="17" fill="#fff">Same static PNG on dark surface</text>
+    <rect x="1050" y="1175" width="480" height="270" rx="24" fill="#f1f6fa"/>
+    <image x="1167" y="1180" width="240" height="240" xlink:href="client/splash-icon.png"/>
+    <text x="1072" y="1420" font-size="17">1024 RGBA · safe circle · not enabled</text>
+    <text x="70" y="1490" font-size="17" fill="#617583">Asset mock only · native launcher, splash screen and app integration not verified</text>
+  </g>
+</svg>
