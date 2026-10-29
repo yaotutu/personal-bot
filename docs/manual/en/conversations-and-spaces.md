@@ -42,14 +42,14 @@ If a feedback write times out, disconnects, or has an unknown result, the interf
 
 A space ID starts with a letter and contains only letters, numbers, `_`, and `-`, up to 64 characters. Current mobile source has no rename entry; create another space and move the required content if you need a different ID.
 
-Each space has independent conversation history, a private workspace, space rules, and skill switches. Assistant identity, user profile, and long-term memory are global and are not isolated by space; see [Long-term memory and Dream](memory-and-dream.md#memory-and-profile-boundaries).
+Each space has independent conversation history, a private workspace, space rules, and skill switches. Assistant identity, the user profile, long-term memories, long-term goals, and skill assets are instance-level global content and are not isolated by space. That does not mean all of them enter every chat turn. A new space is a new context for the same personal assistant, not a separate assistant. Ordinary chat keeps the global identity and assembles only the tools enabled for the current space, together with the matching usage guidance. Global management pages provide an aggregate view without changing data ownership. See [Long-term memory and Dream](memory-and-dream.md#memory-and-profile-boundaries).
 
 ## Space Rules and Skills {#space-rules-and-skills}
 
 1. Tap the session information area in the middle of the top bar to open the current session panel.
 2. Switch to the 「工作区」 page.
 3. Enter how the assistant should work in this space under 「空间规则」, then tap 「保存规则」. After a successful save, the loaded value updates. Rules take effect from the next turn and do not rewrite generated history.
-4. Change switches under 「空间技能」 and tap 「保存技能」. Switches affect only the current space.
+4. Change switches under 「空间技能」 and tap 「保存技能」. Skill files are shared as one instance-level set; switches affect only the current space and change the actual tools plus their matching prompt guidance from the next turn.
 
 Space rules are limited to 20,000 characters. Closing the panel keeps unsaved drafts for the current connection; changing servers or clearing local cache discards those local drafts.
 

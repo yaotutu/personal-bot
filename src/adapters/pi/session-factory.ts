@@ -44,7 +44,7 @@ import type { ActivityRun, ActivityObservation } from "../../features/activities
 import { createActivityObserver } from "./activity-observer.js";
 import { createToolPresentation, type ToolPresentation } from "../ag-ui/tool-presentation.js";
 import type { WorkspaceCommitQueue } from "../workspace/file-commit-queue.js";
-import { ACTIVITY_TOOL_INSTRUCTIONS } from "./tools/activity.js";
+import { ACTIVITY_TOOL_INSTRUCTIONS, ACTIVITY_TOOL_NAME } from "./tools/activity.js";
 import type { StatusRun } from "../../features/workspace/agent-status.js";
 import { createStatusObserver } from "./status-observer.js";
 
@@ -361,12 +361,13 @@ export async function openPi(deps: PiDeps) {
   // 4. 构建 System Prompt 并注入技能、专属会话指令与 Extension
   const instructionsFile = !child && deps.spaceId ? threadInstructionsFile(layout, deps.spaceId) : undefined;
   const threadInstructions = instructionsFile ? await readThreadInstructions(instructionsFile) : undefined;
-  const browserPromptEnabled = browser !== undefined && !child && enabledSkillNames.has("browser");
   const systemPrompt = await buildSystemPrompt(
-    layout, memory, web !== undefined, weather !== undefined, browserPromptEnabled, goals, threadInstructions,
+    { layout, memory, allowedToolNames, threadInstructions },
   ) +
     (informationEnabled ? INFORMATION_BACKGROUND_SYSTEM_PROMPT : "") +
-    (!child ? `\n\n## Work activity management\n${ACTIVITY_TOOL_INSTRUCTIONS}` : "") +
+    (allowedToolNames.includes(ACTIVITY_TOOL_NAME)
+      ? `\n\n## Work activity management\n${ACTIVITY_TOOL_INSTRUCTIONS}`
+      : "") +
     (child ? `\n\n## Subagent role\n${child.role.systemPrompt}\nYou have an isolated context and private workspace. Return the result to the parent agent. You cannot delegate or schedule work. Use shared/... for shared materials; never assume access to the parent's private files.` : "");
   const resourceLoader = createResourceLoader(systemPrompt, activeSkills, extensionResult);
 

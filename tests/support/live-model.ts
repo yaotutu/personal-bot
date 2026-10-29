@@ -5,7 +5,22 @@ export type CallTrace = {
   index: number; startedAt: number; endedAt?: number; child: boolean;
   users: string[]; toolNames: string[]; toolResults: string[];
   calls: { name: string; arguments: string }[]; output: string; disconnected: boolean;
-  systemMarkers: { subagentRole: boolean; informationBackground: boolean };
+  systemMarkers: {
+    subagentRole: boolean;
+    informationBackground: boolean;
+    globalIdentitySentinel: boolean;
+    activeGoalSentinel: boolean;
+    longTermMemory: boolean;
+    write: boolean;
+    instructions: boolean;
+    skills: boolean;
+    schedule: boolean;
+    monitor: boolean;
+    goal: boolean;
+    web: boolean;
+    weather: boolean;
+    browser: boolean;
+  };
   assistantContexts: Array<{ informationNotification: boolean; notificationId?: string; informationRunId?: string }>;
 };
 const textOf = (value: unknown): string => typeof value === "string" ? value : Array.isArray(value)
@@ -42,6 +57,7 @@ export const createLiveModel = async (model: { baseUrl: string; apiKey?: string 
           .filter((entry) => entry.role === "system")
           .map((entry) => textOf(entry.content))
           .join("\n");
+        const normalizedSystemText = systemText.replace(/\s+/g, " ");
         const assistantContexts = messages
           .filter((entry) => entry.role === "assistant")
           .map((entry) => {
@@ -63,6 +79,18 @@ export const createLiveModel = async (model: { baseUrl: string; apiKey?: string 
           systemMarkers: {
             subagentRole: systemText.includes("## Subagent role"),
             informationBackground: systemText.includes("## Information background notifications"),
+            globalIdentitySentinel: normalizedSystemText.includes("LIVE_SPACE_PROMPT_IDENTITY_SENTINEL"),
+            activeGoalSentinel: normalizedSystemText.includes("LIVE_SPACE_PROMPT_GOAL_SENTINEL"),
+            longTermMemory: normalizedSystemText.includes("## Long-term memory"),
+            write: normalizedSystemText.includes("write/edit can change"),
+            instructions: normalizedSystemText.includes("instructions reads or replaces"),
+            skills: normalizedSystemText.includes("use the skills tool"),
+            schedule: normalizedSystemText.includes("Use schedule to create"),
+            monitor: normalizedSystemText.includes("Use monitor to create"),
+            goal: normalizedSystemText.includes("global personal goals"),
+            web: normalizedSystemText.includes("search_web and web_fetch"),
+            weather: normalizedSystemText.includes("Use get_weather"),
+            browser: normalizedSystemText.includes("real-browser tools"),
           },
           assistantContexts,
         };

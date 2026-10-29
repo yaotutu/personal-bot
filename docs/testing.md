@@ -52,11 +52,16 @@ pnpm test:e2e                  # 自动先 build，再串行执行真实 dist �
 pnpm test:live --config <path> --allow-live [--keep-artifacts]  # 显式真实模型验收
 node --import tsx tests/live/skill-authoring.ts --config <path> --allow-live --keep-artifacts
 node --import tsx tests/live/information.ts --config <path> --allow-live [--keep-artifacts]
+node --import tsx tests/live/space-tool-scope.ts --config <path> --allow-live
+node --import tsx tests/live/space-prompt-scope.ts --config <path> --allow-live --scenario prompt
+node --import tsx tests/live/space-prompt-scope.ts --config <path> --allow-live --scenario dream
 node --import tsx tests/live/message-feedback.ts --allow-live --base-url <url> --token-file <path> --context-file <path> --phase record|verify
 pnpm check                     # typecheck + test + test:e2e + Web build + diff 检查
 ```
 
 `skill-authoring.ts` 单独启动隔离实例，验证技能及参考文件创建、默认关闭、启用后下一轮普通读取、修改、拒绝与 Stop。运行时必须逐次查看完整预览，并在终端输入审批决定；不写入所给配置对应的真实实例数据。
+
+空间边界专项同样使用隔离后端与真实模型透明代理：`space-tool-scope.ts` 验证聊天工具的任务/监控列表与控制限于当前空间，全局 REST 管理仍可聚合；`space-prompt-scope.ts` 的 `prompt` 场景核对实际工具、能力说明、身份保留、目标按需读取和子会话裁剪，`dream` 场景核对局部规则、全局记忆、待决新增及其他空间原始内容不变。不支持保留临时实例，不自动重试模型；失败须保留原因，不能只以模型自然语言自述验收。
 
 代码改动完成后运行 `pnpm check`，任一步失败都必须报告，不以跑过旧版本替代本次验证。仅文档改动可检查差异、引用和规则一致性，不必重复全量测试。真实模型和页面验收不包含在 `pnpm check` 中，按变更范围与授权另行执行。
 

@@ -44,6 +44,9 @@ export const createProposeNotesTool = (
     label: "Propose consolidated notes",
     description:
       "Submit structured note changes for USER, SOUL, INSTRUCTIONS, MEMORY or pending review. " +
+      "USER, SOUL, and MEMORY are global; INSTRUCTIONS is only for this space's purpose. " +
+      "Use pending for a new note with uncertain cross-space scope. Omit an uncertain " +
+      "existing-memory edit/delete instead of converting it to pending or adding a replacement. " +
       "Call this at most once per turn with all proposed changes; pass an empty array if no changes are needed.",
     parameters: Type.Object(
       {

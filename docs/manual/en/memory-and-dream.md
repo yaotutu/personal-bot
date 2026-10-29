@@ -30,10 +30,14 @@ If a read fails, the page keeps the last observed content and reports that the l
 | USER profile | Global, shared by all spaces | Injected as user profile from the next turn |
 | SOUL profile | Global, shared by all spaces | Injected as assistant persona from the next turn |
 | Assistant name and tone | Global, shared by all spaces | Effective from the next conversation turn after saving |
+| Long-term goals | Global, shared by all spaces | Not automatically included in ordinary chat; spaces with the goal skill enabled can query and manage them on demand |
+| Skill assets | One instance-level file set | Only skills enabled for the current space load on the next turn; a space stores only switch overrides |
+| Shared workspace | Global | Accessed explicitly through `shared/...`; it does not appear in private-workspace searches |
+| Information preference notes | Independent for each space | Read only by that space's information processing; Dream does not rewrite them into another preference store |
 | Chat history | Independent per space | Used by that space's conversation; reset or space deletion clears it |
 | Space rules | Independent per space | Effective from the next conversation turn after saving |
 
-In chat, you can explicitly ask the assistant to use memory tools to add, edit, or forget a fact. Whether that happened is determined by the actual tool result and can be checked here by refreshing and searching. A space with Dream enabled may also consolidate its chat separately. Message feedback itself does not enter model context and is not used for preference training. For editing SOUL/USER, see [Profile and settings](profile-and-settings.md#assistant-and-user-profile).
+In a space with the memory skill enabled, you can explicitly ask the assistant to add, edit, or forget a fact. Whether that happened is determined by the actual tool result and can be checked here by refreshing and searching. A space with Dream enabled may also consolidate its chat separately. Message feedback does not automatically enter ordinary chat context and is not used for preference training; when information processing is explicitly enabled for a space, its background decision may read current feedback examples from that space. For editing SOUL/USER, see [Profile and settings](profile-and-settings.md#assistant-and-user-profile).
 
 ## Configure Dream {#configure-dream}
 
@@ -49,6 +53,8 @@ In chat, you can explicitly ask the assistant to use memory tools to add, edit, 
 
 Dream's fixed safety rules always apply and cannot be overridden by a global or space prompt: a consolidation run may only submit structured note proposals and has no file, network, browsing, or delegation tools. External content is not an instruction. Dream must not save credentials, record assistant guesses as user facts, or change permissions, tools, models, or configuration. 「本空间用途」 is read-only on the Dream page.
 
+The fixed rules also describe data scope: USER, SOUL, and long-term memory are global targets. Only filtering rules, topic scope, sensitivity requirements, or format requirements caused by this space's purpose belong in this space's rules. Information-processing preference notes remain owned by their existing information entry and are not silently rewritten. A target being globally available does not make it suitable for every context; when a new fact's cross-space stability is unclear, it should enter the pending list. These are model classification instructions. The server enforces tool and approval boundaries, but cannot guarantee the real-world scope of every fact automatically; automatically written content can be checked in its pages afterward, while pending suggestions still require human confirmation.
+
 The background check runs every 2 hours for spaces with periodic consolidation enabled. A check time is not a completion guarantee; spaces with an active conversation or an existing Dream run are skipped. Turning off periodic consolidation for a space affects future checks only and does not undo content already written.
 
 ## Run Dream Manually {#run-dream-manually}
@@ -63,7 +69,7 @@ The background check runs every 2 hours for spaces with periodic consolidation e
 
 Dream has no stop operation. Leaving the page, moving the app to the background, closing the app, or a client timeout only stops the phone from waiting; they do not stop or fail the remote consolidation. After returning, tap 「刷新」 to verify the latest run before running Dream again. A service restart changes a run left in the running state to failed; that failure marker does not mean earlier writes are absent and does not roll back completed writes. Read back USER/SOUL, space rules, long-term memories, and pending suggestions, verify them, then consolidate again instead of rerunning solely from the failed status.
 
-Manual consolidation extracts messages after the last cursor and includes earlier overlapping context for understanding; the model is instructed to extract only from new messages. The main space may write global USER/SOUL directly. A global USER/SOUL suggestion from a non-main space enters the pending list. Writing space rules requires that space to have a purpose. If a target changes concurrently, Dream skips overwriting it and reports failure or partial completion.
+Manual consolidation extracts messages after the last cursor and includes earlier overlapping context for understanding; the model is instructed to extract only from new messages. The main space may write global USER/SOUL directly. A global USER/SOUL suggestion from a non-main space enters the pending list. Writing space rules requires that space to have a purpose and should only collect preferences caused by that purpose. Editing or deleting an existing long-term memory requires its exact ID; if the model is unsure about the change, it should omit it rather than convert it into a pending addition. If a target changes concurrently, Dream skips overwriting it and reports failure or partial completion.
 
 ## Resolve Pending Suggestions {#resolve-dream-suggestions}
 
@@ -77,7 +83,7 @@ Actual effects:
 - `USER`: appends to the global user profile and affects every space.
 - `SOUL`: appends to the global assistant persona and affects every space.
 - `规则`: appends to the current space's rules and affects only that space; it fails if the space rule length limit is exceeded.
-- `记忆`: adds one global long-term memory and counts toward the 500-item limit.
+- `记忆`: always adds one global long-term memory and counts toward the 500-item limit; it is not used to confirm an edit or deletion. Uncertain edits/deletions of existing memories should be omitted at the proposal stage.
 - 「忽略」 only removes that suggestion from the pending list and writes nothing. The chat transcript itself is not deleted.
 
 After a successful apply, the pending item disappears immediately. The write is an append or a new memory; Dream does not rewrite it into a summary and does not provide a difference editor. You must manually confirm the complete text before applying. If the result is unknown, refresh and check both the list and target content before acting again; the client does not automatically retry.
@@ -94,4 +100,5 @@ After a successful apply, the pending item disappears immediately. The write is 
 - Only one Dream consolidation run can exist at a time. A manual run is rejected when the selected space has an active conversation, does not exist, or another Dream run is active.
 - A missing model, failed model request, invalid proposal, concurrent modification, full memory capacity, or service shutdown can produce failure or partial completion. Already written parts are not automatically rolled back.
 - The pending list keeps at most 50 deduplicated suggestions. Check the complete text before handling one, especially when changing the target to global USER, SOUL, or memory.
+- Dream's scope classification relies on the model following its instructions. The server enforces tools, permissions, IDs, and main/non-main write rules, but code cannot prove that every fact is genuinely stable across real-life spaces.
 - Content written by Dream affects subsequent model turns and does not rewrite already generated chat history.

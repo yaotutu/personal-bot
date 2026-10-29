@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { renderMemoryPrompt } from "./memory-prompt.js";
+import { renderMemoryPrompt, type MemoryPromptOptions } from "./memory-prompt.js";
 import type { MemoryItem, MemoryRepository } from "./types.js";
 
 /** 记忆条数上限。写满后拒绝新增，由用户或 Dream 先合并/删除旧条目，绝不静默丢弃最老的一条。 */
@@ -72,7 +72,8 @@ export const createMemoryService = (repository: MemoryRepository) => {
         if (memories.length === state.memories.length) return { result: false };
         return { state: { ...state, memories }, result: true };
       }),
-    renderForPrompt: async () => renderMemoryPrompt(await repository.read()),
+    renderForPrompt: async (options?: MemoryPromptOptions) =>
+      renderMemoryPrompt(await repository.read(), options),
   };
 };
 

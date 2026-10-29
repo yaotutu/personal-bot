@@ -1399,10 +1399,13 @@ test("session skills: tool trimming in model call", {
   // 校验发送给模型的工具列表中不包含被关闭的 schedule, search_web, web_fetch
   const req1 = h.model.requests.at(-1);
   assert.ok(req1);
+  const system1 = String(req1.messages.find((message) => message.role === "system")?.content);
   const tools1 = (req1.tools as { function: { name: string } }[]).map((t) => t.function.name);
   assert.ok(!tools1.includes("schedule"), "schedule tool should be trimmed when cron is disabled");
   assert.ok(!tools1.includes("search_web"), "search_web tool should be trimmed when web is disabled");
   assert.ok(!tools1.includes("web_fetch"), "web_fetch tool should be trimmed when web is disabled");
+  assert.doesNotMatch(system1, /Use schedule to create, list, or cancel/);
+  assert.doesNotMatch(system1, /search_web and web_fetch/);
   assert.ok(tools1.includes("currentTime"), "currentTime is always-on");
   assert.ok(tools1.includes("read"), "read is always-on");
 
@@ -1413,9 +1416,13 @@ test("session skills: tool trimming in model call", {
 
   const req2 = h.model.requests.at(-1);
   assert.ok(req2);
+  const system2 = String(req2.messages.find((message) => message.role === "system")?.content);
   const tools2 = (req2.tools as { function: { name: string } }[]).map((t) => t.function.name);
   assert.ok(tools2.includes("schedule"), "schedule tool should be present when cron is enabled");
   assert.ok(tools2.includes("search_web"), "search_web tool should be present when web is enabled");
+  assert.match(system2, /Use schedule to create, list, or cancel/);
+  assert.match(system2, /search_web and web_fetch/);
+  assert.match(system2, /## Work activity management/);
 });
 
 test("session skills: user custom skill with extension.ts and conflict rejection", {
@@ -1726,7 +1733,15 @@ test("subagent: parent delegates to an isolated child and receives its result wi
   const childTools = (children[0].tools as { function: { name: string } }[]).map((tool) => tool.function.name);
   for (const name of ["subagent", "delegate_task", "bash", "schedule", "monitor", "instructions", "skills", "information"])
     assert.ok(!childTools.includes(name), `child must not expose ${name}`);
-  assert.ok(!children[0].messages.some((message) => message.role === "system" && String(message.content).includes("## Information background notifications")));
+  const childSystem = String(children[0].messages.find((message) => message.role === "system")?.content);
+  for (const unavailableGuidance of [
+    "Use schedule to create",
+    "Use monitor to create",
+    "instructions reads or replaces",
+    "use the skills tool",
+    "## Work activity management",
+    "## Information background notifications",
+  ]) assert.ok(!childSystem.includes(unavailableGuidance), `child prompt must not describe ${unavailableGuidance}`);
   assert.ok(children[0].messages.every((message) => !JSON.stringify(message.content).includes("请用子代理完成一次测试")), "parent message history must not leak into child context");
   assert.ok((await h.getHistory()).some((message) => String(message.content).includes("SUBAGENT-MARKER")));
   await assert.rejects(readFile(join(h.dataDir, "tasks.json")), { code: "ENOENT" });
@@ -1800,7 +1815,7 @@ test("subagent: Stop interrupts the child provider and releases the parent run",
   assert.equal((await h.service().conversationHub.forThread("local-main")).isRunning(), false);
 });
 
-test("goal domain: chat tool create, REST CRUD, milestone toggle and prompt injection", {
+test("goal domain: chat tool create, REST CRUD, milestone toggle and on-demand prompt guidance", {
   timeout: 30000,
 }, async (t) => {
   const h = await harness();
@@ -1823,13 +1838,14 @@ test("goal domain: chat tool create, REST CRUD, milestone toggle and prompt inje
   };
   assert.equal(goal.status, "active");
   assert.equal(goal.milestones.length, 2);
-  // 注入：创建后下一轮 system prompt 含 active goals 段与下一个里程碑。
+  // 目标数据不再自动注入；启用 goal 工具时仅保留按需查询说明。
   await h.events(input([...(await h.getHistory()), user("hello")], "goal-inject"));
   const system = String(h.model.requests.at(-1)!.messages[0]?.content);
-  assert.ok(system.includes("active goals"));
-  assert.ok(system.includes("半马"));
-  assert.ok(system.includes("跑量到 30km/周"));
-  // REST：勾选里程碑 → 进度变化；completed 勾掉全部且不再注入。
+  assert.ok(system.includes("global personal goals"));
+  assert.ok(!system.includes("## The user's active goals"));
+  assert.ok(!system.includes("半马"));
+  assert.ok(!system.includes("跑量到 30km/周"));
+  // REST：勾选里程碑 → 进度变化；completed 后按需查询说明仍在。
   await h.request(`/api/goals/${goal.id}/milestones/${goal.milestones[0]!.id}/toggle`, {});
   let currentGoal = await h.request(`/api/goals/${goal.id}`).then((x) => x.json());
   assert.equal(currentGoal.milestones[0].done, true);
@@ -1838,7 +1854,9 @@ test("goal domain: chat tool create, REST CRUD, milestone toggle and prompt inje
   assert.equal(currentGoal.status, "completed");
   assert.ok(currentGoal.milestones.every((m: { done: boolean }) => m.done));
   await h.events(input([...(await h.getHistory()), user("again")], "goal-after"));
-  assert.ok(!String(h.model.requests.at(-1)!.messages[0]?.content).includes("active goals"));
+  const completedSystem = String(h.model.requests.at(-1)!.messages[0]?.content);
+  assert.ok(completedSystem.includes("global personal goals"));
+  assert.ok(!completedSystem.includes("## The user's active goals"));
   // 编辑 + 删除。
   const edited = await h.request(`/api/goals/${goal.id}`, { title: "GOAL-TEST 改为全马" }, "PATCH");
   assert.equal(edited.status, 200);

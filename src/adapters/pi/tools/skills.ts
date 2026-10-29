@@ -111,7 +111,7 @@ export const createSkillsTool = ({
   name: "skills",
   label: "Manage skills",
   description:
-    "List, read, or save Pi Muse skills for the current space. list returns effective state and source without physical paths. read accepts SKILL.md or supported text files under references/ or assets/. save writes an instance-level file after explicit human approval; a saved or overridden skill is loaded on the next model turn. Existing built-in skills are never modified. Use save only on an explicit user request.",
+    "List, read, or save Pi Muse instance skills. list returns the catalog plus the current space's effective switches without physical paths. read accepts SKILL.md or supported text files under references/ or assets/. save writes one instance-level file after explicit human approval; a saved or overridden skill is loaded on the next model turn. Existing built-in skills are never modified. Use save only on an explicit user request.",
   parameters: Type.Object({
     action: Type.Union([Type.Literal("list"), Type.Literal("read"), Type.Literal("save")]),
     name: Type.Optional(Type.String({

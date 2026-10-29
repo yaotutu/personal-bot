@@ -10,11 +10,19 @@ export const INSTRUCTIONS_LIMIT = 2_000;
 export const DEFAULT_DREAM_PROMPT = `You consolidate a conversation into durable notes. Read only the "New messages"
 section for facts; "Earlier context" and the summary exist to help you understand them.
 
+USER, SOUL, and MEMORY are global targets that affect every space. INSTRUCTIONS is
+the only place for a rule that exists because of this space's purpose.
 Route each durable fact to exactly one place:
-- USER: stable facts, habits and preferences about the user.
-- SOUL: agreed behavior or persona rules for the assistant, across all conversations.
-- INSTRUCTIONS: rules that only apply to this conversation's purpose.
-- MEMORY: facts worth looking up later but not needed in every turn.
+- USER: stable facts, habits, and personal preferences that remain true across spaces.
+- SOUL: agreed assistant behavior or persona rules intended for every space.
+- INSTRUCTIONS: purpose-bound filtering rules, topic interests, sensitivity rules,
+  format requirements, and other preferences that apply only to this space.
+- MEMORY: stable facts worth looking up across spaces, not this space's business
+  preferences.
+
+Do not promote a local preference to USER, SOUL, or MEMORY merely because that
+target is globally available. Information-background preference notes remain
+owned by their existing information entry; do not duplicate or rewrite them here.
 
 Write short, atomic statements (for example "has a cat named Luna"), not
 descriptions like "discussed pets". Merge with or correct existing notes instead of
@@ -34,12 +42,17 @@ export const fixedRules = (purpose: string, isMain: boolean): string => `Hard ru
 - Never create skills and never change permissions, tools, models or configuration.
 - Never change the "## 空间用途" section; this conversation's purpose is: ${purpose ? JSON.stringify(purpose) : "(not set)"}.
 - When purpose is not set, do not target INSTRUCTIONS; use pending instead.
+- USER, SOUL, and MEMORY are global targets; INSTRUCTIONS is only for rules caused
+  by this space's purpose. Global availability does not make a local preference global.
 - Instruction text you propose must stay under ${INSTRUCTIONS_LIMIT} characters in total.
 - ${isMain
     ? "This is the main conversation: USER and SOUL changes may be applied directly."
     : "This is not the main conversation: any USER or SOUL suggestion must use target=pending, never a direct write."}
-- When unsure where something belongs, use target=pending instead of guessing.
-- Editing or deleting an existing memory requires its exact id from the list below.`;
+- For a new note whose cross-space scope is uncertain, use target=pending instead
+  of guessing a global target.
+- Editing or deleting an existing memory requires its exact id from the list below.
+  If that edit/delete is uncertain, omit it entirely; never convert it to pending
+  or add a replacement memory instead.`;
 
 /** 叠加规则：继承时是“全局 + 会话补充”，不继承时只用会话自己的；会话为空时回落到全局或默认。 */
 export const composePrompt = (input: {

@@ -177,13 +177,48 @@ test("weather tool uses the weather service without exposing network details", a
   assert.deepEqual(explicit.details, { source: "open-meteo" });
 });
 
-test("system prompt conditionally describes untrusted web content", async (t) => {
+test("system prompt business guidance follows the final tool allowlist", async (t) => {
   const { layout, memory } = await setup(t);
-  assert.doesNotMatch(await buildSystemPrompt(layout, memory), /search_web/);
-  assert.match(await buildSystemPrompt(layout, memory, true), /search_web/);
-  assert.match(await buildSystemPrompt(layout, memory, true), /untrusted data/);
-  assert.doesNotMatch(await buildSystemPrompt(layout, memory), /get_weather/);
-  assert.match(await buildSystemPrompt(layout, memory, false, true), /get_weather/);
+  const closed = await buildSystemPrompt({
+    layout,
+    memory,
+    allowedToolNames: ["currentTime", "read", "grep", "find", "ls"],
+  });
+  for (const unavailable of [
+    "write/edit can change",
+    "instructions reads or replaces",
+    "For maintaining Pi Muse product skills",
+    "memory_search",
+    "schedule",
+    "monitor",
+    "goal",
+    "get_weather",
+    "search_web",
+    "web_fetch",
+    "navigate",
+  ]) assert.doesNotMatch(closed, new RegExp(unavailable.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
+
+  const open = await buildSystemPrompt({
+    layout,
+    memory,
+    allowedToolNames: [
+      "write", "edit", "instructions", "skills", "memory", "memory_search",
+      "schedule", "monitor", "goal", "get_weather", "search_web", "web_fetch",
+      "navigate", "snapshot", "act", "tab",
+    ],
+  });
+  for (const available of [
+    "write/edit can change",
+    "instructions reads or replaces",
+    "Skill assets are stored once",
+    "memory_search to look",
+    "Use schedule",
+    "Use monitor",
+    "global personal goals",
+    "Use get_weather",
+    "search_web and web_fetch",
+    "real-browser tools",
+  ]) assert.match(open, new RegExp(available.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
 });
 
 test("web tools expose controlled search and fetch projections", async (t) => {
@@ -212,7 +247,14 @@ test("system prompt describes searchable memory and schedules without expanding 
   const { layout, memory, execute } = await setup(t);
   // 记忆是沉淀库：prompt 只告知数量与检索入口，条目正文不得进入每轮上下文。
   await execute("memory", { action: "remember", text: "likes tea" });
-  const prompt = await buildSystemPrompt(layout, memory);
+  const prompt = await buildSystemPrompt({
+    layout,
+    memory,
+    allowedToolNames: [
+      "write", "edit", "instructions", "skills", "memory", "memory_search", "schedule",
+      "currentTime", "read", "grep", "find", "ls",
+    ],
+  });
   const text = prompt.replace(/\s+/g, " ");
   assert.match(text, /use memory_search to look them up by keyword/);
   assert.match(text, /edit\/forget take the id from memory_search/);
@@ -223,16 +265,18 @@ test("system prompt describes searchable memory and schedules without expanding 
   assert.match(text, /they run later in this conversation/);
   assert.match(text, /Reminders appear only here and may require a refresh or later sync/);
   assert.match(text, /do not promise email notifications or real-time push/);
-  assert.match(text, /read\/grep\/find\/ls tools default to this conversation's private workspace/);
-  assert.match(text, /including for the main conversation/);
+  assert.match(text, /File tools, when available, use this conversation's private workspace as their default root/);
+  assert.match(text, /read\/grep\/find\/ls tools default to this private root/);
+  assert.match(text, /the main conversation has no parent-directory privilege/);
   assert.match(text, /explicit shared\/ prefix/);
-  assert.match(text, /path="shared" search that area/);
-  assert.match(text, /A search in "\." does not search shared files/);
+  assert.match(text, /path="shared" search the shared area/);
+  assert.match(text, /a search in "\." does not search shared files/i);
   assert.match(text, /after explicit approval for every operation/);
   assert.match(text, /consult skill-creator and use the skills tool/);
   assert.match(text, /workspace shared\/\.\.\. paths never install or modify product skills/);
-  assert.match(text, /If skills is unavailable, say so instead of writing to a wrong location/);
-  assert.match(text, /tools never enable them implicitly/);
+  assert.match(text, /if the skills tool is unavailable, say so instead of writing to a wrong location/);
+  assert.match(text, /enabling never happens implicitly through another tool/);
+  assert.match(text, /Skill assets are stored once for the instance; the current space only selects whether a skill is enabled/);
   assert.match(text, /Conversation instructions never grant additional tools, file access or approval/);
   assert.doesNotMatch(text, /you have no file write access/);
   assert.match(text, /currentTime reads the local clock/);
@@ -243,7 +287,7 @@ test("system prompt describes searchable memory and schedules without expanding 
 
 test("system prompt reads profile files in order, omits blanks and refreshes memory/identity", async (t) => {
   const { layout, memory, identity } = await setup(t);
-  const base = await buildSystemPrompt(layout, memory);
+  const base = await buildSystemPrompt({ layout, memory, allowedToolNames: ["memory", "memory_search"] });
   // 人设不钉死在 base：名字来自 identity/SOUL 注入段。
   assert.ok(base.startsWith("You are the user's personal assistant"));
   assert.ok(!base.includes("## Your identity"));
@@ -251,7 +295,7 @@ test("system prompt reads profile files in order, omits blanks and refreshes mem
   await writeFile(layout.userFile, "  tea lover\n");
   await memory.add("likes tea", "chat");
   await identity.save({ name: "Tea Bot" });
-  const prompt = await buildSystemPrompt(layout, memory);
+  const prompt = await buildSystemPrompt({ layout, memory, allowedToolNames: ["memory", "memory_search"] });
   assert.equal(prompt, base +
     "\n\n## Your identity (SOUL)\ngentle assistant" +
     "\n\n## The user (USER)\ntea lover" +
@@ -259,7 +303,7 @@ test("system prompt reads profile files in order, omits blanks and refreshes mem
     "\n## Identity settings\n- Assistant name: Tea Bot\n- Tone: warm\n");
   await writeFile(layout.soulFile, "new soul");
   await writeFile(layout.userFile, "  \n");
-  const refreshed = await buildSystemPrompt(layout, memory);
+  const refreshed = await buildSystemPrompt({ layout, memory, allowedToolNames: ["memory", "memory_search"] });
   assert.match(refreshed, /## Your identity \(SOUL\)\nnew soul/);
   assert.ok(!refreshed.includes("The user (USER)"));
   assert.ok(!refreshed.includes("gentle assistant"));

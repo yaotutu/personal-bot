@@ -177,6 +177,9 @@ test("prompt composer keeps fixed safety rules regardless of global inheritance"
     composePrompt({ global: "", session: "", inherit: true }),
     DEFAULT_DREAM_PROMPT,
   );
+  assert.match(DEFAULT_DREAM_PROMPT, /USER, SOUL, and MEMORY are global targets/);
+  assert.match(DEFAULT_DREAM_PROMPT, /purpose-bound filtering rules/);
+  assert.match(DEFAULT_DREAM_PROMPT, /not this space's business\s+preferences/);
   assert.match(
     composePrompt({ global: "GLOBAL", session: "SESSION", inherit: true }),
     /GLOBAL[\s\S]*Extra guidance[\s\S]*SESSION/,
@@ -188,6 +191,8 @@ test("prompt composer keeps fixed safety rules regardless of global inheritance"
   const rules = fixedRules("处理邮件", false);
   assert.match(rules, /Never save credentials/);
   assert.match(rules, /target=pending, never a direct write/);
+  assert.match(rules, /Global availability does not make a local preference global/);
+  assert.match(rules, /If that edit\/delete is uncertain, omit it entirely/);
   const input = buildDreamInput(
     {
       summary: "summary-text",

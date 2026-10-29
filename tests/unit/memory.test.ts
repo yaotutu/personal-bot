@@ -165,8 +165,15 @@ test("memory prompt only announces the count, never the memory text, and rereads
   assert.deepEqual(state, original);
   assert.equal(renderMemoryPrompt({ memories: [], identity: defaultIdentity }), "");
   assert.equal(renderMemoryPrompt({ memories: [], identity: { ...defaultIdentity, avatar: "other", showChatUpdates: false } }), "");
+  const closed = renderMemoryPrompt(state, { includeMemory: false });
+  assert.doesNotMatch(closed, /Long-term memory|memory_search/);
+  assert.doesNotMatch(closed, /secret-fact-text/);
+  assert.match(closed, /Assistant name: Tea Bot/);
   const { memory, identity } = await setup(t);
-  assert.equal(await memory.renderForPrompt(), "");
+  assert.equal(await memory.renderForPrompt({ includeMemory: false }), "");
   await identity.save({ name: "New name" });
+  await memory.add("fact", "test");
+  assert.doesNotMatch(await memory.renderForPrompt({ includeMemory: false }), /memory_search|fact/);
+  assert.match(await memory.renderForPrompt({ includeMemory: true }), /memory_search/);
   assert.match(await memory.renderForPrompt(), /Assistant name: New name/);
 });
