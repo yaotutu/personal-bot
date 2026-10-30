@@ -285,9 +285,10 @@ test("snapshot fields never leak private paths and stay closed-keyed", async () 
 test("tsc single-file compile produces loadable dist artifact that requires service-version.json", async (t) => {
   const sandbox = await tempDir(t, "single-compile");
   const sourceFile = resolve(projectRoot, "src", "bootstrap", "service-version.ts");
+  // TypeScript 6 单文件编译需显式 --ignoreConfig 忽略工程 tsconfig，并补充 --types node
   const compile = spawnSync(
     "npx",
-    ["tsc", "--target", "ES2023", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--strict", "--skipLibCheck", "--esModuleInterop", "--rootDir", resolve(projectRoot, "src"), "--outDir", sandbox, sourceFile],
+    ["tsc", "--ignoreConfig", "--types", "node", "--target", "ES2023", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--strict", "--skipLibCheck", "--esModuleInterop", "--rootDir", resolve(projectRoot, "src"), "--outDir", sandbox, sourceFile],
     { encoding: "utf8", timeout: 120000 },
   );
   assert.equal(compile.status, 0, `tsc failed: ${compile.stderr}\n${compile.stdout}`);

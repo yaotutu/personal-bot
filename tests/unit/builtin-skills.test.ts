@@ -89,10 +89,12 @@ test("隔离 dist 拷贝后，从任意 cwd 通过编译产物解析并枚举出
     mkdirSync(resolve(distRoot, "adapters", "storage"), { recursive: true });
 
     // 单文件 tsc：直接调用包内 bin/tsc.js，避免 .bin 下的 shell 包装
+    // TypeScript 6 单文件编译需显式 --ignoreConfig 忽略工程 tsconfig
     // --outDir 必须包含 "dist" 段，让编译产物的 import.meta.url 路径里出现 dist/
     const compile = runNode(
       [
         resolve(projectRoot, "node_modules/typescript/bin/tsc"),
+        "--ignoreConfig",
         resolve(projectRoot, "src/adapters/storage/builtin-skills.ts"),
         "--outDir", resolve(stageRoot, "fake-project", "dist"),
         "--rootDir", resolve(projectRoot, "src"),

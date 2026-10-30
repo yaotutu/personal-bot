@@ -64,17 +64,17 @@ export const createNewsRoutes = (dependencies: Pick<HttpDependencies, "news">) =
     if (!parsed.success) return c.json({ error: "Invalid RSS source", code: "INVALID_INPUT" }, 400);
     return handle(c, () => news.addSource(parsed.data));
   });
-  app.delete("/sources/:sourceId", (c) => {
+  app.delete("/sources/:sourceId", async (c) => {
     const sourceId = c.req.param("sourceId");
     if (!validId(sourceId)) return c.json({ error: "Invalid sourceId", code: "INVALID_INPUT" }, 400);
     return handle(c, () => news.deleteSource(sourceId));
   });
-  app.get("/articles", (c) => {
+  app.get("/articles", async (c) => {
     const parsed = parseQuery(newsArticlesQuerySchema, c.req.url);
     if (!parsed.success) return c.json({ error: "Invalid news query", code: "INVALID_INPUT" }, 400);
     return handle(c, () => news.listArticles(parsed.data));
   });
-  app.get("/articles/:articleId", (c) => {
+  app.get("/articles/:articleId", async (c) => {
     const articleId = c.req.param("articleId");
     if (!validId(articleId)) return c.json({ error: "Invalid articleId", code: "INVALID_INPUT" }, 400);
     return handle(c, () => news.getArticle(articleId));
@@ -100,7 +100,7 @@ export const createNewsRoutes = (dependencies: Pick<HttpDependencies, "news">) =
     if (!parsed.success) return c.json({ error: "Comment must be non-blank and at most 4000 characters", code: "INVALID_INPUT" }, 400);
     return handle(c, () => news.addComment(articleId, parsed.data.text));
   });
-  app.delete("/articles/:articleId/comments/:commentId", (c) => {
+  app.delete("/articles/:articleId/comments/:commentId", async (c) => {
     const articleId = c.req.param("articleId");
     const commentId = c.req.param("commentId");
     if (!validId(articleId) || !validId(commentId))

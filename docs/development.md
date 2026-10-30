@@ -2,6 +2,12 @@
 
 本文档面向参与 Pi Muse 服务端与 Web 联调台开发的开发者。核心生产用户端为独立移动客户端，仓库内的 `web/` 是用于接口验证与联调的开发者工作台。
 
+## 依赖配套
+
+- 使用 Node.js 24 与 `package.json` 声明的 pnpm 版本。Node 类型保持在最新 24.x，不用更高运行时的声明掩盖 API 差异。
+- 服务端 TypeScript 使用 6.0.3：架构测试使用其 JavaScript compiler API，TypeScript 7 已移除此入口；不为升级编译器而另造导入解析器。Web 工作台不使用该 API，独立使用 TypeScript 7。
+- 顶层及 Web 的 Vite 使用 8.x；VitePress 1.6.4 继续使用其自身依赖的 Vite 5。文档预览沿用顶层 Vite，只监听回环地址并严格占用指定端口。
+
 ## 开发者 Web 工作台（web/）
 
 ### 启动开发服务器

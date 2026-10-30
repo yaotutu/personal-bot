@@ -1,6 +1,8 @@
 # pi subagent adapter
 
-Based on `@earendil-works/pi-coding-agent` **1.3.0**, upstream
+Current project SDK runtime: `@earendil-works/pi-coding-agent@1.4.0`.
+Subagent orchestration semantics and initial structure originally adapted from
+`@earendil-works/pi-coding-agent` **1.3.0** upstream
 [`examples/extensions/subagent`](https://github.com/earendil-works/pi/tree/v1.3.0/packages/coding-agent/examples/extensions/subagent).
 
 The upstream example is MIT licensed (copyright Mario Zechner). The repository

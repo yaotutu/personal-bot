@@ -4,7 +4,7 @@
 
 ## 版本与核对依据
 
-- `package.json` 直接锁定 `@earendil-works/pi-coding-agent` 与 `@earendil-works/pi-ai` 为 `1.3.0`；API 以 lockfile、本地安装包及当前源码为准，不混用旧命名空间、旧版本或上游 main 的接口。
+- `package.json` 直接锁定 `@earendil-works/pi-coding-agent` 与 `@earendil-works/pi-ai` 为 `1.4.0`；subagent 编排语义与结构原始来源于官方 1.3.0 示例。API 以 lockfile、本地安装包及当前源码为准，不混用旧命名空间、旧版本或上游 main 的接口。
 - 执行层使用进程内 coding-agent SDK。底层模型调用与循环由 pi-ai / pi-agent-core 承担，本项目不直接装配 pi-agent-core，也不解析 CLI 终端输出或另起 RPC 执行层。
 - SDK 名称中的 coding 不代表必须使用默认 coding prompt、全部文件工具或个人 CLI 资源；本项目显式注入个人助手 prompt、模型、工具、资源和 SessionManager。
 - 本文不是 npm latest 或生态现状调查，不把历史升级排期当作当前待办。2026-10-10 / 2026-10-14 调研及整理前原文见 [历史快照](archive/2026-10-18-pi-reuse-before-cleanup.md)，其中计划、包评价和旧实现描述不作为当前接入依据。
@@ -22,7 +22,7 @@
 | 写入工具接入 | SDK `defineTool` 与工具执行机制 | write/edit 是本项目实现，不直接开放 SDK 默认 write/edit；完整预览、版本绑定、逐次审批与提交检查由项目控制 |
 | 技能解析与加载 | `parseFrontmatter`、`loadSkillsFromDir`，将生效技能传给 ResourceLoader | 内置 assets 与实例 skills 发现、会话开关与诊断；authoring 精确校验 frontmatter name 后复用 loader，不另写 YAML 解析器 |
 | Extension 宿主 | SDK 扩展加载与运行机制、内联 extension factory | 仅装配已启用技能的显式 extension 路径和受控 subagent factory，不自造通用插件框架 |
-| Subagent 编排 | 官方 1.3.0 示例的 single/parallel/chain 语义 | CLI runner 改为注入的独立 SDK session，参数统一为顶层 mode + tasks 契约，权限继承与收窄、父取消、审批归属和展示适配 |
+| Subagent 编排 | 官方 1.3.0 示例的 single/parallel/chain 语义（当前在 1.4.0 SDK 会话运行） | CLI runner 改为注入的独立 SDK session，参数统一为顶层 mode + tasks 契约，权限继承与收窄、父取消、审批归属和展示适配 |
 
 自动压缩已开启，模型/工具自动重试关闭（`retry.enabled: false`）。显式用户重试与 pi context edit 不是自动重试，也不恢复未完成执行；具体规则见架构与生成契约。
 
@@ -66,4 +66,4 @@
 5. 核对资源发现、扩展钩子和子会话 allowlist；对照官方 subagent 示例更新本地差异，不能悄悄恢复 CLI spawning、个人资源发现或子代理递归权限。
 6. 按 [测试规范](testing.md)补本次回归并运行 `pnpm check`；真实模型适配、子代理、工具、审批与取消关键链路需经费用授权 live 验收，工具展示/API 文档另做适用页面检查。历史报告不是新版本通过证明。
 
-固定版本上游参考：[SDK 文档](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/sdk.md)、[模型配置](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/models.md)、[安全边界](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/security.md)、[subagent 示例](https://github.com/earendil-works/pi/tree/v1.3.0/packages/coding-agent/examples/extensions/subagent)。引用用于定位来源，实际核对以项目安装包为准。
+固定版本上游参考：[SDK 文档](https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/docs/sdk.md)、[模型配置](https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/docs/models.md)、[安全边界](https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/docs/security.md)与 [1.4.0 变更记录](https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/CHANGELOG.md)。本地 subagent 的[原始示例](https://github.com/earendil-works/pi/tree/v1.3.0/packages/coding-agent/examples/extensions/subagent)归属仍为 1.3.0；当前 API 核对以 1.4.0 本地安装包为准。

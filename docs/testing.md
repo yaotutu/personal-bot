@@ -68,7 +68,7 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 
 ### `pnpm test`
 
-- 只跑 `tests/unit/*.test.ts` 与 `tests/integration/*.test.ts`，任一目录未发现测试直接失败；每项超时 60 秒。
+- 只跑 `tests/unit/*.test.ts` 与 `tests/integration/*.test.ts`，任一目录未发现测试直接失败；测试文件串行执行（`--test-concurrency=1`），避免真实 GUI 与其他 SDK 测试争用资源；每项超时仍为 60 秒，不跳过真实浏览器用例。
 - 集成测试仅模型是模拟的，HTTP / pi / 工具 / fs / 历史是实际链路，不伪造业务副作用。fake-model 常用触发词见本文末节，实际分支以源码为准。
 - 测试配置必须满足 `model.maxTokens < model.contextWindow`；不合法时 createConfig/loadConfig 抛错。
 - harness 初始化失败也必须回收所有已分配资源；配置/service/login 失败均需覆盖，防止 fake provider 遗留造成测试进程 hang。

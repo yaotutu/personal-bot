@@ -83,6 +83,7 @@ test("unit and integration suites are explicitly discovered, bounded, and suppor
   const packageFile = JSON.parse(await readFile(resolve(sourceRoot, "../package.json"), "utf8"));
   assert.ok(packageFile.scripts.test.includes("tests/unit/*.test.ts"));
   assert.ok(packageFile.scripts.test.includes("tests/integration/*.test.ts"));
+  assert.ok(packageFile.scripts.test.includes("--test-concurrency=1"));
   assert.ok(packageFile.scripts.test.includes("--test-timeout=60000"));
   assert.ok(!packageFile.scripts.test.includes("tests/support/*.test.ts"));
   assert.ok(!packageFile.scripts.test.includes("|| true"));
