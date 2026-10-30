@@ -7,7 +7,7 @@ News is an independent reading view, not a chat space, and it has no dedicated c
 - The reading page has one top row for 「Recommended／All」, saved articles, sources, and fetching. It opens on Recommended and shows articles immediately below the row. Open 「Sources」 to see fetch time, analysis progress, and failure counts.
 - 「Recommended」 contains only articles explicitly selected by a completed structured model run, with a short reason for each article. Articles not selected by the model remain readable under 「All」.
 - 「All」 is ordered newest first by publication time. When publication time is invalid, the server uses the first acceptance time. The saved filter only filters the list and does not change ordering.
-- Opening an article shows safe text cleaned by the server. Original links allow only credential-free HTTP(S) URLs. External titles, content, and links are untrusted data.
+- Tap an article to read safe text cleaned by the server. Long-press it to open the same style of action menu as chat messages, without also opening the detail view. In the detail view, long-press the title or body to open the menu. Original links allow only credential-free HTTP(S) URLs. External titles, content, and links are untrusted data.
 - Accepted articles, recommendations, feedback, and saves are restored from the server after a restart.
 
 ## Managing RSS Sources {#sources}
@@ -21,9 +21,10 @@ The server collects every 30 minutes by default; background collection only fetc
 
 ## Feedback and Recommendations {#feedback}
 
-- Like and dislike are mutually exclusive and can be cleared.
-- Saved is independent of like/dislike.
-- Comments are stored per article and support add and delete. Blank comments are rejected, and each comment is limited to 4,000 characters.
+- Long-press an article to choose like, dislike, save, or comments from its menu. Tapping outside the menu or pressing Android Back only dismisses it. Screen-reader users can use the article's 「打开文章操作」 (Open article actions) custom action.
+- Like and dislike are mutually exclusive. Selecting the active reaction again clears it. Saving is independent of reactions and can be undone from the menu.
+- Articles without feedback have no action-button row. Existing feedback appears as a small badge; tap it to reopen the menu.
+- The menu's 「评论」 (Comments) entry opens the article detail's comments section. Comments are stored per article and support add and delete. Blank comments are rejected, and each comment is limited to 4,000 characters.
 - Feedback does not immediately invoke the model. The next background analysis reads recent articles, feedback, comments, and saves as local evidence; saves are a weaker signal.
 - Explicit preferences are saved by the user. Learned notes are a summary updated by the server from feedback. They are stored separately, and learned notes never overwrite explicit preferences, space rules, or the global user profile.
 - For newly initialized internal news spaces, the default rules require recommendation reasons and learned notes in concise Simplified Chinese. RSS titles and content remain in their original language and are not translated.
