@@ -39,6 +39,8 @@ http://<任意主机或域名>:12330/browser
 http://<任意主机或域名>:6080/vnc.html?autoconnect=1&resize=scale
 ```
 
+`/browser` 页面需手动输入 AccessKey 登录；登录成功后输入框会清空，当前标签会话只保存 Session Token。不要在链接中附加密钥：页面不使用 `accessKey` 或 `key` 查询参数登录，并会将其从地址栏移除。连接中断后，点击 **Reconnect** 重新同步标签与画面；不会自动重发导航、新建或关闭等操作。该调试页支持中文输入、文本粘贴和左、中、右鼠标按键，但不包含完整 Chrome 的原生菜单；完整窗口仍使用 noVNC。
+
 桌面和手机共用 `vnc.html` 入口：默认 `layout=auto`，视口宽度不超过 700px 时自动切到移动页，恢复桌面宽度后自动回到官方 noVNC。显式 `layout=desktop` 或 `layout=mobile` 会固定当前页面，不因窗口尺寸导航。跳转会保留查询和 `#` 参数。移动页默认连接当前地址上的 `/websockify`，也支持通过查询参数覆盖 `path`、`host` 或 `port`。如果以后给 x11vnc 配置密码，可在查询或 `#` 片段中附带 `password`：
 
 ```text

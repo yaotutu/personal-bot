@@ -39,6 +39,8 @@ http://<any-host-or-domain>:12330/browser
 http://<any-host-or-domain>:6080/vnc.html?autoconnect=1&resize=scale
 ```
 
+On `/browser`, enter the AccessKey manually. Successful login clears the input and keeps only the Session Token in the current tab's session storage. Do not put credentials in links: the page does not use `accessKey` or `key` query parameters to log in and removes them from the address bar. After a disconnection, click **Reconnect** to synchronize tabs and resume the stream; navigation, tab creation, and closing operations are not automatically replayed. This debug page supports Chinese input, text pasting, and left, middle, and right mouse buttons, but does not include Chrome's native menus. Use noVNC for the complete window.
+
 Desktop and mobile share the `vnc.html` entry point. The default is `layout=auto`: when the viewport width is no wider than 700px, the page automatically switches to the mobile page, and it automatically returns to official noVNC once desktop width is restored. An explicit `layout=desktop` or `layout=mobile` pins the current page and prevents navigation based on window size. Redirects preserve query and `#` parameters. The mobile page connects to `/websockify` on the current address by default, and also supports overriding `path`, `host`, or `port` through query parameters. If a custom x11vnc setup later requires credentials, `password` can be supplied in the query or `#` fragment:
 
 ```text

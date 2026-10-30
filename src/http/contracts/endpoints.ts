@@ -736,7 +736,7 @@ export const endpoints: EndpointSpec[] = [
   {
     operationId: "getBrowserDebugPage",
     method: "get", path: "/browser", tag: "浏览器", summary: "打开服务端自带浏览器调试页",
-    hint: "免鉴权 HTML 页面。页面内先调用 POST /api/session 登录，再通过 REST 管理标签并换取一次性 WS ticket；URL 可加 ?accessKey=<workspace-access-key> 或 ?key=<workspace-access-key> 自动登录。该页面不是移动端产品，仅用于验证真实浏览器链路。",
+    hint: "免鉴权 HTML 页面。页面内输入 AccessKey 并调用 POST /api/session 登录，成功后清空输入框，仅在 sessionStorage 保存 Session Token，再通过 REST 管理标签并换取一次性 WS ticket。不接受 URL 密钥自动登录，并移除查询中的 accessKey/key。断线后使用 Reconnect 重新获取 ticket、同步标签并恢复帧流；不重放写操作。该页面不是移动端产品，仅用于验证真实浏览器链路。",
     auth: false, response: browser.browserDebugResponse, responseContentType: "text/html",
   },
   {
