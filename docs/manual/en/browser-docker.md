@@ -2,6 +2,8 @@
 
 This deployment places the complete browser workstation inside one Linux container: the Node service, Google Chrome, Xvfb, fluxbox, x11vnc, websockify, and noVNC share the same virtual display. Chrome remains a real GUI browser and does not use `--headless`; Xvfb only supplies the X display that must exist for it to run.
 
+Browser tab detection requires Chrome 150 or later. After the `/browser` frame stream is open, switching native tabs manually in noVNC synchronizes the current tab and frame stream within about one second; the periodic probe does not run when there is no frame-stream subscriber. If Chrome lacks the required native tab metadata, browser operations return a controlled error instead of falling back to page DOM visibility or tab-order guesses.
+
 ## Architecture {#architecture}
 
 ```text
@@ -99,7 +101,7 @@ docker compose -f compose.browser.yaml --profile mobile up --build -d
 - The Chrome profile is persisted in Docker volume `pi-muse-browser-data` at `/app/.pi-muse/browser/profile/`.
 - `.pi-muse/config.json` is mounted read-only from the host at `/app/browser-config.json`. At container startup it is copied into the data volume while remaining `0600`; the image build context explicitly excludes `.pi-muse`, so model keys are not baked into an image layer.
 - The entrypoint script first uses root to correct ownership of the data volume, then drops privileges to `pimuse`; Node, Chrome, Xvfb, x11vnc, websockify, and fluxbox do not run as root.
-- After startup completes, the container proactively triggers one tab read so the Chrome window is immediately visible. On shutdown, Node receives SIGTERM first and gracefully closes Chrome; the entrypoint script then cleans up fluxbox, x11vnc, websockify, and Xvfb.
+- After startup completes, the container proactively triggers one tab read so the Chrome window is immediately visible. On shutdown, the entrypoint sends SIGTERM only to the independent Node process and waits for it to finish. Node gracefully closes Chrome before the entrypoint stops fluxbox, x11vnc, websockify, and Xvfb, keeping the X server alive while Chrome exits and writes its profile. The entrypoint does not add its own wait timeout; Docker ultimately hard-stops the container after its stop grace period expires.
 - The default virtual screen is `1440x900x24` and can be adjusted with the `BROWSER_SCREEN_SIZE` environment variable, for example `1920x1080x24`.
 - The official Google Chrome package currently targets linux/amd64; Apple Silicon machines must run Docker with amd64 emulation.
 

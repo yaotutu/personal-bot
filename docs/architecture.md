@@ -134,8 +134,9 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 
 ## 真实浏览器
 
-- `BrowserService` 是全局唯一入口，HTTP REST、`/browser` 调试页、WS 输入与 Agent 工具共享同一个懒启动、始终带 GUI 的系统 Chrome 和持久 profile；不做多实例、控制权租约或崩溃恢复框架。CDP 帧流转发 active tab 视口；Docker 场景另用 Xvfb/x11vnc/noVNC 暴露完整真实窗口，两者不替代彼此，也不用无头渲染替代 GUI。
-- 全局只维护一份标签列表；仅当前激活标签在有 WS 订阅者时启动 CDP screencast，切换标签先停止旧流再启动新流，无订阅者时停止推帧。慢客户端按未 ack 帧跳帧，缓冲超限时断开。
+- `BrowserService` 是全局唯一入口，HTTP REST、`/browser` 调试页、WS 输入与 Agent 工具共享同一个懒启动、始终带 GUI 的系统 Chrome 和持久 profile；不做多实例、控制权租约或崩溃恢复框架。当前原生标签由 Browser root CDP 的 `tabActive` 元数据判定，不依赖会被 focus emulation 影响的 DOM `visibilityState`；CDP 帧流转发该标签视口。Docker 场景另用 Xvfb/x11vnc/noVNC 暴露完整真实窗口，两者不替代彼此，也不用无头渲染替代 GUI。
+- 应用是浏览器进程信号的唯一所有者：Playwright launch 显式关闭 SIGINT/SIGTERM/SIGHUP 自动处理，避免应用 `service.close` 与 Playwright handler 并发关闭同一 Browser 时触发二次 `gracefullyClose` 强制 kill。
+- 全局只维护一份标签列表；仅当前激活标签在有 WS 订阅者时启动 CDP screencast，切换标签先停止旧流再启动新流，无订阅者时停止推帧。有 screencast 时用单个不重叠的 1 秒周期探测同步 noVNC 中手工切换的原生标签；停止 screencast、关闭或 context 失效时清理探测。标签识别要求 Chrome 150+ 的原生 tab metadata，缺失时返回受控 `BrowserError`，不按 URL、标签顺序或旧版 DOM 行为猜测。慢客户端按未 ack 帧跳帧，缓冲超限时断开。
 - WS 先用现有 Bearer token 换取一次性短时 ticket，长期 token 不进入 URL；帧格式、输入消息与 ack 语义以 `src/http/contracts/browser.ts` 生成的 OpenAPI extension 为准。
 - snapshot 是服务端固定实现的可见结构投影，仅用于给模型提供标题、文本、元素角色与 ref；外部内容一律标记不可信，不提供任意 JavaScript evaluate。
 - 浏览器核心只依赖 `features/browser`、`adapters/browser` 与基础 shared 工具；REST/WS 是薄协议适配，pi 工具是薄入口适配。禁止 browser 引用 `web_fetch`、conversation 或应用组装层，保证后续可以整体抽成独立浏览器服务。

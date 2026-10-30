@@ -2,6 +2,8 @@
 
 这个部署把浏览器工作站完整放进一个 Linux 容器：Node 服务、Google Chrome、Xvfb、fluxbox、x11vnc、websockify 和 noVNC 共享同一个虚拟显示。Chrome 仍然是真实带 GUI 的浏览器，不使用 `--headless`；Xvfb 只提供它必须存在的 X display。
 
+浏览器标签识别要求 Chrome 150 或更高版本。打开 `/browser` 帧流后，在 noVNC 中手工切换原生标签会在约 1 秒内同步当前标签和帧流；没有帧流订阅时不会运行周期探测。Chrome 缺少所需原生标签元数据时，浏览器操作返回受控错误，不回退到页面 DOM 可见性或标签顺序猜测。
+
 ## 架构 {#architecture}
 
 ```text
@@ -99,7 +101,7 @@ docker compose -f compose.browser.yaml --profile mobile up --build -d
 - Chrome profile 持久化在 Docker volume `pi-muse-browser-data` 的 `/app/.pi-muse/browser/profile/`。
 - `.pi-muse/config.json` 从宿主机只读挂载到 `/app/browser-config.json`，容器启动时复制到数据 volume 并保持 `0600`；镜像构建上下文明确排除 `.pi-muse`，不会把模型密钥打进镜像层。
 - 入口脚本先用 root 修正数据 volume 属主，随后降权到 `pimuse`；Node、Chrome、Xvfb、x11vnc、websockify 和 fluxbox 都不以 root 运行。
-- 容器启动完成会主动触发一次标签读取，让 Chrome 窗口立即可见；停止时先给 Node 发送 SIGTERM，Node 优雅关闭 Chrome，入口脚本再回收 fluxbox、x11vnc、websockify 和 Xvfb。
+- 容器启动完成会主动触发一次标签读取，让 Chrome 窗口立即可见；停止时入口脚本只先给独立 Node 进程发送 SIGTERM 并等待其完成，Node 优雅关闭 Chrome 后才回收 fluxbox、x11vnc、websockify 和 Xvfb，确保 X server 在 Chrome 退出及 profile 写入期间保持存活。入口脚本不另设等待超时；超过 Docker stop grace period 时由 Docker 最终硬终止。
 - 默认虚拟屏幕是 `1440x900x24`，可用环境变量 `BROWSER_SCREEN_SIZE` 调整，例如 `1920x1080x24`。
 - Google Chrome 官方包当前是 linux/amd64；Apple Silicon 机器需让 Docker 使用 amd64 模拟。
 

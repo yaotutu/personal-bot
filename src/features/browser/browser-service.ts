@@ -13,7 +13,8 @@ import {
 type Ticket = { value: string; expiresAt: number };
 type ClientState = {
   client: BrowserStreamClient;
-  pendingFrame?: { frameId: number; sessionId: string };
+  ready: boolean;
+  pendingFrame?: { frameId: number; sessionId: string; tabId: string };
 };
 
 const TICKET_LIFETIME_MS = 60_000;
@@ -93,42 +94,83 @@ export const createBrowserService = (driver: BrowserDriver) => {
   const clients = new Map<BrowserStreamClient, ClientState>();
   const tickets = new Map<string, Ticket>();
   let activeTabId: string | undefined;
+  let screencastTabId: string | undefined;
+  let screencastSync: Promise<void> = Promise.resolve();
+  let latestFrame: BrowserFrame | undefined;
+  let inputTail: Promise<void> = Promise.resolve();
 
   const checkOpen = () => {
     if (closed) throw new BrowserError("BROWSER_FAILED", "Browser service is closed");
   };
 
   const broadcastTabs = (tabs: BrowserTab[]) => {
+    const previousTabId = activeTabId;
     activeTabId = (tabs.find((tab) => tab.active) ?? tabs[0])?.id;
     const message = tabsMessage(tabs);
-    for (const { client } of clients.values()) client.sendText(message);
+    for (const { client, ready } of clients.values()) if (ready) client.sendText(message);
+    return previousTabId !== activeTabId;
   };
 
-  const syncScreencast = async (previousActiveTabId?: string, nextActiveTabId?: string) => {
-    if (!clients.size) return;
-    if (previousActiveTabId && previousActiveTabId !== nextActiveTabId)
-      await driver.stopScreencast(previousActiveTabId).catch(() => undefined);
-    if (nextActiveTabId) await driver.startScreencast(nextActiveTabId).catch(() => undefined);
+  /**
+   * screencast 的启停按队列串行执行，但每次执行时重新读取当前订阅和 active tab。
+   * 这样快速切 tab、最后一个 viewer 离开后立刻重连时，不会被较早的异步 stop 覆盖。
+   */
+  const syncScreencast = () => {
+    const pending = screencastSync.then(async () => {
+      const nextTabId = clients.size ? activeTabId : undefined;
+      if (screencastTabId === nextTabId) return;
+      if (screencastTabId) await driver.stopScreencast(screencastTabId).catch(() => undefined);
+      screencastTabId = undefined;
+      if (!nextTabId) return;
+      try {
+        await driver.startScreencast(nextTabId);
+        screencastTabId = nextTabId;
+      } catch {
+        // 启动失败时保留空状态，后续显式操作或标签变化可再次尝试。
+      }
+    });
+    screencastSync = pending.catch(() => undefined);
+    return pending;
+  };
+
+  const clearPendingFrames = () => {
+    for (const state of clients.values()) state.pendingFrame = undefined;
+  };
+
+  const clearFrameState = () => {
+    latestFrame = undefined;
+    clearPendingFrames();
+  };
+
+  const sendFrame = (state: ClientState, frame: BrowserFrame, message?: Uint8Array) => {
+    if (!state.ready || state.pendingFrame !== undefined) return;
+    if (state.client.bufferedAmount() > MAX_CLIENT_BUFFER_BYTES) {
+      state.client.close();
+      detachClient(state.client);
+      return;
+    }
+    try {
+      state.client.sendBinary(message ?? frameMessage(frame));
+      state.pendingFrame = { frameId: frame.frameId, sessionId: frame.sessionId, tabId: frame.tabId };
+    } catch {
+      state.client.close();
+      detachClient(state.client);
+    }
   };
 
   driver.onTabsChanged?.((tabs) => {
-    const previous = activeTabId;
-    broadcastTabs(tabs);
-    void syncScreencast(previous, activeTabId).catch(() => undefined);
+    if (broadcastTabs(tabs)) clearFrameState();
+    void syncScreencast();
   });
 
   driver.onFrame?.((frame) => {
-    if (!clients.size) return;
+    if (frame.tabId !== activeTabId) return;
+    latestFrame = frame;
+    const recipients = [...clients.values()].filter((state) =>
+      state.ready && state.pendingFrame === undefined);
+    if (!recipients.length) return;
     const message = frameMessage(frame);
-    for (const state of clients.values()) {
-      if (state.client.bufferedAmount() > MAX_CLIENT_BUFFER_BYTES) {
-        state.client.close();
-        continue;
-      }
-      if (state.pendingFrame !== undefined) continue;
-      state.client.sendBinary(message);
-      state.pendingFrame = { frameId: frame.frameId, sessionId: frame.sessionId };
-    }
+    for (const state of recipients) sendFrame(state, frame, message);
   });
 
   const run = async <T>(operation: () => Promise<T>): Promise<T> => {
@@ -143,7 +185,10 @@ export const createBrowserService = (driver: BrowserDriver) => {
 
   const listTabs = () => run(async () => {
     const tabs = await driver.listTabs();
-    broadcastTabs(tabs);
+    if (broadcastTabs(tabs)) {
+      clearFrameState();
+      void syncScreencast();
+    }
     return tabs;
   });
 
@@ -174,66 +219,92 @@ export const createBrowserService = (driver: BrowserDriver) => {
   };
 
   const detachClient = (client: BrowserStreamClient) => {
-    clients.delete(client);
-    if (!clients.size && activeTabId)
-      void driver.stopScreencast(activeTabId).catch(() => undefined);
+    if (!clients.delete(client)) return;
+    void syncScreencast();
   };
 
-  const handleClientMessage = async (client: BrowserStreamClient, raw: string) => {
+  const sendClientError = (client: BrowserStreamClient, error: string) => {
+    if (!clients.has(client)) return;
+    try {
+      client.sendText(JSON.stringify({ type: "error", error }));
+    } catch {
+      client.close();
+      detachClient(client);
+    }
+  };
+
+  /**
+   * WS 输入共享同一个 Chrome，必须按收到顺序串行执行。这里只串行已校验的
+   * driver.input；ack、ready 与帧推送保持独立，不被慢输入阻塞。
+   */
+  const enqueueInput = (client: BrowserStreamClient, tabId: string, input: BrowserInputEvent) => {
+    const pending = inputTail.then(async () => {
+      try {
+        await driver.input(tabId, input);
+      } catch {
+        sendClientError(client, "Browser input failed");
+      }
+    });
+    inputTail = pending.catch(() => undefined);
+  };
+
+  const handleClientMessage = (client: BrowserStreamClient, raw: string) => {
+    const state = clients.get(client);
+    if (!state?.ready) return;
     let message: unknown;
     try {
       message = JSON.parse(raw);
     } catch {
-      client.sendText(JSON.stringify({ type: "error", error: "Invalid JSON message" }));
+      sendClientError(client, "Invalid JSON message");
       return;
     }
     const value = message as { type?: unknown; frameId?: unknown; sessionId?: unknown };
     if (value?.type === "frame_ack") {
-      const state = clients.get(client);
       if (
-        !state ||
         typeof value.frameId !== "number" ||
         typeof value.sessionId !== "string" ||
         state.pendingFrame?.frameId !== value.frameId ||
         state.pendingFrame.sessionId !== value.sessionId
       ) return;
-      const { sessionId } = state.pendingFrame;
       state.pendingFrame = undefined;
-      if (activeTabId)
-        await driver.acknowledgeFrame(activeTabId, sessionId).catch(() => undefined);
       return;
     }
     if (!isInputMessage(message)) {
-      client.sendText(JSON.stringify({ type: "error", error: "Invalid input message" }));
+      sendClientError(client, "Invalid input message");
       return;
     }
+    // 绑定消息到达时的标签；输入排队后不能因后续切换标签而改写到新标签。
     const targetTabId = activeTabId;
     if (!targetTabId) {
-      client.sendText(JSON.stringify({ type: "error", error: "No active browser tab" }));
+      sendClientError(client, "No active browser tab");
       return;
     }
-    try {
-      await driver.input(targetTabId, message);
-    } catch {
-      client.sendText(JSON.stringify({ type: "error", error: "Browser input failed" }));
-    }
+    enqueueInput(client, targetTabId, message);
   };
 
   const attachClient = (client: BrowserStreamClient) => {
     checkOpen();
-    clients.set(client, { client });
+    clients.set(client, { client, ready: false });
     void (async () => {
       try {
         const tabs = await driver.listTabs();
-        broadcastTabs(tabs);
+        if (!clients.has(client)) return;
+        if (broadcastTabs(tabs)) clearFrameState();
+        if (!clients.has(client)) return;
         client.sendText(JSON.stringify({
           type: "ready",
           tabs,
           activeTabId: activeTabId ?? null,
           frameFormat: BROWSER_FRAME_FORMAT,
         }));
-        await syncScreencast(undefined, activeTabId);
+        const state = clients.get(client);
+        if (!state) return;
+        state.ready = true;
+        const cachedFrame = latestFrame;
+        if (cachedFrame && cachedFrame.tabId === activeTabId) sendFrame(state, cachedFrame);
+        await syncScreencast();
       } catch {
+        if (!clients.has(client)) return;
         client.sendText(JSON.stringify({ type: "error", error: "Browser operation failed" }));
         client.close();
         detachClient(client);
@@ -241,7 +312,7 @@ export const createBrowserService = (driver: BrowserDriver) => {
     })();
     return {
       handleMessage: (message: string) => {
-        void handleClientMessage(client, message).catch(() => undefined);
+        handleClientMessage(client, message);
       },
       detach: () => detachClient(client),
     };
@@ -253,7 +324,12 @@ export const createBrowserService = (driver: BrowserDriver) => {
     for (const { client } of clients.values()) client.close();
     clients.clear();
     tickets.clear();
-    closing = driver.close().catch(() => undefined);
+    latestFrame = undefined;
+    closing = (async () => {
+      await screencastSync.catch(() => undefined);
+      await inputTail.catch(() => undefined);
+      await driver.close().catch(() => undefined);
+    })();
     return closing;
   };
 

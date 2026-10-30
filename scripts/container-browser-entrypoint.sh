@@ -10,6 +10,8 @@ window_size="${BROWSER_WINDOW_SIZE:-${screen_size%x*}}"
 vnc_port="${BROWSER_VNC_PORT:-5900}"
 novnc_port="${BROWSER_NOVNC_PORT:-6080}"
 children=""
+node_pid=""
+fluxbox_init=""
 
 fail() {
   echo "$1" >&2
@@ -57,11 +59,21 @@ fi
 cleanup() {
   status=$?
   trap - EXIT INT TERM
+  # Node 必须先在仍然存活的 X server 上关闭 Chrome 并完成 profile 写入。
+  # 等待本身不设超时；超过 Docker stop grace 时由 Docker 最终硬终止容器。
+  if [ -n "$node_pid" ]; then
+    kill -TERM "$node_pid" 2>/dev/null || true
+    wait "$node_pid" 2>/dev/null || true
+    node_pid=""
+  fi
   if [ -n "$children" ]; then
     # shellcheck disable=SC2086
     kill $children 2>/dev/null || true
     # shellcheck disable=SC2086
     wait $children 2>/dev/null || true
+  fi
+  if [ -n "$fluxbox_init" ]; then
+    rm -f "$fluxbox_init"
   fi
   exit "$status"
 }
@@ -91,7 +103,8 @@ while [ "$i" -lt 100 ]; do
 done
 [ "$ready" -eq 1 ] || fail "Xvfb did not become ready"
 
-fluxbox_init=/tmp/pi-muse-fluxbox-init
+fluxbox_init="$(mktemp /tmp/pi-muse-fluxbox-init.XXXXXX)" \
+  || fail "Unable to create a temporary Fluxbox config"
 cat >"$fluxbox_init" <<'EOF'
 session.styleFile: /usr/share/fluxbox/styles/Squared_for_Debian
 session.screen0.toolbar.visible: false
@@ -135,7 +148,6 @@ rm -f /app/.pi-muse/browser/profile/SingletonCookie \
 echo "pi-muse browser container ready: API port 12330, noVNC port ${novnc_port}, display ${display}"
 node dist/index.js &
 node_pid=$!
-children="$children $node_pid"
 api_ready=0
 i=0
 while [ "$i" -lt 300 ]; do
@@ -178,3 +190,4 @@ then
   fail "Unable to start the real Chrome window"
 fi
 wait "$node_pid"
+node_pid=""

@@ -83,7 +83,6 @@ export type BrowserDriver = {
   snapshot: (tabId: string) => Promise<Omit<BrowserSnapshot, "untrusted">>;
   startScreencast: (tabId: string) => Promise<void>;
   stopScreencast: (tabId: string) => Promise<void>;
-  acknowledgeFrame: (tabId: string, sessionId: string) => Promise<void>;
   onTabsChanged?: (listener: (tabs: BrowserTab[]) => void) => void;
   onFrame?: (listener: (frame: BrowserFrame) => void) => void;
 };

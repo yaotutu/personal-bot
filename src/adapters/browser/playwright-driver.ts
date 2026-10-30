@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { chromium, type CDPSession, type Page } from "playwright-core";
+import { chromium, type BrowserContext, type CDPSession, type Page } from "playwright-core";
 import { resolvePublicHost } from "../../shared/public-host.js";
 import {
   BrowserError,
@@ -46,7 +46,18 @@ type ScreencastFrameEvent = {
   };
 };
 
-const VIEWPORT = { width: 1280, height: 800 };
+type NativeTargetInfo = {
+  targetId?: unknown;
+  type?: unknown;
+  embedderData?: Record<string, unknown>;
+};
+type LaunchPersistentContext = (
+  profileDir: string,
+  options: Parameters<typeof chromium.launchPersistentContext>[1],
+) => Promise<BrowserContext>;
+type DriverDependencies = { launchPersistentContext?: LaunchPersistentContext };
+
+const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
 const REF_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 // tsx 会给页面函数注入浏览器不存在的 __name 辅助符号；快照脚本必须用字符串保持原样。
 const SNAPSHOT_SCRIPT = String.raw`
@@ -118,16 +129,33 @@ const normalizeHttpUrl = (rawUrl: string) => {
  * Playwright 只作为系统 Chrome 的驱动适配层：这里负责进程生命周期、CDP
  * screencast 与输入映射，不实现 HTTP/WS 协议，也不暴露任意 JavaScript 给模型。
  */
-export const createPlaywrightBrowserDriver = (config: DriverConfig): BrowserDriver => {
-  let context: Awaited<ReturnType<typeof chromium.launchPersistentContext>> | undefined;
+export const createPlaywrightBrowserDriver = (
+  config: DriverConfig,
+  dependencies: DriverDependencies = {},
+): BrowserDriver => {
+  const launchPersistentContext = dependencies.launchPersistentContext ??
+    ((profileDir, options) => chromium.launchPersistentContext(profileDir, options));
+  let context: BrowserContext | undefined;
   let starting: Promise<void> | undefined;
   let nextFrameId = 1;
   let closing: Promise<void> | undefined;
   const tabs = new Map<string, TabRecord>();
   const recordsByPage = new WeakMap<Page, TabRecord>();
+  const pageTargetIds = new WeakMap<Page, string>();
   const casts = new Map<string, CastSession>();
   const tabsListeners = new Set<(tabs: BrowserTab[]) => void>();
   const frameListeners = new Set<(frame: BrowserFrame) => void>();
+  let castProbeTimer: ReturnType<typeof setInterval> | undefined;
+  let castProbeRunning = false;
+
+  const nativeMetadataError = () =>
+    new BrowserError("BROWSER_FAILED", "Native tab metadata unavailable");
+
+  const clearCastProbe = () => {
+    if (!castProbeTimer) return;
+    clearInterval(castProbeTimer);
+    castProbeTimer = undefined;
+  };
 
   const emitTabs = () => {
     const projected = [...tabs.values()].map(present);
@@ -144,13 +172,26 @@ export const createPlaywrightBrowserDriver = (config: DriverConfig): BrowserDriv
     emitTabs();
   };
 
+  const resetContext = (launched: BrowserContext) => {
+    if (context !== launched) return;
+    context = undefined;
+    starting = undefined;
+    clearCastProbe();
+    for (const cast of casts.values()) {
+      cast.cdp.off("Page.screencastFrame", cast.listener);
+    }
+    casts.clear();
+    tabs.clear();
+    emitTabs();
+  };
+
   const recordFor = (tabId: string) => {
     const record = tabs.get(tabId);
     if (!record) throw new BrowserError("TAB_NOT_FOUND", "Browser tab not found");
     return record;
   };
 
-  const registerPage = (page: Page) => {
+  const registerPage = (page: Page, owner: BrowserContext) => {
     // context.newPage 也会触发 context 的 page 事件；按 Page 去重避免同一标签出现两条记录。
     const existing = recordsByPage.get(page);
     if (existing) return existing;
@@ -165,20 +206,24 @@ export const createPlaywrightBrowserDriver = (config: DriverConfig): BrowserDriv
     tabs.set(record.id, record);
     recordsByPage.set(page, record);
     page.on("framenavigated", (frame) => {
+      if (context !== owner) return;
       if (frame !== page.mainFrame()) return;
       record.url = frame.url();
       record.loading = true;
       emitTabs();
     });
     page.on("domcontentloaded", () => {
+      if (context !== owner) return;
       record.loading = false;
       void refreshRecord(record).finally(emitTabs);
     });
     page.on("load", () => {
+      if (context !== owner) return;
       record.loading = false;
       void refreshRecord(record).finally(emitTabs);
     });
     page.on("close", () => {
+      if (context !== owner) return;
       tabs.delete(record.id);
       void stopCast(record.id).catch(() => undefined);
       if (record.active && tabs.size) {
@@ -193,16 +238,23 @@ export const createPlaywrightBrowserDriver = (config: DriverConfig): BrowserDriv
   };
 
   const ensureStarted = async () => {
+    if (closing) await closing;
     if (context) return;
-    starting ??= (async () => {
+    if (starting) return starting;
+    const pending = (async () => {
       await mkdir(config.profileDir, { recursive: true, mode: 0o700 });
       // Docker 的 noVNC 通道展示整台 X 屏幕；让 Chrome 按屏幕尺寸占满，不叠一层固定视口。
       const windowSize = process.env.BROWSER_WINDOW_SIZE;
       const [windowWidth, windowHeight] = windowSize?.split("x") ?? [];
-      const launched = await chromium.launchPersistentContext(config.profileDir, {
+      const launched = await launchPersistentContext(config.profileDir, {
         // 产品要求固定使用带 GUI 的真实 Chrome；Docker 部署由 Xvfb 提供显示，不回退 headless。
         headless: false,
-        viewport: windowSize ? null : VIEWPORT,
+        // 进程信号由应用的 shutdown 串行驱动 service.close；Playwright 默认 handler
+        // 会并发关闭同一 Browser，二次 gracefullyClose 会升级为强制 kill。
+        handleSIGINT: false,
+        handleSIGTERM: false,
+        handleSIGHUP: false,
+        viewport: windowSize ? null : DEFAULT_VIEWPORT,
         // Linux 容器默认禁止 Chrome 创建 namespace sandbox；这里保持真实 GUI，
         // 不引入 headless 或远程渲染替代。
         args: [
@@ -223,29 +275,41 @@ export const createPlaywrightBrowserDriver = (config: DriverConfig): BrowserDriv
           : { channel: "chrome" as const }),
       });
       context = launched;
-      // 默认复用 Web 工具的私网边界；显式 allowPrivateTargets 只用于本机联调。
-      await launched.route("**/*", async (route) => {
-        try {
-          const url = new URL(route.request().url());
-          // 私网开关只放宽回环/内网目标；协议限制始终保留。
-          if (!["http:", "https:"].includes(url.protocol)) throw new Error("blocked");
-          if (!config.allowPrivateTargets) await resolvePublicHost(url.hostname, false);
-          return route.continue();
-        } catch {
-          return route.abort("blockedbyclient");
-        }
-      });
-      for (const page of launched.pages()) registerPage(page);
-      if (tabs.size) setActiveRecord([...tabs.values()][0]!);
-      launched.on("page", (page) => {
-        const record = registerPage(page);
-        setActiveRecord(record);
-      });
-    })().catch((error) => {
-      starting = undefined;
-      throw error;
-    });
-    await starting;
+      launched.on("close", () => resetContext(launched));
+      try {
+        // 默认复用 Web 工具的私网边界；显式 allowPrivateTargets 只用于本机联调。
+        await launched.route("**/*", async (route) => {
+          try {
+            const url = new URL(route.request().url());
+            // 私网开关只放宽回环/内网目标；协议限制始终保留。
+            if (!["http:", "https:"].includes(url.protocol)) throw new Error("blocked");
+            if (!config.allowPrivateTargets) await resolvePublicHost(url.hostname, false);
+            return route.continue();
+          } catch {
+            return route.abort("blockedbyclient");
+          }
+        });
+        if (context !== launched) throw new Error("Browser context closed during startup");
+        for (const page of launched.pages()) registerPage(page, launched);
+        if (context !== launched) throw new Error("Browser context closed during startup");
+        if (tabs.size) setActiveRecord([...tabs.values()][0]!);
+        launched.on("page", (page) => {
+          if (context !== launched) return;
+          const record = registerPage(page, launched);
+          setActiveRecord(record);
+        });
+      } catch (error) {
+        if (context === launched) resetContext(launched);
+        await launched.close().catch(() => undefined);
+        throw error;
+      }
+    })();
+    starting = pending;
+    try {
+      await pending;
+    } finally {
+      if (starting === pending) starting = undefined;
+    }
   };
 
   const validateTarget = async (url: string) => {
@@ -293,37 +357,150 @@ export const createPlaywrightBrowserDriver = (config: DriverConfig): BrowserDriv
     if (!cast) return;
     casts.delete(tabId);
     cast.cdp.off("Page.screencastFrame", cast.listener);
+    if (!casts.size) clearCastProbe();
     await cast.cdp.send("Page.stopScreencast").catch(() => undefined);
     await cast.cdp.detach().catch(() => undefined);
+  };
+
+  /**
+   * Playwright focus emulation 会让所有页面保持 DOM visible，不能据此判断原生
+   * 标签。这里用 Browser root CDP 的 tabActive 元数据，并通过 autoAttachRelated
+   * 的 page targetId 精确关联 Playwright Page；所有临时 CDP session 都在 finally
+   * 分离，避免影响 Playwright 自己的会话。
+   */
+  const detectVisibleRecord = async (owner: BrowserContext) => {
+    if (context !== owner) return;
+    const browser = owner.browser();
+    if (!browser) throw nativeMetadataError();
+    const root = await browser.newBrowserCDPSession();
+    try {
+      const targets = await root.send("Target.getTargets", { filter: [{ type: "tab" }] });
+      if (!Array.isArray(targets.targetInfos)) throw nativeMetadataError();
+      const tabTargets = (targets.targetInfos as NativeTargetInfo[])
+        .filter((target) => target.type === "tab");
+      if (!tabTargets.length) throw nativeMetadataError();
+
+      const activeTabIds: string[] = [];
+      for (const target of tabTargets) {
+        const tabActive = (target.embedderData as Record<string, unknown> | undefined)?.tabActive;
+        if (typeof tabActive !== "boolean" || typeof target.targetId !== "string")
+          throw nativeMetadataError();
+        if (tabActive) activeTabIds.push(target.targetId);
+      }
+      if (!activeTabIds.length) return;
+
+      const relatedPageTargetIds = new Set<string>();
+      const attachedListener = (event: { targetInfo?: NativeTargetInfo }) => {
+        if (event.targetInfo?.type === "page" && typeof event.targetInfo.targetId === "string")
+          relatedPageTargetIds.add(event.targetInfo.targetId);
+      };
+      root.on("Target.attachedToTarget", attachedListener);
+      try {
+        for (const targetId of activeTabIds) {
+          await root.send("Target.autoAttachRelated", {
+            targetId,
+            waitForDebuggerOnStart: false,
+            filter: [{ type: "page" }, { type: "tab" }],
+          });
+        }
+      } finally {
+        root.off("Target.attachedToTarget", attachedListener);
+      }
+      if (context !== owner) return;
+      if (!relatedPageTargetIds.size) throw nativeMetadataError();
+
+      const records = [...tabs.values()];
+      const targetIds = new Map<TabRecord, string>();
+      await Promise.all(records.map(async (record) => {
+        let targetId = pageTargetIds.get(record.page);
+        if (!targetId) {
+          const pageCdp = await owner.newCDPSession(record.page);
+          try {
+            const info = await pageCdp.send("Target.getTargetInfo");
+            const found = (info.targetInfo as NativeTargetInfo | undefined)?.targetId;
+            if (typeof found !== "string" || !found) throw nativeMetadataError();
+            targetId = found;
+            pageTargetIds.set(record.page, targetId);
+          } finally {
+            await pageCdp.detach().catch(() => undefined);
+          }
+        }
+        targetIds.set(record, targetId);
+      }));
+      if (context !== owner) return;
+
+      const current = records.find((record) => record.active);
+      const matched = current && relatedPageTargetIds.has(targetIds.get(current)!)
+        ? current
+        : records.find((record) => relatedPageTargetIds.has(targetIds.get(record)!));
+      if (matched && !matched.active) setActiveRecord(matched);
+    } finally {
+      await root.detach().catch(() => undefined);
+    }
+  };
+
+  const ensureCastProbe = (owner: BrowserContext) => {
+    if (context !== owner) return;
+    if (!casts.size) {
+      clearCastProbe();
+      return;
+    }
+    if (castProbeTimer) return;
+    castProbeTimer = setInterval(() => {
+      if (context !== owner || !casts.size) {
+        clearCastProbe();
+        return;
+      }
+      if (castProbeRunning) return;
+      castProbeRunning = true;
+      void detectVisibleRecord(owner)
+        .catch(() => undefined)
+        .finally(() => {
+          castProbeRunning = false;
+        });
+    }, 1000);
+    castProbeTimer.unref();
   };
 
   const driver: BrowserDriver = {
     start: ensureStarted,
     close: async () => {
       if (closing) return closing;
-      closing = (async () => {
+      const pending = (async () => {
         // 懒启动可能仍在进行；先等它拿到 context，再统一优雅关闭，避免 Chrome 泄漏。
         const pendingStart = starting;
         if (pendingStart) await pendingStart.catch(() => undefined);
         const current = context;
         context = undefined;
         starting = undefined;
+        clearCastProbe();
         for (const tabId of [...casts.keys()]) await stopCast(tabId);
         tabs.clear();
+        emitTabs();
         await current?.close().catch(() => undefined);
       })();
+      const tracked = pending.finally(() => {
+        if (closing === tracked) closing = undefined;
+      });
+      closing = tracked;
       return closing;
     },
     listTabs: async () => {
       await ensureStarted();
+      const owner = context!;
       await Promise.all([...tabs.values()].map(refreshRecord));
+      await detectVisibleRecord(owner);
       const projected = [...tabs.values()].map(present);
       return projected;
     },
     newTab: async (url) => {
       await ensureStarted();
-      const page = await context!.newPage();
-      const record = registerPage(page);
+      const owner = context!;
+      const page = await owner.newPage();
+      if (context !== owner) throw new BrowserError("BROWSER_FAILED", "Browser operation failed");
+      // newPage 可能只创建后台标签；内部 active 必须跟随 Chrome 真正可见的 page。
+      await page.bringToFront();
+      const record = registerPage(page, owner);
       setActiveRecord(record);
       await goto(record, url);
       return present(record);
@@ -384,9 +561,13 @@ export const createPlaywrightBrowserDriver = (config: DriverConfig): BrowserDriv
       const mouse = record.page.mouse;
       const keyboard = record.page.keyboard;
       if (event.type === "pointer_move") await mouse.move(event.x, event.y);
-      else if (event.type === "pointer_down") await mouse.down({ button: event.button });
-      else if (event.type === "pointer_up") await mouse.up({ button: event.button });
-      else if (event.type === "click")
+      else if (event.type === "pointer_down") {
+        await mouse.move(event.x, event.y);
+        await mouse.down({ button: event.button });
+      } else if (event.type === "pointer_up") {
+        await mouse.move(event.x, event.y);
+        await mouse.up({ button: event.button });
+      } else if (event.type === "click")
         await mouse.click(event.x, event.y, { button: event.button, clickCount: event.clickCount });
       else if (event.type === "wheel") {
         if (event.x !== undefined && event.y !== undefined) await mouse.move(event.x, event.y);
@@ -445,15 +626,29 @@ export const createPlaywrightBrowserDriver = (config: DriverConfig): BrowserDriv
     startScreencast: async (tabId) => {
       await ensureStarted();
       if (casts.has(tabId)) return;
+      const owner = context!;
       const record = recordFor(tabId);
-      const cdp = await context!.newCDPSession(record.page);
+      const cdp = await owner.newCDPSession(record.page);
+      const metrics = await cdp.send("Page.getLayoutMetrics");
+      if (context !== owner) {
+        await cdp.detach().catch(() => undefined);
+        throw new BrowserError("BROWSER_FAILED", "Browser operation failed");
+      }
+      const layout = metrics.cssLayoutViewport ?? metrics.layoutViewport;
+      const viewport = {
+        width: Math.max(1, Math.round(layout.clientWidth)),
+        height: Math.max(1, Math.round(layout.clientHeight)),
+      };
       const listener = (event: ScreencastFrameEvent) => {
+        // CDP 生产帧与 viewer ack 解耦：驱动收到帧就回 ack，客户端慢只影响自己的 pending。
+        if (event.sessionId > 0)
+          void cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => undefined);
         const frame: BrowserFrame = {
           tabId,
           frameId: nextFrameId++,
           sessionId: String(event.sessionId),
-          width: event.metadata.deviceWidth ?? VIEWPORT.width,
-          height: event.metadata.deviceHeight ?? VIEWPORT.height,
+          width: event.metadata.deviceWidth ?? viewport.width,
+          height: event.metadata.deviceHeight ?? viewport.height,
           timestamp: event.metadata.timestamp ?? Date.now(),
           jpeg: new Uint8Array(Buffer.from(event.data, "base64")),
         };
@@ -461,34 +656,34 @@ export const createPlaywrightBrowserDriver = (config: DriverConfig): BrowserDriv
       };
       casts.set(tabId, { cdp, listener });
       cdp.on("Page.screencastFrame", listener);
-      await cdp.send("Page.startScreencast", {
-        format: "jpeg",
-        quality: 70,
-        maxWidth: VIEWPORT.width,
-        maxHeight: VIEWPORT.height,
-      });
-      // headed Chrome 的静态页面可能迟迟不触发 screencast 重绘；启动时从真实
-      // GUI 捕一帧，保证切换标签后客户端立即看到当前页面而不是空白画布。
-      const captured = await cdp.send("Page.captureScreenshot", {
-        format: "jpeg",
-        quality: 70,
-        fromSurface: true,
-      }) as { data: string };
-      listener({
-        data: captured.data,
-        sessionId: 0,
-        metadata: { deviceWidth: VIEWPORT.width, deviceHeight: VIEWPORT.height, timestamp: Date.now() },
-      });
+      ensureCastProbe(owner);
+      try {
+        await cdp.send("Page.startScreencast", {
+          format: "jpeg",
+          quality: 70,
+          maxWidth: viewport.width,
+          maxHeight: viewport.height,
+        });
+        // headed Chrome 的静态页面可能迟迟不触发 screencast 重绘；启动时从真实
+        // GUI 捕一帧，保证切换标签后客户端立即看到当前页面而不是空白画布。
+        const captured = await cdp.send("Page.captureScreenshot", {
+          format: "jpeg",
+          quality: 70,
+          fromSurface: true,
+          captureBeyondViewport: false,
+          clip: { x: 0, y: 0, width: viewport.width, height: viewport.height, scale: 1 },
+        }) as { data: string };
+        listener({
+          data: captured.data,
+          sessionId: 0,
+          metadata: { deviceWidth: viewport.width, deviceHeight: viewport.height, timestamp: Date.now() },
+        });
+      } catch (error) {
+        await stopCast(tabId);
+        throw error;
+      }
     },
     stopScreencast: stopCast,
-    acknowledgeFrame: async (tabId, sessionId) => {
-      const cast = casts.get(tabId);
-      if (!cast) return;
-      const value = Number(sessionId);
-      // sessionId=0 是本地初始截帧，不属于 CDP screencast 会话，无需回 ack。
-      if (Number.isInteger(value) && value > 0)
-        await cast.cdp.send("Page.screencastFrameAck", { sessionId: value });
-    },
     onTabsChanged: (listener) => tabsListeners.add(listener),
     onFrame: (listener) => frameListeners.add(listener),
   };

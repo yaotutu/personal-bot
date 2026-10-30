@@ -29,7 +29,10 @@ test("browser container keeps Chrome headed and exposes its real GUI through noV
   assert.match(entrypoint, /HOME=\/home\/pimuse/);
   assert.match(entrypoint, /BROWSER_WINDOW_SIZE/);
   assert.match(entrypoint, /session\.screen0\.toolbar\.visible: false/);
+  assert.match(entrypoint, /mktemp \/tmp\/pi-muse-fluxbox-init\.XXXXXX/);
+  assert.doesNotMatch(entrypoint, /^fluxbox_init=\/tmp\/pi-muse-fluxbox-init$/m);
   assert.match(entrypoint, /chmod 0444 "\$fluxbox_init"/);
+  assert.match(entrypoint, /rm -f "\$fluxbox_init"/);
   assert.match(entrypoint, /SingletonLock/);
 
   assert.match(entrypoint, /Xvfb "\$display" -screen 0 "\$screen_size" -ac -nolisten tcp/);
@@ -39,14 +42,32 @@ test("browser container keeps Chrome headed and exposes its real GUI through noV
   assert.match(entrypoint, /--web \/usr\/share\/novnc/);
   assert.match(entrypoint, /export DISPLAY="\$display"/);
   assert.match(entrypoint, /node dist\/index\.js/);
-  assert.match(await read("src/adapters/browser/playwright-driver.ts"), /--no-sandbox/);
-  assert.match(await read("src/adapters/browser/playwright-driver.ts"), /--window-position=0,0/);
-  assert.match(await read("src/adapters/browser/playwright-driver.ts"), /--hide-crash-restore-bubble/);
+  const driver = await read("src/adapters/browser/playwright-driver.ts");
+  assert.match(driver, /--no-sandbox/);
+  assert.match(driver, /--window-position=0,0/);
+  assert.match(driver, /--hide-crash-restore-bubble/);
+  assert.match(driver, /Page\.getLayoutMetrics/);
+  assert.match(driver, /Page\.screencastFrameAck/);
+  assert.doesNotMatch(driver, /acknowledgeFrame/);
   assert.match(entrypoint, /api\/browser\/tabs/);
   assert.match(entrypoint, /Unable to start the real Chrome window/);
   assert.match(entrypoint, /trap cleanup EXIT INT TERM/);
+  assert.match(entrypoint, /^node_pid=""$/m);
+  assert.doesNotMatch(entrypoint, /children="\$children \$node_pid"/);
+  assert.match(entrypoint, /node dist\/index\.js &\nnode_pid=\$!/);
+  assert.match(entrypoint, /^wait "\$node_pid"\nnode_pid=""$/m);
+  const cleanup = entrypoint.slice(entrypoint.indexOf("cleanup() {"), entrypoint.indexOf("trap cleanup"));
+  const trapsDisabled = cleanup.indexOf("trap - EXIT INT TERM");
+  const nodeTerminated = cleanup.indexOf('kill -TERM "$node_pid"');
+  const nodeWaited = cleanup.indexOf('wait "$node_pid"');
+  const graphicsStopped = cleanup.indexOf("kill $children");
+  assert.ok(trapsDisabled >= 0, "cleanup must disable traps before waiting");
+  assert.ok(nodeTerminated > trapsDisabled, "cleanup must TERM Node after disabling traps");
+  assert.ok(nodeWaited > nodeTerminated, "cleanup must wait for Node after TERM");
+  assert.ok(graphicsStopped > nodeWaited, "cleanup must stop graphics only after Node exits");
   assert.match(entrypoint, /install -o pimuse -g pimuse -m 0600/);
   assert.match(entrypoint, /setpriv/);
+  await exec("sh", ["-n", join(root, "scripts/container-browser-entrypoint.sh")]);
 
   // 主 API 默认端口贯穿本地代理、镜像健康检查、入口脚本和端口映射，避免部署链路分叉。
   assert.match(viteConfig, /defaultApiTarget = "http:\/\/127\.0\.0\.1:12330"/);
