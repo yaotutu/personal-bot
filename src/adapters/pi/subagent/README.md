@@ -4,11 +4,16 @@ Based on `@earendil-works/pi-coding-agent` **1.3.0**, upstream
 [`examples/extensions/subagent`](https://github.com/earendil-works/pi/tree/v1.3.0/packages/coding-agent/examples/extensions/subagent).
 
 The upstream example is MIT licensed (copyright Mario Zechner). The repository
-retains its single / parallel / chain protocol, `{previous}` chain substitution,
+retains its single / parallel / chain execution semantics, `{previous}` chain substitution,
 8-task / 4-concurrent parallel limits, input-order results and 50 KiB per-result cap.
 
 This is an adapted source integration, **not an unmodified upstream extension**:
 
+- Tool parameters are unified into top-level required `mode` ("single" | "parallel" | "chain")
+  and `tasks` array (1-8 items of `{ agent, task }`). Ambiguous legacy top-level `agent`/`task`/`chain`
+  fields are removed. Single mode strictly requires exactly 1 task.
+- `constrainedSampling` is declared with `{ type: "json_schema", strict: "prefer" }` to guide
+  providers supporting strict JSON Schema.
 - Child CLI spawning is replaced by an injected `createAgentSession` runner.
 - The runner uses the service's model and guarded tools; no CLI config, external
   model credentials, unrestricted `cwd`, bash, or approval bypass is available.
@@ -17,8 +22,8 @@ This is an adapted source integration, **not an unmodified upstream extension**:
   model receives the bounded final result; existing presentation rules control
   what is exposed to HTTP clients.
 - Subagents are parent-owned tool executions, never independent queued jobs.
-- Empty/invalid modes and unknown roles are rejected before execution. Chain size
-  is also bounded to 8 steps; cancellation drains child sessions without retries.
+- Single task count mismatch and unknown roles are rejected before queuing or starting children
+  with controlled safe rejection messages (`denied: true`). Cancellation drains child sessions without retries.
 
 No installed SDK files are modified. Re-evaluate this adapter against the official
 example when updating the pi dependency; do not silently restore CLI spawning.

@@ -22,7 +22,7 @@
 | 写入工具接入 | SDK `defineTool` 与工具执行机制 | write/edit 是本项目实现，不直接开放 SDK 默认 write/edit；完整预览、版本绑定、逐次审批与提交检查由项目控制 |
 | 技能解析与加载 | `parseFrontmatter`、`loadSkillsFromDir`，将生效技能传给 ResourceLoader | 内置 assets 与实例 skills 发现、会话开关与诊断；authoring 精确校验 frontmatter name 后复用 loader，不另写 YAML 解析器 |
 | Extension 宿主 | SDK 扩展加载与运行机制、内联 extension factory | 仅装配已启用技能的显式 extension 路径和受控 subagent factory，不自造通用插件框架 |
-| Subagent 编排 | 官方 1.3.0 示例的 single/parallel/chain 语义 | CLI runner 改为注入的独立 SDK session，权限继承与收窄、父取消、审批归属和展示适配 |
+| Subagent 编排 | 官方 1.3.0 示例的 single/parallel/chain 语义 | CLI runner 改为注入的独立 SDK session，参数统一为顶层 mode + tasks 契约，权限继承与收窄、父取消、审批归属和展示适配 |
 
 自动压缩已开启，模型/工具自动重试关闭（`retry.enabled: false`）。显式用户重试与 pi context edit 不是自动重试，也不恢复未完成执行；具体规则见架构与生成契约。
 
@@ -46,7 +46,7 @@
 
 ## Subagent 示例的本地适配
 
-官方包附带 `examples/extensions/subagent`，它是示例扩展，不是自动启用的内置后台任务系统。本项目保留编排语义，但将其启动 CLI 的 runner 改为受限的 `createAgentSession` 调用；子会话使用 `SessionManager.inMemory`，结果回到父工具结果，不引入第二套执行或持久队列。
+官方包附带 `examples/extensions/subagent`，它是示例扩展，不是自动启用的内置后台任务系统。本项目保留编排语义，但将其启动 CLI 的 runner 改为受限的 `createAgentSession` 调用，并将入参统一收拢为顶层必填 `mode` + `tasks`（移除混传入口，声明 `constrainedSampling` strict prefer）；子会话使用 `SessionManager.inMemory`，结果回到父工具结果，不引入第二套执行或持久队列。
 
 源码来源、MIT 许可和本地差异见 [适配目录说明](../src/adapters/pi/subagent/README.md)。运行权限、并发限制、审批与旧 worker 数据处理统一以 [架构规范](architecture.md#子代理subagent)为准，HTTP 与工具展示以当前生成契约和自有 Web 为准，不复制历史 OpenMuse 报文作为兼容目标。
 

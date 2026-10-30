@@ -35,7 +35,7 @@ for (const delegated of [false, true]) {
       const child = input.messages.some((message) => message.role === "system" && String(message.content).includes("## Subagent role"));
       const callSubagent = delegated && !child && tools.some((tool) => tool.function.name === "subagent");
       const toolName = callSubagent ? "subagent" : "web_fetch";
-      const toolArgs = callSubagent ? { agent: "worker", task: "Fetch the controlled slow web page" } : { url: targetUrl };
+      const toolArgs = callSubagent ? { mode: "single", tasks: [{ agent: "worker", task: "Fetch the controlled slow web page" }] } : { url: targetUrl };
       response.writeHead(200, { "content-type": "text/event-stream" });
       const chunk = (delta: object, reason: string | null = null) => response.write("data: " + JSON.stringify({
         id: "cancel-test", object: "chat.completion.chunk", model: input.model,

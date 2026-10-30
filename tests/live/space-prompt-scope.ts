@@ -132,7 +132,7 @@ const execute = async ({ configPath, scenario }: Options) => {
       }, "POST");
 
       const subagentRun = await client.startRun(
-        `请只调用一次subagent工具，严格使用参数：{"agent":"worker","task":"不要调用任何工具，只回复LIVE_SPACE_PROMPT_CHILD_OK，不要解释。"}。等待真实结果后只回复LIVE_SPACE_PROMPT_PARENT_OK。不要重试。`,
+        `请只调用一次subagent工具，严格使用参数：{"mode":"single","tasks":[{"agent":"worker","task":"不要调用任何工具，只回复LIVE_SPACE_PROMPT_CHILD_OK，不要解释。"}]}。等待真实结果后只回复LIVE_SPACE_PROMPT_PARENT_OK。不要重试。`,
         openSpace,
       );
       terminalEvent(await subagentRun.done);

@@ -99,7 +99,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 
 ## 子代理（subagent）
 
-- 实现为 `src/adapters/pi/subagent/extension.ts` 与 `session-factory.ts` 的 SDK child 装配，基于官方 1.3.0 subagent 示例；本地 fork 仅做 runner/discovery/渲染适配，同进程内独立 SDK session 上下文隔离，不写自造 loop。single/parallel/chain 三种模式，最多 8 项、同时 4 个，链式失败即停，不自动重试。
+- 实现为 `src/adapters/pi/subagent/extension.ts` 与 `session-factory.ts` 的 SDK child 装配，基于官方 1.3.0 subagent 示例；本地统一顶层入参为必填 `mode`（`single` / `parallel` / `chain`）与 `tasks` 数组（1-8 项 `{agent, task}`），移除旧顶层 `agent`/`task`/`chain` 混传入口，并声明 `constrainedSampling` strict prefer。`single` 要求恰好 1 项；数量不符或角色未知时，在排队前以固定安全文案拒绝（`denied: true`，不回显非法输入）。同进程内独立 SDK session 上下文隔离，不写自造 loop。最多 8 项、同时 4 个，链式失败即停，不自动重试。
 - 子模型继承父 session 的 model/key；角色和工具只能收窄父会话已启用技能与工具上限，不开放 bash/subagent/schedule/monitor/instructions，不读取个人 `~/.pi`，不接受 `cwd` / `agentScope` 等越界参数。
 - 每个调用独占 `workspace/threads/subagent-<uuid>/`，不复制父 workspace、历史或 `INSTRUCTIONS.md`；仅 `shared/...` 显式互通。写/编辑仍逐次人工审批，归属父 thread/run；父 Stop、超时或聊天断流取消子会话并等待清理。
 - 子会话不持久化，结果作为父工具结果回写；`subagent-*` 内部工作区不作为用户会话展示。role 来自内置 `assets/subagents/<role>.md`，`DATA_DIR/subagents/*.md` 可覆盖；角色不允许另配 model，来源与本地差异见 [适配说明](../src/adapters/pi/subagent/README.md)。

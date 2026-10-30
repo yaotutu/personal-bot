@@ -24,27 +24,34 @@ description: 把子任务交给一个隔离上下文的子代理（subagent）�
 
 ### single — 单代理
 ```json
-{ "agent": "scout", "task": "在 workspace 里找出与认证相关的入口文件，列出关键行号。" }
+{
+  "mode": "single",
+  "tasks": [
+    { "agent": "scout", "task": "在 workspace 里找出与认证相关的入口文件，列出关键行号。" }
+  ]
+}
 ```
-`task` 是面向该子代理的完整说明；子代理不知道当前对话历史，需要把背景一并写清楚。
+`task` 是面向该子代理的完整说明；子代理不知道当前对话历史，需要把背景一并写清楚。`single` 模式下 `tasks` 数组必须恰好包含 1 个任务。
 
 ### parallel — 并行多代理
 ```json
 {
+  "mode": "parallel",
   "tasks": [
     { "agent": "scout", "task": "梳理 model 相关的文件与依赖。" },
     { "agent": "scout", "task": "梳理 provider 相关的文件与依赖。" }
   ]
 }
 ```
-各任务并发执行；返回给主模型的是每个子代理的最终摘要。
+各任务并发执行（最多 8 项，最多 4 项同时运行）；返回给主模型的是每个子代理的最终摘要。
 
 ### chain — 顺序链路
 ```json
 {
-  "chain": [
+  "mode": "chain",
+  "tasks": [
     { "agent": "scout", "task": "找到 read 工具的实现位置和它依赖的接口。" },
-    { "agent": "planner", "task": "基于上面的发现，给出 read 工具的改进步骤。" }
+    { "agent": "planner", "task": "基于上面的发现，给出 read 工具的改进步骤：{previous}" }
   ]
 }
 ```

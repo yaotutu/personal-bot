@@ -283,7 +283,7 @@ for (const decision of ["approve", "deny", "expire", "cancel", "conflict"] as co
 
 test("activity e2e: child model and tool steps nest under the parent invocation without granting activity capability", async (t) => {
   const { service, model, client, one, list } = await fixture(t);
-  succeeded(await client.run(script([start, { name: "subagent", args: { tasks: [
+  succeeded(await client.run(script([start, { name: "subagent", args: { mode: "parallel", tasks: [
     { agent: "worker", task: "E2E clock A" }, { agent: "reviewer", task: "E2E clock B" },
   ] } }, complete]), "activity-child"));
   const result = await one("activity-child");
@@ -308,7 +308,7 @@ test("activity e2e: child model and tool steps nest under the parent invocation 
 for (const decision of ["approve", "cancel"] as const) {
   test(`activity e2e: child approval ${decision} stays nested in the parent activity and preserves filesystem truth`, async (t) => {
     const { service, client, one } = await fixture(t);
-    const running = await client.startRun(script([start, { name: "subagent", args: { agent: "worker", task: "帮我写入草稿" } }]), "activity-child-approval");
+    const running = await client.startRun(script([start, { name: "subagent", args: { mode: "single", tasks: [{ agent: "worker", task: "帮我写入草稿" }] } }]), "activity-child-approval");
     const action = await waitForTest(async () => (await client.pending()).find((item) => item.runId === running.runId), "child approval in activity");
     assert.equal(action.spaceId, running.spaceId);
     // 子代理发起的审批预览仍指向真实文件作用域；归属字段由服务端既有装配决定，

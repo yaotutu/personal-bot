@@ -11,24 +11,34 @@ export type SubagentRunner = (
   parentToolCallId?: string,
   subagentId?: string,
 ) => Promise<SubagentResult>;
-type Details = { mode: "single" | "parallel" | "chain"; results: SubagentResult[] };
+type Details = { mode: "single" | "parallel" | "chain"; results: SubagentResult[]; denied?: boolean };
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const PER_TASK_OUTPUT_CAP = 50 * 1024;
-const item = Type.Object({
-  agent: Type.String({ minLength: 1 }),
+const taskItem = Type.Object({
+  agent: Type.String({ minLength: 1, description: "Role name from available agents." }),
   task: Type.String({ minLength: 1, description: "Self-contained instruction; child does not inherit parent conversation history." }),
 }, { additionalProperties: false });
 
 // Adapted from pi-coding-agent 1.3.0 examples/extensions/subagent/index.ts (MIT).
-// Keep the upstream single/parallel/chain protocol, chain substitution, concurrency and output cap.
+// Retain upstream single/parallel/chain execution semantics, chain {previous} substitution,
+// concurrency (4), task limits (8), and output cap (50 KiB), but locally unify parameters
+// into top-level required mode + tasks to avoid mixed-parameter ambiguity.
 // CLI spawning/discovery/TUI are replaced by injected, permission-bounded SDK sessions.
 export const subagentParameters = Type.Object({
-  agent: Type.Optional(Type.String({ minLength: 1 })),
-  task: Type.Optional(Type.String({ minLength: 1 })),
-  tasks: Type.Optional(Type.Array(item, { minItems: 1, maxItems: MAX_PARALLEL_TASKS })),
-  chain: Type.Optional(Type.Array(item, { minItems: 1, maxItems: MAX_PARALLEL_TASKS })),
+  mode: Type.Union([
+    Type.Literal("single"),
+    Type.Literal("parallel"),
+    Type.Literal("chain"),
+  ], {
+    description: "Execution mode: single (exactly 1 task), parallel (1-8 concurrent tasks), or chain (1-8 sequential tasks where {previous} inserts prior step output).",
+  }),
+  tasks: Type.Array(taskItem, {
+    minItems: 1,
+    maxItems: MAX_PARALLEL_TASKS,
+    description: "Subagent tasks to execute (1-8 tasks). Single mode requires exactly 1 task.",
+  }),
 }, { additionalProperties: false });
 
 const truncateOutput = (output: string) => {
@@ -43,21 +53,28 @@ export const createSubagentTool = (roles: readonly SubagentRole[], run: Subagent
   name: SUBAGENT_TOOL_NAME,
   label: "Subagent",
   description: "Delegate self-contained work to subagents with isolated contexts. " +
-    "Choose exactly one mode: agent + task; tasks array (parallel); chain array (sequential, {previous} inserts prior output). " +
+    "Provide mode ('single' | 'parallel' | 'chain') and tasks array (1-8 tasks). " +
+    "Single mode requires exactly 1 task; parallel runs tasks concurrently; chain runs tasks sequentially where {previous} inserts prior step output. " +
     "Results return to you in this tool call, not a background queue. Use shared/... for shared materials; no arbitrary cwd. " +
     `Available agents: ${roles.map((role) => `${role.name}: ${role.description}`).join("; ")}`,
   parameters: subagentParameters,
+  constrainedSampling: { type: "json_schema", strict: "prefer" },
   async execute(_id, params, signal, onUpdate): Promise<AgentToolResult<Details>> {
-    const modes = Number(Boolean(params.agent && params.task)) + Number(Boolean(params.tasks?.length)) + Number(Boolean(params.chain?.length));
-    const mode: Details["mode"] = params.chain ? "chain" : params.tasks ? "parallel" : "single";
-    const invalid = (text: string): AgentToolResult<Details> => ({
-      content: [{ type: "text", text }], details: { mode, results: [] }, isError: true,
+    const mode = params.mode;
+    const reject = (text: string): AgentToolResult<Details> => ({
+      content: [{ type: "text", text }],
+      details: { mode, results: [], denied: true },
+      isError: true,
     });
-    if (modes !== 1 || Boolean(params.agent) !== Boolean(params.task)) return invalid("Provide exactly one subagent mode.");
-    const requests = params.chain ?? params.tasks ?? [{ agent: params.agent!, task: params.task! }];
-    if (requests.length > MAX_PARALLEL_TASKS) return invalid(`Too many subagents (maximum ${MAX_PARALLEL_TASKS}).`);
-    const missing = requests.find((request) => !roles.some((role) => role.name === request.agent));
-    if (missing) return invalid(`Unknown agent. Available agents: ${roles.map((role) => role.name).join(", ")}`);
+    if (mode === "single" && params.tasks.length !== 1) {
+      return reject("Single mode requires exactly one task.");
+    }
+    const missing = params.tasks.find((request) => !roles.some((role) => role.name === request.agent));
+    if (missing) {
+      return reject(`Unknown agent role. Available agents: ${roles.map((role) => role.name).join(", ")}`);
+    }
+
+    const requests = params.tasks;
     const childIds = requests.map(() => `subagent-${randomUUID()}`);
     requests.forEach((request, index) => queued?.(childIds[index], request.agent));
     const results: SubagentResult[] = [];
@@ -94,7 +111,13 @@ export const createSubagentTool = (roles: readonly SubagentRole[], run: Subagent
         }
       }));
       signal?.throwIfAborted();
-      if (results.filter(Boolean).length !== requests.length) return invalid("Subagent execution failed.");
+      if (results.filter(Boolean).length !== requests.length) {
+        return {
+          content: [{ type: "text", text: "Subagent execution failed." }],
+          details: { mode, results },
+          isError: true,
+        };
+      }
     } else {
       let previous = "";
       for (let index = 0; index < requests.length; index++) {
@@ -102,7 +125,8 @@ export const createSubagentTool = (roles: readonly SubagentRole[], run: Subagent
         const result = await runOne(index, task);
         if (result.isError) return {
           content: [{ type: "text", text: mode === "chain" ? `Chain stopped at step ${index + 1}: ${result.output}` : result.output }],
-          details: { mode, results }, isError: true,
+          details: { mode, results },
+          isError: true,
         };
         previous = result.output;
       }

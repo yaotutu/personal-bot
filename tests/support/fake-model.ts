@@ -221,15 +221,15 @@ export async function createFakeModel() {
         return;
       }
       let selected: { name: string; args: object } | undefined;
-      if (last === "E2E parallel") selected = { name: "subagent", args: { tasks: [
+      if (last === "E2E parallel") selected = { name: "subagent", args: { mode: "parallel", tasks: [
         { agent: "scout", task: "E2E clock A" }, { agent: "reviewer", task: "E2E clock B" },
       ] } };
-      else if (last === "E2E chain") selected = { name: "subagent", args: { chain: [
+      else if (last === "E2E chain") selected = { name: "subagent", args: { mode: "chain", tasks: [
         { agent: "worker", task: "E2E seed" }, { agent: "reviewer", task: "E2E previous {previous}" },
       ] } };
-      else if (last === "E2E single") selected = { name: "subagent", args: { agent: "worker", task: "E2E clock single" } };
+      else if (last === "E2E single") selected = { name: "subagent", args: { mode: "single", tasks: [{ agent: "worker", task: "E2E clock single" }] } };
       else if (last.startsWith("E2E web ")) selected = { name: "web_fetch", args: { url: last.slice("E2E web ".length) } };
-      else if (last.startsWith("E2E child-web ")) selected = { name: "subagent", args: { agent: "worker", task: "E2E web " + last.slice("E2E child-web ".length) } };
+      else if (last.startsWith("E2E child-web ")) selected = { name: "subagent", args: { mode: "single", tasks: [{ agent: "worker", task: "E2E web " + last.slice("E2E child-web ".length) }] } };
       else if (last === "Task: E2E seed") {
         event({ content: "E2E-CHAIN-SEED" }); event({}, "stop"); res.end("data: [DONE]\n\n"); return;
       } else if (last.startsWith("Task: E2E previous ")) {
@@ -270,7 +270,7 @@ export async function createFakeModel() {
       }
       if (toolResults.length === 1 && /活动子代理/.test(last) && declaresTool("subagent")) {
         event({ role: "assistant" });
-        event(toolCall("subagent", { agent: "worker", task: "子代理完成部分调研" }));
+        event(toolCall("subagent", { mode: "single", tasks: [{ agent: "worker", task: "子代理完成部分调研" }] }));
         event({}, "tool_calls");
         res.end("data: [DONE]\n\n");
         return;
@@ -377,7 +377,7 @@ export async function createFakeModel() {
     if (declaresTool("subagent") && /子代理/.test(last) && !pendingToolResult) {
       event({ role: "assistant" });
       const task = /子代理写入/.test(last) ? "帮我写入草稿" : /子代理挂起/.test(last) ? "freeze" : /子代理读取/.test(last) ? "读 shared/subagent-test.md" : "Reply SUBAGENT-MARKER";
-      event(toolCall("subagent", { agent: /只读子代理/.test(last) ? "scout" : "worker", task }));
+      event(toolCall("subagent", { mode: "single", tasks: [{ agent: /只读子代理/.test(last) ? "scout" : "worker", task }] }));
       event({}, "tool_calls");
       res.end("data: [DONE]\n\n");
       return;

@@ -96,15 +96,17 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       assert.equal(calls.length, 1); return JSON.parse(calls[0].arguments);
     };
 
-    const single = await begin("single", delegate({ agent: "worker", task: "实际调用currentTime一次，只回复LIVE-SINGLE与工具中的ISO时间。不要写文件。" }));
-    let rows = await finish(single); dispatch(rows);
+    const single = await begin("single", delegate({ mode: "single", tasks: [{ agent: "worker", task: "实际调用currentTime一次，只回复LIVE-SINGLE与工具中的ISO时间。不要写文件。" }] }));
+    let rows = await finish(single); const singleArgs = dispatch(rows);
+    assert.equal(singleArgs.mode, "single"); assert.equal(singleArgs.tasks?.length, 1);
     assert.ok(rows.some((row) => row.child && row.calls.some((call) => call.name === "currentTime")));
     assert.match(toolResults(rows.filter((row) => row.child)), /ISO 8601/);
     assert.match(toolResults(rows.filter((row) => !row.child)), /LIVE-SINGLE/);
     record(scenario, { actualChildTool: "currentTime", resultReturnedToParent: true });
 
-    const parallel = await begin("parallel", delegate({ tasks: [{ agent: "scout", task: "实际调用currentTime一次，只回复LIVE-PARA-A与ISO时间。" }, { agent: "reviewer", task: "实际调用currentTime一次，只回复LIVE-PARA-B与ISO时间。" }] }));
-    rows = await finish(parallel); assert.equal(dispatch(rows).tasks.length, 2);
+    const parallel = await begin("parallel", delegate({ mode: "parallel", tasks: [{ agent: "scout", task: "实际调用currentTime一次，只回复LIVE-PARA-A与ISO时间。" }, { agent: "reviewer", task: "实际调用currentTime一次，只回复LIVE-PARA-B与ISO时间。" }] }));
+    rows = await finish(parallel); const parallelArgs = dispatch(rows);
+    assert.equal(parallelArgs.mode, "parallel"); assert.equal(parallelArgs.tasks?.length, 2);
     const initial = rows.filter((row) => row.child && row.toolResults.length === 0); assert.equal(initial.length, 2);
     assert.ok(initial.every((row) => row.calls.some((call) => call.name === "currentTime")));
     assert.ok(Math.max(...initial.map((row) => row.startedAt)) < Math.min(...initial.map((row) => row.endedAt!)));
@@ -112,8 +114,9 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     assert.match(parentResults, /LIVE-PARA-A/); assert.match(parentResults, /LIVE-PARA-B/);
     record(scenario, { actualConcurrentChildren: 2, bothResultsReturned: true });
 
-    const chain = await begin("chain", delegate({ chain: [{ agent: "worker", task: "实际调用currentTime一次，只回复LIVE-CHAIN-ONE与ISO时间。" }, { agent: "reviewer", task: "上一步结果：{previous}。实际调用currentTime一次，再回复LIVE-CHAIN-TWO并保留上一步真实结果。" }] }));
-    rows = await finish(chain); assert.equal(dispatch(rows).chain.length, 2);
+    const chain = await begin("chain", delegate({ mode: "chain", tasks: [{ agent: "worker", task: "实际调用currentTime一次，只回复LIVE-CHAIN-ONE与ISO时间。" }, { agent: "reviewer", task: "上一步结果：{previous}。实际调用currentTime一次，再回复LIVE-CHAIN-TWO并保留上一步真实结果。" }] }));
+    rows = await finish(chain); const chainArgs = dispatch(rows);
+    assert.equal(chainArgs.mode, "chain"); assert.equal(chainArgs.tasks?.length, 2);
     const chainInitial = rows.filter((row) => row.child && row.toolResults.length === 0); assert.equal(chainInitial.length, 2);
     assert.match(chainInitial[1].users.at(-1)!, /LIVE-CHAIN-ONE/); assert.ok(!chainInitial[1].users.at(-1)!.includes("{previous}"));
     assert.ok(chainInitial.every((row) => row.calls.some((call) => call.name === "currentTime")));
@@ -123,12 +126,30 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     assert.match(toolResults(rows.filter((row) => !row.child)), /LIVE-CHAIN-TWO/);
     record(scenario, { previousResultSubstituted: true, chainResultReturned: true });
 
+    scenario = "natural-chain";
+    const naturalChainPrompt = "这是隔离真实验收。请使用子代理工具以链式顺序（chain）委派两个任务：第一步让 worker 子代理调用 currentTime 一次，只回复 LIVE-NAT-ONE 与时间；第二步让 reviewer 子代理接收上一步真实结果（必须在任务说明中通过 {previous} 占位），再次调用 currentTime 一次，再回复 LIVE-NAT-TWO 并包含上一步结果。请只调用一次 subagent 工具，不要给出 JSON 模板或自行执行，不要编造。";
+    const naturalChain = await begin("natural-chain", naturalChainPrompt);
+    rows = await finish(naturalChain); const naturalArgs = dispatch(rows);
+    assert.equal(naturalArgs.mode, "chain");
+    assert.ok(Array.isArray(naturalArgs.tasks) && naturalArgs.tasks.length === 2);
+    assert.ok(naturalArgs.tasks[1].task.includes("{previous}"));
+    const natInitial = rows.filter((row) => row.child && row.toolResults.length === 0);
+    assert.equal(natInitial.length, 2);
+    assert.match(natInitial[1].users.at(-1)!, /LIVE-NAT-ONE/); assert.ok(!natInitial[1].users.at(-1)!.includes("{previous}"));
+    assert.ok(natInitial.every((row) => row.calls.some((call) => call.name === "currentTime")));
+    const natFirstOutput = rows.find((row) => row.child && row.toolResults.length > 0)?.output;
+    assert.equal(typeof natFirstOutput, "string"); assert.ok(natFirstOutput);
+    assert.ok(natInitial[1].users.at(-1)!.includes(natFirstOutput.trim()), "natural chain: second child must receive actual first output");
+    assert.match(toolResults(rows.filter((row) => !row.child)), /LIVE-NAT-TWO/);
+    record(scenario, { naturalChainMode: naturalArgs.mode, previousSubstituted: true, chainResultReturned: true });
+
     scenario = "isolation";
     await client.json("/api/spaces/live-isolation/instructions", { instructions: "PARENT-RULE-NOT-COPIED-582c" }, "PUT");
     await writeFile(join(dataDir, "workspace/threads/live-isolation/private.txt"), "PRIVATE-NO-LEAK-421e", { mode: 0o600 });
     await writeFile(join(dataDir, "workspace/shared/live-shared.txt"), "LIVE-SHARED-OK-a7cd", { mode: 0o600 });
-    const isolation = await begin(scenario, delegate({ agent: "worker", task: "实际调用read三次：private.txt、shared/live-shared.txt、../live-isolation/private.txt。仅根据工具结果报告，不猜测，不写文件。" }));
-    rows = await finish(isolation); dispatch(rows);
+    const isolation = await begin(scenario, delegate({ mode: "single", tasks: [{ agent: "worker", task: "实际调用read三次：private.txt、shared/live-shared.txt、../live-isolation/private.txt。仅根据工具结果报告，不猜测，不写文件。" }] }));
+    rows = await finish(isolation); const isoArgs = dispatch(rows);
+    assert.equal(isoArgs.mode, "single"); assert.equal(isoArgs.tasks?.length, 1);
     const childRows = rows.filter((row) => row.child); const facts = toolResults(childRows);
     assert.match(facts, /File not found/); assert.match(facts, /LIVE-SHARED-OK-a7cd/); assert.match(facts, /Access denied/);
     assert.ok(!JSON.stringify(childRows).includes("PRIVATE-NO-LEAK-421e"));
@@ -137,7 +158,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     for (const decision of ["approve", "deny", "cancel"] as const) {
       const name = "approval-" + decision;
       const path = `shared/live-${decision}.txt`; const content = "LIVE-" + decision.toUpperCase() + "-CONTENT";
-      const running = await begin(name, delegate({ agent: "worker", task: `只调用一次write，path=${path}，content精确为${content}。等待人工审批，不假设批准，不改路径，不重试；如实返回工具结果。` }));
+      const running = await begin(name, delegate({ mode: "single", tasks: [{ agent: "worker", task: `只调用一次write，path=${path}，content精确为${content}。等待人工审批，不假设批准，不改路径，不重试；如实返回工具结果。` }] }));
       // 待审批由 SSE ready 的完整集合给出；同时校验不可变预览与初始 revision。
       const action = await wait(async () => (await client.pending()).find((item) => item.runId === running.runId), "child approval");
       assert.equal(action.spaceId, running.threadId); assert.equal(action.preview.path, path); assert.equal(action.preview.after, content);
@@ -156,13 +177,15 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
         rows = await finish(running); assert.ok(rows.some((row) => row.child && row.calls.some((call) => call.name === "write")));
         const settled = await client.approval(action.id);
         assert.equal(settled.status, decision === "approve" ? "approved" : "denied");
-        assert.equal(settled.revision, 2); assert.ok(settled.decidedAt); assert.deepEqual(settled.preview, action.preview);
+        assert.equal(settled.revision, decision === "approve" ? 4 : 2);
+        assert.equal(settled.execution?.status ?? null, decision === "approve" ? "succeeded" : null);
+        assert.ok(settled.decidedAt); assert.deepEqual(settled.preview, action.preview);
         if (decision === "approve") assert.equal(await readFile(join(dataDir, "workspace", path), "utf8"), content); else await absent(join(dataDir, "workspace", path));
         record(name, { written: decision === "approve", ownedByParentRun: true, previewStable: true, revision: settled.revision });
       }
     }
 
-    const generating = await begin("model-stop", delegate({ agent: "worker", task: "不用任何工具，不写文件，连续输出3000条编号清单，每条20字，不省略不总结。" }));
+    const generating = await begin("model-stop", delegate({ mode: "single", tasks: [{ agent: "worker", task: "不用任何工具，不写文件，连续输出3000条编号清单，每条20字，不省略不总结。" }] }));
     const activeModel = await wait(() => proxy!.traces.find((row) => row.index >= generating.baseline && row.child && !row.endedAt), "active child model");
     let start = Date.now(); assert.equal((await client.json("/api/conversation/stop", { spaceId: generating.spaceId, runId: generating.runId })).stopped, true);
     const modelStopMs = Date.now() - start; await finish(generating, "RUN_ERROR");
@@ -170,7 +193,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
 
     for (const phase of ["headers", "body"] as const) {
       const path = phase === "body" ? "/slow-body" : "/slow";
-      const running = await begin("web-stop-" + phase, delegate({ agent: "worker", task: `实际调用一次web_fetch读取${fixtureUrl}${path}，不要改URL，不搜索不写文件，等待真实结果。` }));
+      const running = await begin("web-stop-" + phase, delegate({ mode: "single", tasks: [{ agent: "worker", task: `实际调用一次web_fetch读取${fixtureUrl}${path}，不要改URL，不搜索不写文件，等待真实结果。` }] }));
       const hit = await wait(() => hits.find((entry) => entry.path === path), "slow HTTP fixture");
       start = Date.now(); assert.equal((await client.json("/api/conversation/stop", { spaceId: running.spaceId, runId: running.runId })).stopped, true);
       const elapsedMs = Date.now() - start; rows = await finish(running, "RUN_ERROR");
@@ -277,6 +300,13 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     assert.equal(resumedAct.id, stoppedAct.id);
     assert.equal(resumedAct.status, "completed");
     record(scenario, { resumedSameActivity: true, finalStatus: "completed" });
+
+    scenario = "restart-seed";
+    const seedRun = await begin("restart-seed", "这是隔离真实验收。请实际调用currentTime一次，只回复LIVE-RESTART-SEED与工具中的ISO时间。不要调用其他工具，不要写文件。", "local-main");
+    rows = await finish(seedRun);
+    assert.ok(rows.some((row) => !row.child && row.calls.some((call) => call.name === "currentTime")));
+    assert.match(toolResults(rows.filter((row) => !row.child)), /ISO 8601/);
+    record(scenario, { actualParentTool: "currentTime", isoObserved: true });
 
     scenario = "restart";
     const spaces = (await client.json("/api/spaces")).spaces as { id: string }[];
