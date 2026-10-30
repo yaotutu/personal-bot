@@ -6,8 +6,9 @@
 
 - [快速上手](getting-started.md)：安装服务端、连接手机、发送消息并收到回复。
 - [对话与空间](conversations-and-spaces.md)：发送和停止对话、切换空间、重置会话与删除空间。
+- [新闻阅读](news.md)：管理 RSS 源、浏览推荐与全部时间线，以及使用逐篇反馈。
 - [附件、文件与审批](files-and-approvals.md)：区分消息附件、工作区文件和模型文件写入审批。
-- [任务与网页监控](tasks-and-monitors.md)：创建和管理定时任务、网页监控，查看活动记录。
+- [任务与网页监控](tasks-and-monitors.md)：通过聊天工具管理定时任务和网页监控，查看活动记录。
 - [目标与里程碑](goals.md)：建立目标、更新状态与里程碑，区分目标和定时执行。
 - [记忆与 Dream](memory-and-dream.md)：管理长期记忆、配置整理并处理待决建议。
 - [资料与设置](profile-and-settings.md)：修改助手与用户资料、主题，管理连接、浏览器入口与应用更新。

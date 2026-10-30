@@ -1,10 +1,12 @@
 export type InformationSettings = {
   enabled: boolean;
   batchWindowSeconds: number;
+  mode: "notifications" | "recommendations";
 };
 
 export type InformationPreferences = {
   notes: string;
+  learnedNotes: string;
 };
 
 export type InformationInputItem = {
@@ -13,6 +15,11 @@ export type InformationInputItem = {
   content: string;
   title?: string;
   receivedAt?: string;
+  metadata?: {
+    sourceId: string;
+    sourceTitle: string;
+    url: string | null;
+  };
 };
 
 export type InformationItemStatus = "pending" | "processing" | "processed" | "failed";
@@ -28,6 +35,25 @@ export type InformationItem = {
   acceptedAt: string;
   status: InformationItemStatus;
   runId?: string;
+  metadata?: {
+    sourceId: string;
+    sourceTitle: string;
+    url: string | null;
+  };
+};
+
+export type InformationArticleFeedbackComment = {
+  id: string;
+  text: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InformationArticleFeedback = {
+  itemId: string;
+  reaction: "like" | "dislike" | null;
+  saved: boolean;
+  comments: InformationArticleFeedbackComment[];
 };
 
 export type InformationDecision = {
@@ -75,14 +101,16 @@ export type InformationState = {
   preferences: InformationPreferences;
   items: InformationItem[];
   runs: InformationRun[];
+  articleFeedback: InformationArticleFeedback[];
 };
 
 export const defaultInformationState = (): InformationState => ({
   schemaVersion: 1,
-  settings: { enabled: false, batchWindowSeconds: 15 },
-  preferences: { notes: "" },
+  settings: { enabled: false, batchWindowSeconds: 15, mode: "notifications" },
+  preferences: { notes: "", learnedNotes: "" },
   items: [],
   runs: [],
+  articleFeedback: [],
 });
 
 export type InformationRepository = {
@@ -103,11 +131,13 @@ type MaybePromise<T> = T | Promise<T>;
 export type InformationModelInput = {
   spaceId: string;
   runId: string;
+  mode: "notifications" | "recommendations";
   instructions: string;
   enabledSkillTexts: string[];
   preferences: InformationPreferences;
   items: InformationInputView[];
   feedbackExamples: InformationFeedbackExample[];
+  articleFeedback: InformationArticleFeedbackExample[];
 };
 
 export type InformationInputView = {
@@ -117,6 +147,8 @@ export type InformationInputView = {
   title?: string;
   content: string;
   receivedAt: string;
+  sourceTitle?: string;
+  url?: string | null;
 };
 
 export type InformationFeedbackItemExample = {
@@ -137,9 +169,20 @@ export type InformationFeedbackExample = {
   items: InformationFeedbackItemExample[];
 };
 
+export type InformationArticleFeedbackExample = {
+  id: string;
+  title?: string;
+  content: string;
+  contentTruncated: boolean;
+  reaction: "like" | "dislike" | null;
+  saved: boolean;
+  comments: string[];
+};
+
 export type InformationSubmittedResult = {
   decisions: InformationDecision[];
   notifications: Array<{ itemIds: string[]; text: string }>;
+  learnedNotes?: string;
 };
 
 export type InformationModelResult =

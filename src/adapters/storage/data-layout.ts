@@ -21,6 +21,7 @@ export type DataLayout = {
   goalsFile: string;
   actionsFile: string;
   monitorsFile: string;
+  newsFile: string;
   soulFile: string;
   userFile: string;
   dreamFile: string;
@@ -48,6 +49,7 @@ export const createDataLayout = (dataDir: string): DataLayout => {
     goalsFile: join(root, "goals.json"),
     actionsFile: join(root, "actions.json"),
     monitorsFile: join(root, "monitors.json"),
+    newsFile: join(root, "news.json"),
     soulFile: join(profileDir, "SOUL.md"),
     userFile: join(profileDir, "USER.md"),
     dreamFile: join(profileDir, "DREAM.md"),

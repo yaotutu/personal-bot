@@ -78,6 +78,24 @@ test("information result validator enforces exact coverage, bounds and silent no
   }, ["a", "a"]));
 });
 
+test("recommendation results may select items with empty notifications and no chat coverage", () => {
+  const result = parseInformationResult({
+    decisions: [
+      { itemId: "a", decision: "notify", reason: "material progress" },
+      { itemId: "b", decision: "silent", reason: "routine update" },
+    ],
+    notifications: [],
+    learnedNotes: "Prefers concrete releases.",
+  }, ["a", "b"], "recommendations");
+  assert.deepEqual(result.decisions.map((decision) => decision.decision), ["notify", "silent"]);
+  assert.equal(result.learnedNotes, "Prefers concrete releases.");
+  assert.throws(() => parseInformationResult({
+    decisions: [{ itemId: "a", decision: "notify", reason: "x" }],
+    notifications: [{ itemIds: ["a"], text: "chat" }],
+    learnedNotes: "",
+  }, ["a"], "recommendations"));
+});
+
 test("manual and automatic runs contend on one synchronously reserved global slot", async () => {
   const model = deferred<ReturnType<typeof resultFor>>();
   let input: { items: Array<{ id: string }> } | undefined;

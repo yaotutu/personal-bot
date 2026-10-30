@@ -23,6 +23,7 @@ import type { InformationService } from "../features/information/service.js";
 import type { InformationScheduler } from "../features/information/scheduler.js";
 import type { BrowserService } from "../features/browser/browser-service.js";
 import type { BrowserDesktop } from "../http/browser-desktop.js";
+import type { NewsService } from "../features/news/service.js";
 
 type Auth = Awaited<ReturnType<typeof createAuth>>;
 
@@ -50,6 +51,7 @@ export type ServiceContainer = {
   dreamScheduler: DreamScheduler;
   information: InformationService;
   informationScheduler: InformationScheduler;
+  news: NewsService;
   browser?: BrowserService;
   browserDesktop: BrowserDesktop;
   messageFeedbackRepository: MessageFeedbackRepository;
@@ -57,5 +59,5 @@ export type ServiceContainer = {
 
 export type HttpDependencies = Pick<
   ServiceContainer,
-  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "dream" | "information" | "browser" | "browserDesktop" | "messageFeedbackRepository"
+  "lifecycle" | "config" | "layout" | "auth" | "memory" | "identity" | "jobs" | "goals" | "actions" | "monitors" | "conversationHub" | "presentation" | "scheduler" | "skills" | "workspaceEvents" | "workspaceFiles" | "activities" | "dream" | "information" | "news" | "browser" | "browserDesktop" | "messageFeedbackRepository"
 >;

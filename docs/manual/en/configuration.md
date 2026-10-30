@@ -128,6 +128,8 @@ Sessions are stored under `sessions/<threadId>/`; each thread has an independent
 │   ├── DREAM.md                        # global Dream consolidation prompt
 │   └── memory.json                     # long-term memory and identity settings (retrieved on demand)
 ├── jobs.json / goals.json / actions.json / monitors.json
+├── news.json                            # RSS source configuration and collection health
+├── information/<spaceId>.json           # space-local information/news items, decisions, and per-article feedback
 ├── sessions/<threadId>/
 │   ├── *.jsonl                          # authoritative pi history
 │   ├── INSTRUCTIONS.md                  # conversation-specific instructions (including ## Space purpose), present as needed

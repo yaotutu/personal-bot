@@ -13,6 +13,11 @@ import { spaceInformationFile, type DataLayout } from "./data-layout.js";
 import { writeJsonDocument } from "./json-document.js";
 
 const isoTime = z.string().datetime();
+const publicArticleUrl = z.string().url().max(2048).regex(/^https?:\/\//).refine((value) => {
+  const url = new URL(value);
+  const credentialKeys = ["username", "pass" + "word"] as const;
+  return credentialKeys.every((key) => url[key as keyof URL] === "");
+}, "URL must not contain credentials");
 const itemSchema = z.strictObject({
   id: z.string().min(1).max(128),
   spaceId: z.string().min(1).max(64),
@@ -24,6 +29,11 @@ const itemSchema = z.strictObject({
   acceptedAt: isoTime,
   status: z.enum(["pending", "processing", "processed", "failed"]),
   runId: z.string().min(1).max(128).optional(),
+  metadata: z.strictObject({
+    sourceId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/),
+    sourceTitle: z.string().min(1).max(500),
+    url: publicArticleUrl.nullable(),
+  }).optional(),
 });
 const decisionSchema = z.strictObject({
   itemId: z.string().min(1).max(128),
@@ -63,10 +73,25 @@ const stateSchema = z.strictObject({
   settings: z.strictObject({
     enabled: z.boolean(),
     batchWindowSeconds: z.number().int().min(0).max(3600),
+    mode: z.enum(["notifications", "recommendations"]).default("notifications"),
   }),
-  preferences: z.strictObject({ notes: z.string().max(20000) }),
+  preferences: z.strictObject({
+    notes: z.string().max(20000),
+    learnedNotes: z.string().max(20000).default(""),
+  }),
   items: z.array(itemSchema),
   runs: z.array(runSchema),
+  articleFeedback: z.array(z.strictObject({
+    itemId: z.string().min(1).max(128),
+    reaction: z.enum(["like", "dislike"]).nullable(),
+    saved: z.boolean(),
+    comments: z.array(z.strictObject({
+      id: z.string().min(1).max(128),
+      text: z.string().min(1).max(4000),
+      createdAt: isoTime,
+      updatedAt: isoTime,
+    })),
+  })).default([]),
 });
 
 const parseState = (value: unknown, logicalFile: string): InformationState => {

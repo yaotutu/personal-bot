@@ -85,6 +85,7 @@ export default defineConfig({
             items: [
               { text: '核心能力', link: '/usage' },
               { text: '对话与空间', link: '/conversations-and-spaces' },
+              { text: '新闻阅读', link: '/news' },
               { text: '附件、文件与审批', link: '/files-and-approvals' },
               { text: '任务与网页监控', link: '/tasks-and-monitors' },
               { text: '目标与里程碑', link: '/goals' },
@@ -134,6 +135,7 @@ export default defineConfig({
             items: [
               { text: 'Core features', link: '/en/usage' },
               { text: 'Conversations and spaces', link: '/en/conversations-and-spaces' },
+              { text: 'News reading', link: '/en/news' },
               { text: 'Attachments, files, and approvals', link: '/en/files-and-approvals' },
               { text: 'Tasks and webpage monitors', link: '/en/tasks-and-monitors' },
               { text: 'Goals and milestones', link: '/en/goals' },

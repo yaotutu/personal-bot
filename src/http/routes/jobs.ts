@@ -6,6 +6,7 @@ import {
   assertValidSchedule,
   InvalidScheduleError,
 } from "../../features/jobs/schedule-calculator.js";
+import { NEWS_INTERNAL_SPACE_ID } from "../../features/news/types.js";
 
 /** 定时任务（Jobs）独立查询、详情、修改、控制与删除接口。 */
 export const createJobsRoutes = (
@@ -75,6 +76,8 @@ export const createJobsRoutes = (
     if (!existing) return c.json({ error: "Job not found", code: "JOB_NOT_FOUND" }, 404);
 
     const originSpaceId = parsed.data.originSpaceId;
+    if (originSpaceId === NEWS_INTERNAL_SPACE_ID)
+      return c.json({ error: "Space not found", code: "SPACE_NOT_FOUND" }, 404);
     const nextDaily = parsed.data.daily !== undefined ? parsed.data.daily : existing.daily;
     const nextAt = parsed.data.at !== undefined ? parsed.data.at.trim() : existing.at;
 

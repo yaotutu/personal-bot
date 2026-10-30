@@ -11,7 +11,7 @@
 | `src/index.ts`、`scripts/dev-mock.ts` | 配置加载、监听、信号退出；调用统一组合入口 | 业务规则、工具实现 |
 | `src/config/load-config.ts` | 必需 JSON 配置、直接凭据与校验 | 环境变量回退、创建业务实例 |
 | `src/bootstrap/create-service.ts`、`types.ts` | 唯一实例组装、启动校准、执行源启停、统一关闭 | DTO、agent loop |
-| `src/features/` | conversation/messages/information/memory/identity/dream/jobs/goals/actions/monitors/skills/web/weather/workspace/activities/browser 的规则与最小 port | Hono、AG-UI、pi SDK、文件系统或具体 adapter |
+| `src/features/` | conversation/messages/information/news/memory/identity/dream/jobs/goals/actions/monitors/skills/web/weather/workspace/activities/browser 的规则与最小 port | Hono、AG-UI、pi SDK、文件系统或具体 adapter |
 | `src/adapters/pi/` | session factory、执行历史与消息事实投影、activity 记录与安全观察、诊断脱敏、资源隔离、prompt、工具装配与路径 guard | 第二份正文历史、手写 agent loop、反馈业务状态 |
 | `src/adapters/ag-ui/` | SSE、事件投影、运行与取消适配 | 会话锁或业务域状态 |
 | `src/adapters/storage/` | DataLayout、文件读写、各域 repository | 业务状态机、通用 CRUD 框架 |
@@ -70,6 +70,15 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - 发布经唯一 `conversation.notify` 入口使用稳定 notificationId，repository 记录 run → 原始 items → notificationId/sessionId/messageId。通知排队未落盘前可被 disable/reset/delete/shutdown 撤销；已落盘消息不回滚。发布前检查取消、设置与目标 session，模型成功而投递失败时保留 model succeeded 并单独记录 publication failed。
 - 仅当前空间 `information.settings.enabled=true` 的普通主聊天装配信息后台说明、只读 `information` 工具和通知来源 context 扩展；每轮重新读取设置，读取失败中止本轮，关闭空间与子代理不装配。工具固定闭包到当前空间，仅能查询本空间信息、run、偏好与发布关联；短信接入、供应商适配与移动端管理界面不在该域内。
 - 启用空间的系统提示词说明通知边界；PI 公开 `context` hook 仅在模型请求前把带服务端 marker 且符合稳定 `info-notification-inforun_UUID-index` 格式的通知包装为来源、notificationId、runId 与不可信原文。该投影不修改 PI JSONL/UI 原文/revision，也不运行时查库；通用服务端通知、普通 assistant/user 或用户伪造文本不得获得信息后台来源。
+
+## 新闻阅读
+
+- 新闻是独立阅读视图，固定使用内部保留空间 `news-internal`，复用空间会话、`INSTRUCTIONS.md`、information repository 与唯一 `ModelRuntime`。内部空间不出现在公开空间列表或 Dream 空间概览，也不能通过通用聊天、history、reset/delete、instructions、skills、Dream、工作区文件、消息反馈或普通 information HTTP 入口访问；新闻专用 HTTP facade 不暴露 spaceId。
+- `news.json` 只保存 RSS 源配置与采集健康状态；文章正文、结构化元数据、模型决策、推荐理由和逐篇反馈继续保存在 `information/<spaceId>.json`，不建立第二套文章库。RSS 采集是薄 edge：复用 `safePublicGet` 的 DNS/SSRF、固定 IP、逐跳重定向、总超时、大小与 AbortSignal 边界；XML 解析位于 `src/adapters/news/`，feature 只接收解析后的 feed。`fast-xml-parser` 严格解析 RSS2，并同时限制输入大小、条目数和嵌套深度；拒绝 DTD/实体声明、损坏 XML 与不稳定条目。条目缺 title 或正文时整个源受控失败，不静默当作空源。所有 HTML 在解码后清理为纯文本，绝不执行。
+- 普通空间 information 仍使用通知模式；内部新闻空间使用 recommendation 模式。推荐模式只持久化每个 item 的 `notify`（选中）/`silent` 决策与 reason，不要求或创建 conversation publication，也不刷新任何聊天历史。普通 information HTTP 契约不暴露内部 mode 或 learnedNotes。新建内部空间的默认指令要求推荐理由与 learnedNotes 使用简洁简体中文，但 RSS 标题和正文保留原文、不翻译；已有非空 INSTRUCTIONS 不被覆盖。
+- 文章按发布时间（无效时使用接纳时间）与稳定 ID 倒序分页；推荐视图只投影已完成且模型成功的 notify 决策。`savedOnly` 只过滤不改变排序。模型失败不产生假推荐，全部时间线仍可读。
+- 喜欢/不喜欢、收藏、评论按 articleId 空间局部保存；评论 trim 后非空且最多 4000 字符。反馈不绑定聊天消息/session，主会话 reset 不清除；最近反馈按最后交互顺序进入下一轮有限分析输入，收藏为弱信号。只有结构化成功结果才更新 learnedNotes，且不覆盖显式 notes、INSTRUCTIONS 或全局 USER。
+- RSS 源默认每 30 分钟采集；后台定时轮只抓取，不重排 failed 条目。手动 refresh 同步完成抓取但不等待模型，并可在没有运行中新闻批次时重置已知 failed 条目；同一时刻只允许一个 refresh。源故障记录受控错误并继续处理其他源；删除源只停止采集，文章与反馈保留。模型失败保持 failed 且不自动重试，运行中的批次不重排。
 
 ## 后台调度与通知
 
@@ -160,6 +169,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 | `sessions/<threadId>/*.jsonl` | pi 历史唯一权威来源 |
 | `messages/<spaceId>/<sessionId>.json` | Pi Muse 消息反馈原始事件；正文仍在上方 PI JSONL |
 | `information/<spaceId>.json` | 空间局部信息设置、偏好 notes、原始条目、模型决策与发布溯源；reset 保留，delete 级联删除 |
+| `news.json` | RSS 源配置、最近抓取时间和受控错误；删除源不改写已接纳文章与反馈 |
 | `sessions/<threadId>/INSTRUCTIONS.md` | 本会话专属规则（含 `## 空间用途`），下一轮注入 |
 | `sessions/<threadId>/DREAM.md` | 本会话补充 Dream 提示词，按需存在 |
 | `sessions/<threadId>/dream.json` | 本会话 Dream 开关、游标、最近结果与待确认项，按需存在 |

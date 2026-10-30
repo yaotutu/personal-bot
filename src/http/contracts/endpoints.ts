@@ -8,6 +8,7 @@ import * as files from "./workspace-files.js";
 import * as browser from "./browser.js";
 import * as message from "./messages.js";
 import * as information from "./information.js";
+import * as news from "./news.js";
 import { sseEvents, SSE_EVENT_ORDER } from "./sse-events.js";
 import { workspaceEvents, WORKSPACE_SSE_DESCRIPTION } from "./workspace-events.js";
 
@@ -326,6 +327,136 @@ export const endpoints: EndpointSpec[] = [
       400: { description: "非法 spaceId 或 runId", schema: resp.errorResponse },
       404: { description: "空间或 run 不存在", schema: resp.errorResponse },
       503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  // ---- 新闻 V1：独立阅读视图，内部复用 information/pi，无专属聊天入口 ----
+  {
+    operationId: "getNewsStatus",
+    method: "get", path: "/api/news/status", tag: "新闻", summary: "读取新闻采集与分析状态",
+    hint: "只读状态查询。processing=true 时客户端可仅在新闻页前台短时回读本接口和列表；refreshing/processing 均为 false 或达到终态后停止轮询。后台分析失败时文章仍可读，推荐只包含已确认成功筛选结果。",
+    auth: true, response: news.newsStatusResponseSchema,
+    errorResponses: { 503: { description: "服务正在关闭", schema: resp.errorResponse } },
+  },
+  {
+    operationId: "listNewsSources",
+    method: "get", path: "/api/news/sources", tag: "新闻", summary: "列出 RSS 源",
+    hint: "只读列出源配置与健康状态。lastError 已脱敏，不包含 URL 中的凭据或上游详细错误。",
+    auth: true, response: news.newsSourceListResponseSchema,
+    errorResponses: { 503: { description: "服务正在关闭", schema: resp.errorResponse } },
+  },
+  {
+    operationId: "createNewsSource",
+    method: "post", path: "/api/news/sources", tag: "新闻", summary: "添加 RSS 源",
+    hint: "仅接受无凭据公网 HTTP(S) URL；服务端抓取 RSS2 后保存源。拒绝带用户名/密码的 URL，不把凭据写入错误或持久状态。",
+    auth: true, request: news.newsCreateSourceRequestSchema, response: news.newsCreateSourceResponseSchema,
+    errorResponses: {
+      400: { description: "非法 URL、标题或 XML", schema: resp.errorResponse },
+      409: { description: "相同 RSS 源已存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "deleteNewsSource",
+    method: "delete", path: "/api/news/sources/:sourceId", tag: "新闻", summary: "停止采集 RSS 源",
+    hint: "删除只停止后续采集；已接纳文章及其反馈、收藏和评论继续保留。sourceId 不存在返回 404。",
+    auth: true, response: news.newsDeleteSourceResponseSchema,
+    errorResponses: {
+      400: { description: "非法 sourceId", schema: resp.errorResponse },
+      404: { description: "源不存在", schema: resp.errorResponse },
+      409: { description: "该源正在本次抓取中", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "listNewsArticles",
+    method: "get", path: "/api/news/articles", tag: "新闻", summary: "分页读取新闻文章",
+    hint: "按 publishedAt+稳定 ID 倒序分页。view=recommended 只返回成功结构化筛选选中的文章并带 reason；savedOnly 只过滤不改变排序。模型失败不产生假推荐，全部时间线仍可读。",
+    auth: true, query: news.newsArticlesQuerySchema, response: news.newsArticleListResponseSchema,
+    errorResponses: {
+      400: { description: "非法查询或游标", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "getNewsArticle",
+    method: "get", path: "/api/news/articles/:articleId", tag: "新闻", summary: "读取新闻文章",
+    hint: "返回文章元数据、安全文本、推荐理由和逐篇反馈；不创建或修改任何状态。",
+    auth: true, response: news.newsArticleDetailResponseSchema,
+    errorResponses: {
+      400: { description: "非法 articleId", schema: resp.errorResponse },
+      404: { description: "文章不存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "setNewsReaction",
+    method: "put", path: "/api/news/articles/:articleId/reaction", tag: "新闻", summary: "设置文章喜欢或不喜欢",
+    hint: "like/dislike 互斥；null 撤销。反馈按 articleId 空间局部持久化，不绑定聊天消息或 session，也不随主会话 reset 清空。",
+    auth: true, request: news.newsReactionRequestSchema, response: news.newsFeedbackResponseSchema,
+    errorResponses: {
+      400: { description: "非法请求或 articleId", schema: resp.errorResponse },
+      404: { description: "文章不存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭；反馈未保存", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "setNewsSaved",
+    method: "put", path: "/api/news/articles/:articleId/saved", tag: "新闻", summary: "设置文章收藏",
+    hint: "saved 独立于 like/dislike；重复设置当前值幂等。收藏作为下一轮分析的弱信号，不立即触发模型。",
+    auth: true, request: news.newsSavedRequestSchema, response: news.newsFeedbackResponseSchema,
+    errorResponses: {
+      400: { description: "非法请求或 articleId", schema: resp.errorResponse },
+      404: { description: "文章不存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭；反馈未保存", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "addNewsComment",
+    method: "post", path: "/api/news/articles/:articleId/comments", tag: "新闻", summary: "新增文章评论",
+    hint: "text 先 trim，必须非空且最多 4000 字符。服务端生成 id/createdAt/updatedAt；反馈不写入聊天历史。",
+    auth: true, request: news.newsCommentCreateRequestSchema, response: news.newsFeedbackResponseSchema,
+    errorResponses: {
+      400: { description: "非法请求、articleId 或空/超长评论", schema: resp.errorResponse },
+      404: { description: "文章不存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭；评论未保存", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "deleteNewsComment",
+    method: "delete", path: "/api/news/articles/:articleId/comments/:commentId", tag: "新闻", summary: "删除文章评论",
+    hint: "删除指定评论并返回文章当前完整反馈；重复删除返回 404。",
+    auth: true, response: news.newsFeedbackResponseSchema,
+    errorResponses: {
+      400: { description: "非法 articleId 或 commentId", schema: resp.errorResponse },
+      404: { description: "文章或评论不存在", schema: resp.errorResponse },
+      503: { description: "服务正在关闭；删除未保存", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "refreshNews",
+    method: "post", path: "/api/news/refresh", tag: "新闻", summary: "手动抓取 RSS 源",
+    hint: "同步完成源抓取并返回新增数量，不等待模型分析；已有 information 调度处理 pending。并发 refresh 返回 409。失败可在 status/sources 查看受控错误，不自动重发写入。",
+    auth: true, request: news.newsRefreshRequestSchema, response: news.newsRefreshResponseSchema,
+    errorResponses: {
+      409: { description: "已有 refresh 正在运行", schema: resp.errorResponse },
+      503: { description: "服务正在关闭", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "getNewsPreferences",
+    method: "get", path: "/api/news/preferences", tag: "新闻", summary: "读取新闻偏好",
+    hint: "notes 是用户明确保存的偏好；learnedNotes 是模型从逐篇反馈推断的空间局部摘要。两者分离，推断不覆盖明确备注、空间规则或全局 USER。",
+    auth: true, response: news.newsPreferencesResponseSchema,
+    errorResponses: { 503: { description: "服务正在关闭", schema: resp.errorResponse } },
+  },
+  {
+    operationId: "updateNewsPreferences",
+    method: "put", path: "/api/news/preferences", tag: "新闻", summary: "保存新闻明确偏好",
+    hint: "notes 最多 20000 字符，空串清空；最后成功保存生效。本接口不触发模型，也不写全局资料。",
+    auth: true, request: news.newsPreferencesUpdateRequestSchema, response: news.newsPreferencesResponseSchema,
+    errorResponses: {
+      400: { description: "非法请求或超长 notes", schema: resp.errorResponse },
+      503: { description: "服务正在关闭；偏好未保存", schema: resp.errorResponse },
     },
   },
   {

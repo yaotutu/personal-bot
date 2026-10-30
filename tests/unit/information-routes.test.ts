@@ -6,7 +6,7 @@ import { defaultInformationState, type InformationRepository } from "../../src/f
 import type { HttpDependencies } from "../../src/bootstrap/types.js";
 
 test("PUT preferences leaves the hub lock before retaining for feedback examples", async () => {
-  let state = { ...defaultInformationState(), preferences: { notes: "old" } };
+  let state = { ...defaultInformationState(), preferences: { notes: "old", learnedNotes: "" } };
   const repository: InformationRepository = {
     read: async () => structuredClone(state),
     update: async (_spaceId, change) => {
