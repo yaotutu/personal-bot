@@ -7,6 +7,7 @@ import {
   updateMonitorSchema,
 } from "../contracts/rest.js";
 import { presentMonitor } from "../monitor-presenters.js";
+import { NEWS_INTERNAL_SPACE_ID } from "../../features/news/types.js";
 
 /** 网页监控（Monitors）独立查询、详情、修改、控制与删除接口。 */
 export const createMonitorsRoutes = (
@@ -60,6 +61,8 @@ export const createMonitorsRoutes = (
     if (parsed.data.condition === "contains" && !parsed.data.value?.trim())
       return c.json({ error: "contains condition needs a keyword", code: "KEYWORD_REQUIRED" }, 400);
     const targetSpace = parsed.data.originSpaceId;
+    if (targetSpace === NEWS_INTERNAL_SPACE_ID)
+      return c.json({ error: "Space not found", code: "SPACE_NOT_FOUND" }, 404);
     const create = async () => {
       const monitor = await monitors.create({
         ...parsed.data,
@@ -95,6 +98,8 @@ export const createMonitorsRoutes = (
     }
 
     const targetSpace = parsed.data.originSpaceId;
+    if (targetSpace === NEWS_INTERNAL_SPACE_ID)
+      return c.json({ error: "Space not found", code: "SPACE_NOT_FOUND" }, 404);
     const update = async () => {
       const updated = await monitors.update(c.req.param("id"), {
         title: parsed.data.title,

@@ -23,7 +23,16 @@ const describePathParam = (path: string, name: string): string => {
     return "可反馈的用户/助手消息稳定 ID；来自权威历史，不是工具结果或乐观流式消息";
   }
   if (name === "commentId") {
+    if (path.includes("/news/")) {
+      return "服务端生成的新闻文章评论 ID";
+    }
     return "服务端生成的消息评论 UUID";
+  }
+  if (name === "articleId" && path.includes("/news/")) {
+    return "服务端生成的新闻文章稳定 ID";
+  }
+  if (name === "sourceId" && path.includes("/news/")) {
+    return "服务端生成的 RSS 源稳定 ID";
   }
   if (name === "pendingId") {
     if (path.includes("/dream/")) {
@@ -64,6 +73,8 @@ const pathParams = (path: string) => {
     const schema =
       name === "spaceId"
         ? { type: "string" as const, minLength: 1, maxLength: 64, pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]*$", description }
+        : path.startsWith("/api/news/") && ["articleId", "sourceId", "commentId"].includes(name)
+          ? { type: "string" as const, minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$", description }
         : path.includes("/information/items/") && name === "itemId"
           ? { type: "string" as const, minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9_-]+$", description }
           : path.includes("/information/runs/") && name === "runId"

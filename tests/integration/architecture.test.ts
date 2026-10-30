@@ -54,6 +54,7 @@ test("DataLayout describes the current paths without migrating legacy data", () 
     goalsFile: join(root, "goals.json"),
     actionsFile: join(root, "actions.json"),
     monitorsFile: join(root, "monitors.json"),
+    newsFile: join(root, "news.json"),
     soulFile: join(profileDir, "SOUL.md"),
     userFile: join(profileDir, "USER.md"),
     dreamFile: join(profileDir, "DREAM.md"),

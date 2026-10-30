@@ -40,6 +40,7 @@ type SpacePause = {
 };
 
 type Cursor = { id: string; at: string; status?: string };
+type NewsCursor = { publishedAt: string; id: string; view: "recommended" | "all"; savedOnly: boolean };
 
 export type InformationServiceDependencies = {
   repository: InformationRepository;
@@ -78,6 +79,17 @@ const decodeCursor = (value: string): Cursor | undefined => {
     return undefined;
   }
 };
+const decodeNewsCursor = (value: string): NewsCursor | undefined => {
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<NewsCursor>;
+    if (typeof parsed.publishedAt !== "string" || typeof parsed.id !== "string") return undefined;
+    if (parsed.view !== "recommended" && parsed.view !== "all") return undefined;
+    if (typeof parsed.savedOnly !== "boolean") return undefined;
+    return { publishedAt: parsed.publishedAt, id: parsed.id, view: parsed.view, savedOnly: parsed.savedOnly };
+  } catch {
+    return undefined;
+  }
+};
 const validId = (value: string | undefined, label: string): string => {
   if (!value || value.length > 128 || !/^[A-Za-z0-9_-]+$/.test(value)) {
     throw new InformationError("INVALID_INPUT", `Invalid information ${label}`);
@@ -87,11 +99,17 @@ const validId = (value: string | undefined, label: string): string => {
 const sameNewInput = (left: InformationInputItem, right: InformationInputItem) =>
   left.content === right.content &&
   (left.title ?? null) === (right.title ?? null) &&
-  (left.receivedAt ?? null) === (right.receivedAt ?? null);
+  (left.receivedAt ?? null) === (right.receivedAt ?? null) &&
+  (left.metadata?.sourceId ?? null) === (right.metadata?.sourceId ?? null) &&
+  (left.metadata?.sourceTitle ?? null) === (right.metadata?.sourceTitle ?? null) &&
+  (left.metadata?.url ?? null) === (right.metadata?.url ?? null);
 const matchesStoredInput = (stored: InformationItem, input: InformationInputItem) =>
   stored.content === input.content &&
   (stored.title ?? null) === (input.title ?? null) &&
-  (input.receivedAt === undefined || input.receivedAt === stored.receivedAt);
+  (input.receivedAt === undefined || input.receivedAt === stored.receivedAt) &&
+  (stored.metadata?.sourceId ?? null) === (input.metadata?.sourceId ?? null) &&
+  (stored.metadata?.sourceTitle ?? null) === (input.metadata?.sourceTitle ?? null) &&
+  (stored.metadata?.url ?? null) === (input.metadata?.url ?? null);
 
 /** 信息域服务：持久化输入与执行事实，但执行轮本身完全交给 pi SDK runner。 */
 export const createInformationService = (deps: InformationServiceDependencies) => {
@@ -159,11 +177,30 @@ export const createInformationService = (deps: InformationServiceDependencies) =
 
   const getSettings = async (spaceId: string) => {
     await requireSpace(spaceId);
-    return (await deps.repository.read(spaceId)).settings;
+    const settings = (await deps.repository.read(spaceId)).settings;
+    return { enabled: settings.enabled, batchWindowSeconds: settings.batchWindowSeconds };
   };
-  const saveSettings = async (spaceId: string, settings: InformationSettings) => {
+  const saveSettings = async (
+    spaceId: string,
+    settings: Pick<InformationSettings, "enabled" | "batchWindowSeconds">,
+  ) => {
     requireOpen();
     await requireSpace(spaceId);
+    return deps.repository.update(spaceId, (state) => ({
+      state: {
+        ...state,
+        settings: {
+          ...state.settings,
+          enabled: settings.enabled,
+          batchWindowSeconds: settings.batchWindowSeconds,
+        },
+      },
+      result: { enabled: settings.enabled, batchWindowSeconds: settings.batchWindowSeconds },
+    }), { allowCreate: true });
+  };
+
+  const configureSpace = async (spaceId: string, settings: InformationSettings) => {
+    requireOpen();
     return deps.repository.update(spaceId, (state) => ({
       state: { ...state, settings },
       result: settings,
@@ -212,9 +249,34 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     }
     return examples;
   };
+
+  const articleFeedbackExamples = (state: InformationState) => {
+    const itemById = new Map(state.items.map((item) => [item.id, item]));
+    return state.articleFeedback
+      .filter((feedback) => feedback.reaction !== null || feedback.saved || feedback.comments.length > 0)
+      .slice(-20)
+      .reverse()
+      .flatMap((feedback) => {
+        const item = itemById.get(feedback.itemId);
+        if (!item) return [];
+        return [{
+          id: item.id,
+          ...(item.title ? { title: item.title.slice(0, FEEDBACK_TEXT_LENGTH) } : {}),
+          content: item.content.slice(0, FEEDBACK_CONTENT_LENGTH),
+          contentTruncated: item.content.length > FEEDBACK_CONTENT_LENGTH,
+          reaction: feedback.reaction,
+          saved: feedback.saved,
+          comments: feedback.comments.slice(-MAX_FEEDBACK_COMMENTS).map((comment) =>
+            comment.text.slice(0, FEEDBACK_TEXT_LENGTH)),
+        }];
+      });
+  };
   const getPreferences = async (spaceId: string) => {
     await requireSpace(spaceId);
     const state = await deps.repository.read(spaceId);
+    if (state.settings.mode === "recommendations") {
+      return { notes: state.preferences.notes, feedbackExamples: [] };
+    }
     const retained = await deps.retainSpace(spaceId);
     if (!retained) return { notes: state.preferences.notes, feedbackExamples: [] };
     try {
@@ -226,13 +288,88 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       retained.release();
     }
   };
-  const savePreferences = async (spaceId: string, preferences: InformationPreferences) => {
+  const getNewsPreferences = async (spaceId: string) => {
+    await requireSpace(spaceId);
+    const preferences = (await deps.repository.read(spaceId)).preferences;
+    return { notes: preferences.notes, learnedNotes: preferences.learnedNotes };
+  };
+  const savePreferences = async (spaceId: string, preferences: Pick<InformationPreferences, "notes">) => {
     requireOpen();
     await requireSpace(spaceId);
     return deps.repository.update(spaceId, (state) => ({
-      state: { ...state, preferences },
-      result: preferences,
+      state: { ...state, preferences: { notes: preferences.notes, learnedNotes: state.preferences.learnedNotes } },
+      result: { notes: preferences.notes },
     }), { allowCreate: true });
+  };
+
+  const emptyFeedbackFor = (itemId: string) => ({ itemId, reaction: null, saved: false, comments: [] });
+  const updateArticle = async <T>(
+    spaceId: string,
+    itemId: string,
+    change: (feedback: NonNullable<InformationState["articleFeedback"][number]>) => T,
+  ) => deps.repository.update(spaceId, (state) => {
+    if (!state.items.some((item) => item.id === itemId)) {
+      throw new InformationError("NOT_FOUND", "Information item not found");
+    }
+    const existing = state.articleFeedback.find((feedback) => feedback.itemId === itemId);
+    const feedback = structuredClone(existing ?? emptyFeedbackFor(itemId));
+    const result = change(feedback);
+    return {
+      state: {
+        ...state,
+        // Array order is recency order: touching an old article must move it to the end.
+        articleFeedback: [
+          ...state.articleFeedback.filter((candidate) => candidate.itemId !== itemId),
+          feedback,
+        ],
+      },
+      result,
+    };
+  });
+
+  const setArticleReaction = (spaceId: string, rawItemId: string, reaction: "like" | "dislike" | null) => {
+    requireOpen();
+    return updateArticle(spaceId, validId(rawItemId, "itemId"), (feedback) => {
+      feedback.reaction = reaction;
+      return feedback;
+    });
+  };
+
+  const setArticleSaved = (spaceId: string, rawItemId: string, saved: boolean) => {
+    requireOpen();
+    return updateArticle(spaceId, validId(rawItemId, "itemId"), (feedback) => {
+      feedback.saved = saved;
+      return feedback;
+    });
+  };
+
+  const addArticleComment = (spaceId: string, rawItemId: string, text: string) => {
+    requireOpen();
+    const normalized = text.trim();
+    if (!normalized || normalized.length > 4000) {
+      throw new InformationError("INVALID_INPUT", "Comment must be non-blank and at most 4000 characters");
+    }
+    return updateArticle(spaceId, validId(rawItemId, "itemId"), (feedback) => {
+      const timestamp = now();
+      feedback.comments.push({
+        id: `comment_${randomUUID()}`,
+        text: normalized,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      return feedback;
+    });
+  };
+
+  const deleteArticleComment = (spaceId: string, rawItemId: string, commentId: string) => {
+    requireOpen();
+    const itemId = validId(rawItemId, "itemId");
+    return updateArticle(spaceId, itemId, (feedback) => {
+      const index = feedback.comments.findIndex((comment) => comment.id === commentId);
+      if (index < 0) throw new InformationError("NOT_FOUND", "Information comment not found");
+      feedback.comments.splice(index, 1);
+      return feedback;
+    });
   };
 
   const ingest = async (spaceId: string, inputs: readonly InformationInputItem[]) => {
@@ -276,6 +413,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
           receivedAt: input.receivedAt ?? acceptedAt,
           acceptedAt,
           status: "pending",
+          ...(input.metadata ? { metadata: input.metadata } : {}),
         };
         void key;
         returned.push(item);
@@ -286,6 +424,40 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         result: returned,
       };
     }, { allowCreate: true });
+  };
+
+  const ingestNews = async (spaceId: string, inputs: readonly InformationInputItem[]) => {
+    requireOpen();
+    await requireSpace(spaceId);
+    return deps.repository.update(spaceId, (current) => {
+      if (current.settings.mode !== "recommendations") {
+        throw new InformationError("CONFLICT", "Information space is not in recommendation mode");
+      }
+      const acceptedAt = now();
+      const existing = new Set(current.items.map((item) => keyOf(item.source, item.externalId)));
+      const added: InformationItem[] = [];
+      for (const input of inputs) {
+        const key = keyOf(input.source, input.externalId);
+        if (existing.has(key)) continue;
+        existing.add(key);
+        added.push({
+          id: `info_${randomUUID()}`,
+          spaceId,
+          source: input.source,
+          externalId: input.externalId,
+          ...(input.title ? { title: input.title } : {}),
+          content: input.content,
+          receivedAt: input.receivedAt ?? acceptedAt,
+          acceptedAt,
+          status: "pending",
+          ...(input.metadata ? { metadata: input.metadata } : {}),
+        });
+      }
+      return {
+        state: { ...current, items: [...current.items, ...added] },
+        result: added,
+      };
+    });
   };
 
   const listItems = async (spaceId: string, options: { status?: string; limit?: number; cursor?: string }) => {
@@ -329,6 +501,121 @@ export const createInformationService = (deps: InformationServiceDependencies) =
       items: run.itemIds.map((itemId) => state.items.find((item) => item.id === itemId))
         .filter((item): item is InformationItem => Boolean(item)),
     };
+  };
+
+  const recommendationByItem = (state: InformationState) => {
+    const recommendations = new Map<string, { reason: string }>();
+    for (const run of sortedRuns(state.runs)) {
+      if (run.status !== "completed" || run.model?.status !== "succeeded" || !run.decisions) continue;
+      for (const decision of run.decisions) {
+        if (decision.decision === "notify" && !recommendations.has(decision.itemId)) {
+          recommendations.set(decision.itemId, { reason: decision.reason });
+        }
+      }
+    }
+    return recommendations;
+  };
+  const newsArticle = (
+    state: InformationState,
+    item: InformationItem,
+    recommendations: ReadonlyMap<string, { reason: string }>,
+  ) => {
+    const feedback = state.articleFeedback.find((candidate) => candidate.itemId === item.id);
+    return {
+      id: item.id,
+      sourceId: item.metadata!.sourceId,
+      sourceTitle: item.metadata!.sourceTitle,
+      title: item.title ?? "Untitled",
+      url: item.metadata!.url,
+      content: item.content,
+      publishedAt: item.receivedAt,
+      acceptedAt: item.acceptedAt,
+      recommendation: recommendations.get(item.id) ?? null,
+      feedback: {
+        reaction: feedback?.reaction ?? null,
+        saved: feedback?.saved ?? false,
+        comments: feedback?.comments ?? [],
+      },
+    };
+  };
+  const listNewsArticles = async (
+    spaceId: string,
+    options: {
+      view: "recommended" | "all";
+      savedOnly: boolean;
+      limit: number;
+      cursor?: string;
+    },
+  ) => {
+    await requireSpace(spaceId);
+    const state = await deps.repository.read(spaceId);
+    if (state.settings.mode !== "recommendations") {
+      throw new InformationError("NOT_FOUND", "News space not found");
+    }
+    const cursor = options.cursor ? decodeNewsCursor(options.cursor) : undefined;
+    if (options.cursor && (!cursor || cursor.view !== options.view || cursor.savedOnly !== options.savedOnly)) {
+      throw new InformationError("INVALID_INPUT", "Invalid news cursor");
+    }
+    const recommendations = recommendationByItem(state);
+    const feedbackByItem = new Map(state.articleFeedback.map((feedback) => [feedback.itemId, feedback]));
+    const filtered = state.items
+      .filter((item) => Boolean(item.metadata))
+      .filter((item) => options.view === "all" || recommendations.has(item.id))
+      .filter((item) => !options.savedOnly || feedbackByItem.get(item.id)?.saved === true)
+      .sort((left, right) =>
+        right.receivedAt.localeCompare(left.receivedAt) || right.id.localeCompare(left.id))
+      .filter((item) => !cursor ||
+        item.receivedAt < cursor.publishedAt ||
+        (item.receivedAt === cursor.publishedAt && item.id < cursor.id));
+    const pageWithExtra = filtered.slice(0, options.limit + 1);
+    const values = pageWithExtra
+      .slice(0, options.limit)
+      .map((item) => newsArticle(state, item, recommendations));
+    const last = values.at(-1);
+    return {
+      articles: values,
+      nextCursor: pageWithExtra.length > options.limit && last
+        ? Buffer.from(JSON.stringify({
+          publishedAt: last.publishedAt,
+          id: last.id,
+          view: options.view,
+          savedOnly: options.savedOnly,
+        } satisfies NewsCursor), "utf8").toString("base64url")
+        : null,
+    };
+  };
+  const getNewsArticle = async (spaceId: string, rawItemId: string) => {
+    await requireSpace(spaceId);
+    const itemId = validId(rawItemId, "articleId");
+    const state = await deps.repository.read(spaceId);
+    const item = state.items.find((candidate) => candidate.id === itemId && candidate.metadata);
+    if (!item || state.settings.mode !== "recommendations") {
+      throw new InformationError("NOT_FOUND", "News article not found");
+    }
+    return { article: newsArticle(state, item, recommendationByItem(state)) };
+  };
+  const getNewsCounts = async (spaceId: string) => {
+    const state = await deps.repository.read(spaceId);
+    return {
+      processing: active?.spaceId === spaceId,
+      pendingCount: state.items.filter((item) => item.status === "pending").length,
+      failedCount: state.items.filter((item) => item.status === "failed").length,
+    };
+  };
+  const retryFailedNews = async (spaceId: string) => {
+    if (active?.spaceId === spaceId) return 0;
+    return deps.repository.update(spaceId, (state) => {
+      let changed = 0;
+      const items = state.items.map((item) => {
+        if (item.status !== "failed") return item;
+        changed++;
+        return { ...item, status: "pending" as const };
+      });
+      return {
+        state: changed ? { ...state, items } : undefined,
+        result: changed,
+      };
+    });
   };
 
   const claim = async (spaceId: string, force: boolean) =>
@@ -423,28 +710,38 @@ export const createInformationService = (deps: InformationServiceDependencies) =
     let retained: Awaited<ReturnType<typeof deps.retainSpace>> | undefined;
     try {
       controller.signal.throwIfAborted();
-      retained = await deps.retainSpace(claimed.spaceId);
-      controller.signal.throwIfAborted();
-      if (!retained) {
-        await failRun(claimed.spaceId, claimed.id, "Target space disappeared", true);
-        return;
+      const initialState = await deps.repository.read(claimed.spaceId);
+      const mode = initialState.settings.mode;
+      let targetSessionId: string | undefined;
+      if (mode === "notifications") {
+        retained = await deps.retainSpace(claimed.spaceId);
+        controller.signal.throwIfAborted();
+        if (!retained) {
+          await failRun(claimed.spaceId, claimed.id, "Target space disappeared", true);
+          return;
+        }
+        targetSessionId = retained.conversation.sessionId();
       }
       {
-        const targetSessionId = retained.conversation.sessionId();
-        const state = await deps.repository.read(claimed.spaceId);
+        const state = initialState;
         const items = claimed.itemIds
           .map((id) => state.items.find((item) => item.id === id))
           .filter((item): item is InformationItem => Boolean(item));
         const input: InformationModelInput = {
           spaceId: claimed.spaceId,
           runId: claimed.id,
+          mode,
           instructions: await deps.readInstructions(claimed.spaceId),
           enabledSkillTexts: await deps.enabledSkillTexts(claimed.spaceId),
           preferences: state.preferences,
-          items: items.map(({ id, source, externalId, title, content, receivedAt }) => ({
+          items: items.map(({ id, source, externalId, title, content, receivedAt, metadata }) => ({
             id, source, externalId, ...(title ? { title } : {}), content, receivedAt,
+            ...(metadata ? { sourceTitle: metadata.sourceTitle, url: metadata.url } : {}),
           })),
-          feedbackExamples: await feedbackExamples(claimed.spaceId, state, targetSessionId),
+          feedbackExamples: mode === "notifications" && targetSessionId
+            ? await feedbackExamples(claimed.spaceId, state, targetSessionId)
+            : [],
+          articleFeedback: mode === "recommendations" ? articleFeedbackExamples(state) : [],
         };
         controller.signal.throwIfAborted();
         const result = await deps.runModel(input, controller.signal);
@@ -454,30 +751,34 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         }
         let parsed: ReturnType<typeof parseInformationResult>;
         try {
-          parsed = parseInformationResult(result.result, claimed.itemIds);
+          parsed = parseInformationResult(result.result, claimed.itemIds, mode);
         } catch {
           await failRun(claimed.spaceId, claimed.id, "INVALID_MODEL_RESULT");
           return;
         }
         // 模型已成功时先保留这个事实；若取消/目标会话已变化，只把投递标失败，不重跑模型。
-        const deliveryCancelled = controller.signal.aborted ||
-          retained.conversation.sessionId() !== targetSessionId;
+        const deliveryCancelled = mode === "notifications" && (
+          controller.signal.aborted || retained!.conversation.sessionId() !== targetSessionId
+        );
         const deliveryError = controller.signal.aborted
           ? "Cancelled before notification delivery"
           : "Target session changed before notification delivery";
         await deps.repository.update(claimed.spaceId, (current) => {
           const run = current.runs.find((candidate) => candidate.id === claimed.id);
           if (!run || run.status !== "running") return { result: undefined };
-          const publications = parsed.notifications.map((notification, index) => ({
+          const publications = mode === "notifications" ? parsed.notifications.map((notification, index) => ({
             notificationId: `info-notification-${claimed.id}-${index}`,
             itemIds: notification.itemIds,
             text: notification.text,
             status: deliveryCancelled ? "failed" as const : "pending" as const,
             ...(deliveryCancelled ? { error: deliveryError } : {}),
-          }));
+          })) : [];
           return {
             state: {
               ...current,
+              preferences: mode === "recommendations" && parsed.learnedNotes !== undefined
+                ? { ...current.preferences, learnedNotes: parsed.learnedNotes }
+                : current.preferences,
               items: current.items.map((item) => item.runId === claimed.id && item.status === "processing"
                 ? { ...item, status: "processed" as const }
                 : item),
@@ -499,6 +800,7 @@ export const createInformationService = (deps: InformationServiceDependencies) =
         const completed = await deps.repository.read(claimed.spaceId);
         const run = completed.runs.find((candidate) => candidate.id === claimed.id);
         for (const publication of run?.publications ?? []) {
+          if (mode !== "notifications" || !retained || !targetSessionId) continue;
           const settingsNow = await deps.repository.read(claimed.spaceId);
           if (!settingsNow.settings.enabled) {
             await markPublication(claimed.spaceId, claimed.id, publication.notificationId, {
@@ -676,11 +978,22 @@ export const createInformationService = (deps: InformationServiceDependencies) =
   return {
     getSettings,
     saveSettings,
+    configureSpace,
     getPreferences,
+    getNewsPreferences,
     savePreferences,
     ingest,
+    ingestNews,
     listItems,
     getItem,
+    listNewsArticles,
+    getNewsArticle,
+    getNewsCounts,
+    retryFailedNews,
+    setArticleReaction,
+    setArticleSaved,
+    addArticleComment,
+    deleteArticleComment,
     listRuns,
     getRun,
     runNow,

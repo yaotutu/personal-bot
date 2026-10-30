@@ -22,6 +22,7 @@ import {
   resetSpaceSchema,
 } from "../contracts/rest.js";
 import { UnknownSkillError } from "../../features/skills/service.js";
+import { NEWS_INTERNAL_SPACE_ID } from "../../features/news/types.js";
 
 /**
  * 空间管理路由：多空间列表、重置会话、生命周期（含级联删除）、技能覆盖、专属指令与 Dream 配置。
@@ -32,7 +33,9 @@ export const createSpaceRoutes = (dependencies: HttpDependencies) => {
 
   // GET /api/spaces - 列出所有空间（最近活跃倒序，永远包含 local-main）
   app.get("/", async (c) => {
-    return c.json({ spaces: await conversationHub.spaces() });
+    return c.json({
+      spaces: (await conversationHub.spaces()).filter((space) => space.id !== NEWS_INTERNAL_SPACE_ID),
+    });
   });
 
   // POST /api/spaces/:spaceId/reset - 重置空间当前会话（保留私有工作区文件与规则/技能/Dream配置）

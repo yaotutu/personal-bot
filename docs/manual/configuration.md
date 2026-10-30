@@ -124,6 +124,8 @@ chmod 600 .pi-muse/config.json
 │   ├── DREAM.md                        # 全局 Dream 整理提示词
 │   └── memory.json                     # 长期记忆与身份设置（按需检索）
 ├── jobs.json / goals.json / actions.json / monitors.json
+├── news.json                            # RSS 源配置与采集健康状态
+├── information/<spaceId>.json           # 空间局部信息/新闻条目、决策与逐篇反馈
 ├── sessions/<threadId>/
 │   ├── *.jsonl                          # pi 权威历史
 │   ├── INSTRUCTIONS.md                  # 会话专属指令（含 ## 空间用途），按需存在

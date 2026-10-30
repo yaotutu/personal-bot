@@ -91,7 +91,7 @@ type OpenApiOperation = {
   description?: string;
   tags?: string[];
   security?: unknown[];
-  parameters?: { name: string; in: string; required: boolean; schema: JsonSchema }[];
+  parameters?: { name: string; in: string; required: boolean; description?: string; schema: JsonSchema }[];
   responses: Record<
     string,
     {
@@ -1178,4 +1178,45 @@ test("docs: information endpoints expose a bounded authenticated space-scoped AP
   assert.match(paths["/api/spaces/{spaceId}/information/runs"]!.get!.description ?? "", /notificationId\/sessionId\/messageId/);
   assert.match(paths["/api/spaces/{spaceId}/information/preferences"]!.get!.description ?? "", /当前投影/);
   assert.match(paths["/api/spaces/{spaceId}/information/settings"]!.put!.description ?? "", /取消该空间在途信息轮/);
+});
+
+test("docs: news endpoints freeze the client contract without exposing the internal space", () => {
+  const doc = buildOpenApiDocument();
+  const paths = doc.paths as unknown as Record<string, Record<string, OpenApiOperation>>;
+  const newsPaths = Object.entries(paths)
+    .filter(([path]) => path.startsWith("/api/news"))
+    .map(([path, operations]) => [path, Object.keys(operations).sort()] as const)
+    .sort(([left], [right]) => left.localeCompare(right));
+  assert.deepEqual(newsPaths, [
+    ["/api/news/articles", ["get"]],
+    ["/api/news/articles/{articleId}", ["get"]],
+    ["/api/news/articles/{articleId}/comments", ["post"]],
+    ["/api/news/articles/{articleId}/comments/{commentId}", ["delete"]],
+    ["/api/news/articles/{articleId}/reaction", ["put"]],
+    ["/api/news/articles/{articleId}/saved", ["put"]],
+    ["/api/news/preferences", ["get", "put"]],
+    ["/api/news/refresh", ["post"]],
+    ["/api/news/sources", ["get", "post"]],
+    ["/api/news/sources/{sourceId}", ["delete"]],
+    ["/api/news/status", ["get"]],
+  ]);
+
+  for (const operations of Object.values(paths)) {
+    for (const operation of Object.values(operations)) {
+      if (operation.tags?.[0] !== "新闻") continue;
+      assert.deepEqual(operation.security, [{ bearerAuth: [] }]);
+      assert.ok(!JSON.stringify(operation).includes("news-internal"));
+      assert.ok(!JSON.stringify(operation).includes("spaceId"));
+    }
+  }
+
+  const list = paths["/api/news/articles"]!.get!;
+  const savedOnly = queryParameter(list, "savedOnly");
+  assert.deepEqual(savedOnly.schema.enum, ["true", "false"]);
+  assert.equal(savedOnly.schema.default, "false");
+  assert.match(savedOnly.description ?? "", /收藏/);
+  assert.match(list.description ?? "", /publishedAt/);
+  assert.match(list.description ?? "", /模型失败/);
+  assert.match(paths["/api/news/refresh"]!.post!.description ?? "", /不等待模型分析/);
+  assert.match(paths["/api/news/sources/{sourceId}"]!.delete!.description ?? "", /文章.*保留/);
 });

@@ -10,9 +10,26 @@ import { createAgUiRoutes } from "../adapters/ag-ui/routes.js";
 import { createMessageRoutes } from "./routes/messages.js";
 import { createSpaceRoutes } from "./routes/spaces.js";
 import { createInformationRoutes } from "./routes/information.js";
+import { createNewsRoutes } from "./routes/news.js";
 import { createWorkspaceEventRoutes } from "./routes/events.js";
 import { createBrowserRoutes } from "./routes/browser.js";
 import { serviceVersion } from "../bootstrap/service-version.js";
+import { NEWS_INTERNAL_SPACE_ID } from "../features/news/types.js";
+
+const decodePathSegment = (segment: string) => {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+};
+
+const hasReservedSpacePath = (path: string) => {
+  const segments = path.split("/").map(decodePathSegment);
+  return segments.some((segment, index) =>
+    (segment === "spaces" || segment === "threads") &&
+    segments[index + 1] === NEWS_INTERNAL_SPACE_ID);
+};
 
 // 只挂载 HTTP/协议适配：使用已组装的服务，不创建 store，也不启动或关闭调度器。
 export async function createHttpApp(dependencies: HttpDependencies) {
@@ -85,6 +102,12 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.use("/api/*", async (c, next) => {
     if (!auth.authorized(c.req.header("Authorization")))
       return c.json({ error: "Unauthorized: open a new session" }, 401);
+    const url = new URL(c.req.url);
+    const reservedPath = hasReservedSpacePath(url.pathname);
+    const reservedQuery = [url.searchParams.get("spaceId"), url.searchParams.get("originSpaceId")]
+      .includes(NEWS_INTERNAL_SPACE_ID);
+    if (reservedPath || reservedQuery)
+      return c.json({ error: "Not found" }, 404);
     await next();
   });
   // 先鉴权，再挂载业务/运行协议，最后处理未知 API；顺序是现有安全边界。
@@ -93,6 +116,7 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.route("/api/spaces", createMessageRoutes(dependencies));
   app.route("/api/spaces", createInformationRoutes(dependencies));
   app.route("/api/spaces", createSpaceRoutes(dependencies));
+  app.route("/api/news", createNewsRoutes(dependencies));
   app.route("/", createWorkspaceRoutes(dependencies));
   app.route("/", runtimeRoutes);
   app.all("/api/*", (c) =>

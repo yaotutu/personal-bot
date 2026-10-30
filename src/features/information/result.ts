@@ -9,6 +9,7 @@ export const INFORMATION_MAX_NOTIFICATIONS = 20;
 export const parseInformationResult = (
   value: unknown,
   itemIds: readonly string[],
+  mode: "notifications" | "recommendations" = "notifications",
 ): InformationSubmittedResult => {
   const expected = new Set(itemIds);
   const decided = new Set<string>();
@@ -58,8 +59,20 @@ export const parseInformationResult = (
     }
     return { itemIds: notification.itemIds as string[], text: notification.text };
   });
-  if (covered.size !== notifyIds.size) {
+  if (mode === "notifications" && covered.size !== notifyIds.size) {
     throw new InformationError("INVALID_INPUT", "Every notify item must be covered exactly once");
   }
-  return { decisions, notifications };
+  const rawLearnedNotes = (value as { learnedNotes?: unknown }).learnedNotes;
+  if ((mode === "recommendations" && typeof rawLearnedNotes !== "string") ||
+      (rawLearnedNotes !== undefined && (typeof rawLearnedNotes !== "string" || rawLearnedNotes.length > 4000))) {
+    throw new InformationError("INVALID_INPUT", "Information preference summary is invalid");
+  }
+  if (mode === "recommendations" && notifications.length) {
+    throw new InformationError("INVALID_INPUT", "Recommendation mode must not submit notifications");
+  }
+  return {
+    decisions,
+    notifications,
+    ...(rawLearnedNotes === undefined ? {} : { learnedNotes: rawLearnedNotes }),
+  };
 };

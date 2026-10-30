@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,14 +24,14 @@ test("information repository serializes update and delete without file revival",
     /Information document not found/,
   );
   assert.equal(await repository.update("space", (state) => ({
-    state: { ...state, settings: { enabled: true, batchWindowSeconds: 0 } },
+    state: { ...state, settings: { enabled: true, batchWindowSeconds: 0, mode: "notifications" } },
     result: true,
   }), { allowCreate: true }), true);
 
   const holding = deferred();
   const writing = repository.update("space", async (state) => {
     await holding.promise;
-    return { state: { ...state, preferences: { notes: "serialized" } }, result: undefined };
+    return { state: { ...state, preferences: { notes: "serialized", learnedNotes: "" } }, result: undefined };
   });
   const removing = repository.removeSpace("space");
   holding.finish();
@@ -51,7 +51,7 @@ test("startup reconcile closes interrupted models and completed pending publicat
   const at = new Date().toISOString();
   const state: InformationState = {
     ...defaultInformationState(),
-    settings: { enabled: true, batchWindowSeconds: 0 },
+    settings: { enabled: true, batchWindowSeconds: 0, mode: "notifications" },
     items: [
       { id: "item-running", spaceId: "space", source: "rss", externalId: "1", content: "one", receivedAt: at, acceptedAt: at, status: "processing", runId: "run-running" },
       { id: "item-completed", spaceId: "space", source: "rss", externalId: "2", content: "two", receivedAt: at, acceptedAt: at, status: "processed", runId: "run-completed" },
@@ -73,4 +73,28 @@ test("startup reconcile closes interrupted models and completed pending publicat
   assert.equal(reconciled.runs[0]?.status, "failed");
   assert.equal(reconciled.runs[1]?.model?.status, "succeeded");
   assert.equal(reconciled.runs[1]?.publications[0]?.status, "failed");
+});
+
+test("additive information fields default without discarding an existing valid document", async (t) => {
+  const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-information-repository-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const at = new Date().toISOString();
+  await mkdir(join(dataDir, "information"), { recursive: true });
+  await writeFile(join(dataDir, "information", "space.json"), JSON.stringify({
+    schemaVersion: 1,
+    settings: { enabled: true, batchWindowSeconds: 0 },
+    preferences: { notes: "keep me" },
+    items: [{
+      id: "item-1", spaceId: "space", source: "rss", externalId: "1",
+      content: "original", receivedAt: at, acceptedAt: at, status: "pending",
+    }],
+    runs: [],
+  }));
+  const repository = createInformationRepository(createDataLayout(dataDir));
+  const state = await repository.read("space");
+  assert.equal(state.settings.mode, "notifications");
+  assert.equal(state.preferences.notes, "keep me");
+  assert.equal(state.preferences.learnedNotes, "");
+  assert.deepEqual(state.articleFeedback, []);
+  assert.equal(state.items[0]?.content, "original");
 });
