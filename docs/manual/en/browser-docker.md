@@ -53,7 +53,7 @@ The current Compose entry still starts with `-nopw`, so VNC access does not requ
 The noVNC port is not protected by the Pi Muse API AccessKey. With no VNC credentials required by default, anyone who can reach the port can view and operate the entire remote desktop, including signed-in websites. Do not expose the default port directly to untrusted networks. Restrict source addresses with a firewall, or use secure virtual networking or an authenticated proxy. HTTPS encrypts transport but does not replace access authentication.
 :::
 
-For saving the noVNC address in the mobile app and opening it in the system browser, see [Profile and settings](profile-and-settings.md). The app does not infer a noVNC port from the API address.
+The real browser is configured on the server. The mobile client neither stores a noVNC address nor provides an open-browser entry. To view the remote desktop, open the complete deployed noVNC URL in a system browser.
 
 ### External Toolbar and Built-in Bar {#external-toolbar-and-built-in-bar}
 

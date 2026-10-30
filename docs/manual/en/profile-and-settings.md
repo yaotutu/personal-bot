@@ -1,6 +1,6 @@
 # Profile and settings
 
-This page explains the mobile client's assistant and user profiles, common appearance settings, server connection, real-browser entry, and Android app updates. Entry points and limits were checked against current mobile and server source; source capabilities do not automatically equal a released APK. Follow the UI in your installed release.
+This page explains the mobile client's assistant and user profiles, common appearance settings, server connection and Android app updates. Entry points and limits were checked against current mobile and server source; source capabilities do not automatically equal a released APK. Follow the UI in your installed release.
 
 ## Prerequisites {#prerequisites}
 
@@ -18,7 +18,7 @@ This page explains the mobile client's assistant and user profiles, common appea
 2. Choose one of the 「温暖」 (warm), 「简洁」 (concise), or 「周到」 (thoughtful) tones. If the server returns a legacy tone unknown to this client, the page shows that value and asks you to choose a supported one.
 3. Tap 「保存助手设置」. Success shows 「身份已保存」, and the change marker disappears.
 
-The name and tone are global and take effect from the next conversation turn; existing history is not rewritten. The main-space header shows the assistant name, while a non-main-space header still shows the space ID.
+The name and tone are global and take effect from the next conversation turn; existing history is not rewritten. The main-space header shows the assistant name, while a non-main space shows a readable conversation number for the current connection.
 
 ### Save SOUL and USER {#save-soul-and-user}
 
@@ -48,19 +48,16 @@ For the first address, access key, and connection steps, see [Quick Start](getti
 2. Change 「服务器地址」 or 「访问密钥」, then tap 「测试连接」. A successful test only proves that the current draft is reachable; it is not saved yet.
 3. To reauthenticate to the same address, enter the new access key, test it, then tap 「重新认证」. Testing the same address with the key left blank reuses the current Token.
 4. When changing to a different server, read 「更换服务器前请确认」, tap 「继续保存」, then save the new address as prompted.
-5. If the server is temporarily unavailable, open this panel and tap 「重试连接」. If local connection configuration cannot be read, tap 「重新加载」.
+5. While testing, tap「取消测试」or close the panel; late results do not save anything. Wait for saving or local cleanup to finish before closing.
+6. If the server is temporarily unavailable, open this panel and tap 「重试连接」. If local connection configuration cannot be read, tap 「重新加载」.
 
-Changing servers requires confirmation and makes the client discard local business caches and old credentials for the old address. It does not delete data on any remote server. The saved real-browser address and local theme preference are retained. If you save only the address for later authentication, no Token is stored. After a successful test or connection, the app stores the server-issued long-term Token, not the plaintext AccessKey.
+Changing servers requires confirmation and makes the client discard local business caches and old credentials for the old address. It does not delete data on any remote server. The local theme preference is retained. If you save only the address for later authentication, no Token is stored. After a successful test or connection, the app stores the server-issued long-term Token, not the plaintext AccessKey.
 
 The current app has no logout or server-sign-out button. Closing the connection panel only clears the access key typed in that form. Moving the app to the background or exiting only pauses network requests; the device keeps the server address and Token for later use. The Token remains valid across server restarts. After the server changes or removes `server.accessKey`, it is rejected and the client asks you to reauthenticate.
 
 ## Real Browser {#real-browser}
 
-1. Go to bottom 「设置」 → 「连接与设备」 → 「服务器连接」. Under 「真实浏览器」, enter the complete noVNC page URL, such as `https://browser.example.com/vnc.html`. Only HTTP(S) is supported, and an HTTP username or password before the hostname is not allowed. If VNC credentials are enabled, enter the complete entry point described by the deployment guide. Saving an empty value clears the configuration.
-2. Tap 「保存浏览器地址」. A saved server address is required first. The app does not infer a noVNC host, port, or path from the API address.
-3. Return to Settings and tap 「连接与设备」 → 「真实浏览器」. The app opens the URL in the system browser; it does not embed a browser inside the app.
-
-For noVNC deployment, default ports, mobile pages, and security boundaries, see [Real Browser Docker and noVNC Guide](browser-docker.md). The noVNC entry is not protected by the Pi Muse API AccessKey. In the default deployment without VNC credentials, anyone who can reach it may see and operate the remote desktop; do not expose it to an untrusted network.
+The real browser is configured and managed on the server. The mobile client has no browser-address setting or open-browser entry. Server browser tools and deployment capabilities are unchanged. To observe or control the remote desktop, open the protected deployment URL in a system browser as described in [Browser Docker and noVNC](browser-docker.md). noVNC is not protected by the Pi Muse API AccessKey; never expose an unauthenticated desktop publicly.
 
 ## Android App Updates {#android-updates}
 
@@ -79,5 +76,4 @@ The current update path supports only a standalone Android APK and is not Expo O
 | Profile page shows the last loaded value or an unknown save result | Tap 「刷新」 to verify the server value. After checking, save explicitly again if needed; the client does not retry automatically. |
 | Theme changed but saving failed | Local storage failed temporarily. Choose a theme again to retry saving; the visible switch is unaffected. |
 | Connection status says reauthentication is required | Open 「服务器连接」, enter the current AccessKey, test it, then tap 「重新认证」. |
-| Real browser cannot open | Verify the complete noVNC address was saved, then check whether the phone's system browser can reach it. This entry is not an embedded browser. |
 | App update check fails | Retry later or manually download the APK from the official Releases page. Update checks do not depend on the Pi Muse business server. |

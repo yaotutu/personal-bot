@@ -61,7 +61,7 @@ First distinguish long-term memory, assistant and user profiles, and Dream pendi
 
 ## The Real Browser Cannot Open {#browser-cannot-open}
 
-The mobile noVNC address must be entered separately. Do not reuse the API base address or expect the app to infer a port. Check the complete saved address and phone network, then follow [Profile and settings](profile-and-settings.md). For containers and ports, see [Browser deployment](browser-docker.md). Do not expose the default unauthenticated noVNC port publicly while troubleshooting.
+The mobile client has no real-browser setting or entry. Configure the browser on the server and open the complete deployed noVNC URL in a system browser; it is not the API base URL. For containers and ports, see [Browser deployment](browser-docker.md). Do not expose the default unauthenticated noVNC port publicly while troubleshooting.
 
 ## App Update Check or Installation Failed {#app-update-failed}
 

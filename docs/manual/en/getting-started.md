@@ -82,18 +82,19 @@ Restarting the service does not rerun expired one-off reminders, and failed jobs
 ## Connect the Mobile Client {#connect-mobile-client}
 
 1. Download and install the Android APK matching your device architecture from [pi-muse-mobile Releases](https://github.com/yaotutu/pi-muse-mobile/releases). Check that release's notes first; do not assume every capability in current server source is already in the APK.
+   iOS users may download `app-release-unsigned.ipa` only when that asset is actually present in the selected release, then re-sign it using their own valid certificate and provisioning profile. An unsigned IPA cannot be installed directly. This is not App Store or TestFlight distribution and does not use the Android in-app updater.
 2. Confirm the phone can reach the server:
    - The phone may connect directly over HTTP to a LAN or remote server. A domain, certificate, or HTTPS reverse proxy is not required.
    - Do not enter `localhost` or `127.0.0.1` on the phone. `localhost` refers to the phone itself, not the computer running the server.
    - On a LAN, enter the computer's actual address, such as `http://192.168.1.100:17890`, and allow inbound port `17890` through the computer firewall.
 3. Open Pi Muse, go to the bottom「设置」tab, and tap「服务器连接」（Server Connection）under「连接与设备」.
-4. In「连接设置」, enter:
+4. On the「服务器连接」page, enter:
    - 「服务器地址」: the server base address, without `/api`, `/docs`, or a trailing path slash.
    - 「访问密钥」: the `server.accessKey` from the configuration file, not `model.apiKey`.
 5. Tap「测试连接」. On success, the app shows「测试通过，尚未保存」.
 6. Tap「连接服务器」. On success, the panel closes and the connection status shows「已连接」.
 
-Tapping「测试连接」alone does not save the configuration. If you change to a different server address, the client first asks you to confirm clearing local business cache and old credentials; that action does not delete data on the remote server.
+While a test is pending, tap「取消测试」or close the panel without saving the draft. Saving or clearing local cache must finish before closing. Tapping「测试连接」alone does not save the configuration. If you change to a different server address, the client first asks you to confirm clearing local business cache and old credentials; that action does not delete data on the remote server.
 
 ## Send a Message and Receive a Reply {#send-first-real-reply}
 

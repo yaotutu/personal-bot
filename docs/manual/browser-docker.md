@@ -53,7 +53,7 @@ http://<任意主机或域名>:6080/pimuse-mobile.html#password=<VNC密码>
 noVNC 端口不受 Pi Muse API 的 AccessKey 保护。默认无 VNC 密码，能访问该端口的人可以查看并操作整个远端桌面，包括已登录的网站。不要把默认端口直接暴露到不可信网络；用防火墙限制来源，或通过安全虚拟组网、带鉴权的代理访问。HTTPS 只加密传输，不能替代访问鉴权。
 :::
 
-在手机客户端保存 noVNC 地址并通过系统浏览器打开的步骤见[资料与设置](profile-and-settings.md)；客户端不会从 API 地址自动推导 noVNC 端口。
+真实浏览器由服务端配置；手机客户端不保存 noVNC 地址，也不提供打开入口。需要查看远端桌面时，在系统浏览器中访问部署的完整 noVNC 地址。
 
 ### 外部工具条与内置栏 {#external-toolbar-and-built-in-bar}
 

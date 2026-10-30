@@ -16,7 +16,11 @@ This page covers daily chat, switching spaces, message feedback, stopping runs, 
 4. The reply streams into the page. When the model calls tools, progress appears in message tool cards or the session panel's 「动态」 view.
 5. To stop, tap the same right-side button. While a run is active it appears as a stop square; if run status is still synchronizing, the button is unavailable. Tap 「重新同步」 first.
 
-After a successful stop, the run changes to a stopped or terminal state. Stopping, leaving the chat view by switching spaces, disconnecting the chat stream, or restarting the service cancels the current chat run and invalidates unresolved file approvals. Tool operations that already completed are not rolled back.
+After a successful stop, the stream shows stopped or finished. Switching spaces or main pages within the same foreground connection does not actively stop generation in the original space; return to see its progress. This does not promise background execution. Explicit stopping, a disconnected chat stream, leaving the current connection, or restarting the server still cancels the associated run and invalidates pending file approvals. Tool operations that already completed are not rolled back.
+
+The avatar, space menu, and theme button float over chat content rather than occupying a separate fixed header. Sending a message returns the view to the latest message. Scrolling upward lets you read older content; tap「回到最新」to resume following.
+
+After a message has definitely failed, tap「恢复到输入框」to recover it. If a new draft already exists, you may cancel, copy that draft somewhere safe and clear the input before recovering the old message, or tap「放弃未发送消息」and confirm. Discarding removes only that unsent message, preserves the current draft, and cannot be undone. Messages with an unconfirmed save result cannot be discarded or automatically resent.
 
 A space permits one chat run at a time. If message ownership or history revision is unconfirmed, the client locks the send action. Tap 「重新同步」 and reconcile authoritative history; do not bypass the lock by repeatedly killing the app or resending.
 
@@ -36,11 +40,11 @@ If a feedback write times out, disconnects, or has an unknown result, the interf
 
 1. Tap the menu at the upper left of the chat page to open the space sidebar.
 2. Tap any space to switch. The selected space is marked, and the chat page switches to its history, drafts, and run state.
-3. Type a space ID in the 「搜索空间」 field to filter the list.
-4. Tap the 「新建空间」 icon in the lower right. The client generates an ID beginning with `side-` and switches to it immediately.
+3. Type a display name or space ID in the 「搜索空间」 field to filter the list.
+4. Tap the 「新建空间」 icon in the lower right. The client generates an independent space ID and switches to it immediately. The sidebar and chat show readable names such as「对话 1」, with update time and actual run state in the sidebar. Numbers are stable only within the current connection, not server titles or cross-device names.
 5. Send the first message in the new space, or open the session panel and save its rules or skills to establish it on the server. Tapping 「新建空间」 without a write only creates a local empty entry on the phone and it may later disappear from the server list.
 
-A space ID starts with a letter and contains only letters, numbers, `_`, and `-`, up to 64 characters. Current mobile source has no rename entry; create another space and move the required content if you need a different ID.
+A space ID starts with a letter and contains only letters, numbers, `_`, and `-`, up to 64 characters. Current mobile source has no server-side space-renaming or automatic-summary entry. Display numbers do not change space IDs.
 
 Each space has independent conversation history, a private workspace, space rules, and skill switches. Assistant identity, the user profile, long-term memories, long-term goals, and skill assets are instance-level global content and are not isolated by space. That does not mean all of them enter every chat turn. A new space is a new context for the same personal assistant, not a separate assistant. Ordinary chat keeps the global identity and assembles only the tools enabled for the current space, together with the matching usage guidance. Global management pages provide an aggregate view without changing data ownership. See [Long-term memory and Dream](memory-and-dream.md#memory-and-profile-boundaries).
 
