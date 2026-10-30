@@ -23,7 +23,7 @@ Then edit it:
   "schemaVersion": 1,
   "server": {
     "host": "0.0.0.0",
-    "port": 17890,
+    "port": 12330,
     "accessKey": "",
     "allowedOrigins": [
       "http://localhost:15173",
@@ -78,9 +78,9 @@ Every section and field may be omitted as needed; omitted values use built-in de
 | Field | Default | Description |
 | --- | --- | --- |
 | `server.host` | `0.0.0.0` | By default, listens on all network interfaces for convenient LAN access. A non-loopback host with an empty `server.accessKey` only prints a warning; the user decides whether to add one. |
-| `server.port` | `17890` | HTTP listening port. If it is occupied, startup fails directly and reports the occupying PID when `lsof` can determine it, falling back to a generic message where cross-platform lookup is unavailable. Coordinate a restart only after confirming the process belongs to this project's development service; never stop a production or unidentified process on your own. |
+| `server.port` | `12330` | HTTP listening port. If it is occupied, startup fails directly and reports the occupying PID when `lsof` can determine it, falling back to a generic message where cross-platform lookup is unavailable. Coordinate a restart only after confirming the process belongs to this project's development service; never stop a production or unidentified process on your own. |
 | `server.accessKey` | Empty | Service access key; this is not the model key. Leaving it empty prints a security warning for a non-loopback host but does not block startup. |
-| `server.allowedOrigins` | Four origins: `localhost` and `127.0.0.1`, each on ports 15173 and 17890 | CORS origin array. Explicit configuration replaces the default list and is used by the repository's own Web UI. |
+| `server.allowedOrigins` | Four origins: `localhost` and `127.0.0.1`, each on ports 15173 and 12330 | CORS origin array. Explicit configuration replaces the default list and is used by the repository's own Web UI. |
 | `model.baseUrl` | Empty | OpenAI-compatible API root address, for example `/v1`; must be configured together with `model.id`. |
 | `model.id` | Empty | The sole business model ID. Image attachments require this model to support vision input; it is not automatically switched or downgraded. |
 | `model.apiKey` | Empty | Model API key, written directly in the configuration file. |

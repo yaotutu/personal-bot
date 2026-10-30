@@ -12,7 +12,7 @@
 pnpm --dir web dev
 ```
 
-访问 `http://localhost:15173`。Vite 默认将 `/api` 代理转发至服务端的 `http://127.0.0.1:17890`。
+访问 `http://localhost:15173`。Vite 默认将 `/api` 代理转发至服务端的 `http://127.0.0.1:12330`。
 
 ### 代理目标切换（API_TARGET）
 

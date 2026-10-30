@@ -22,7 +22,7 @@ const positiveInt = (max: number, fallback: number) =>
 const serverSchema = z.object({
   host: z.string().optional(),
   // 避开 nanobot(7890) / Vite(5173) 等常见默认端口；端口被占用时启动失败，不自动换端口。
-  port: positiveInt(65535, 17890),
+  port: positiveInt(65535, 12330),
   accessKey: z.string().optional(),
   allowedOrigins: z.array(z.string()).optional(),
 }).strict();
@@ -192,8 +192,8 @@ export const createConfig = (
       "http://localhost:15173",
       "http://127.0.0.1:15173",
       // 局域网设备（手机、其他电脑）从本机 IP 访问 Web 时常见的 origin。
-      "http://localhost:17890",
-      "http://127.0.0.1:17890",
+      "http://localhost:12330",
+      "http://127.0.0.1:12330",
     ])
       .map((origin) => origin.trim())
       .filter(Boolean),

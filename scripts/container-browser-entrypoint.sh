@@ -132,14 +132,14 @@ export BROWSER_WINDOW_SIZE="$window_size"
 rm -f /app/.pi-muse/browser/profile/SingletonCookie \
   /app/.pi-muse/browser/profile/SingletonLock \
   /app/.pi-muse/browser/profile/SingletonSocket
-echo "pi-muse browser container ready: API port 17890, noVNC port ${novnc_port}, display ${display}"
+echo "pi-muse browser container ready: API port 12330, noVNC port ${novnc_port}, display ${display}"
 node dist/index.js &
 node_pid=$!
 children="$children $node_pid"
 api_ready=0
 i=0
 while [ "$i" -lt 300 ]; do
-  if curl -fsS http://127.0.0.1:17890/api/health >/dev/null 2>&1; then
+  if curl -fsS http://127.0.0.1:12330/api/health >/dev/null 2>&1; then
     api_ready=1
     break
   fi
@@ -157,14 +157,14 @@ if ! node <<'NODE'
 const { readFile } = require("node:fs/promises");
 const main = async () => {
   const config = JSON.parse(await readFile("/app/.pi-muse/config.json", "utf8"));
-  const login = await fetch("http://127.0.0.1:17890/api/session", {
+  const login = await fetch("http://127.0.0.1:12330/api/session", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ accessKey: config.server?.accessKey ?? "" }),
   });
   if (!login.ok) throw new Error(`browser session login failed: ${login.status}`);
   const { token } = await login.json();
-  const tabs = await fetch("http://127.0.0.1:17890/api/browser/tabs", {
+  const tabs = await fetch("http://127.0.0.1:12330/api/browser/tabs", {
     headers: token ? { authorization: `Bearer ${token}` } : {},
   });
   if (!tabs.ok) throw new Error(`browser startup failed: ${tabs.status}`);

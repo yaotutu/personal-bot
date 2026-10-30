@@ -143,7 +143,7 @@ chmod 600 .pi-muse/config.json
 pnpm dev
 ```
 
-API 默认监听 `17890` 端口。生产构建可使用 `pnpm build && pnpm start`。
+API 默认监听 `12330` 端口。生产构建可使用 `pnpm build && pnpm start`。
 
 #### 可选浏览器容器
 
@@ -153,7 +153,7 @@ API 默认监听 `17890` 端口。生产构建可使用 `pnpm build && pnpm star
 docker compose -f compose.browser.yaml up --build -d
 ```
 
-它的默认 API 端口同样是 `17890`，不能与同主机同端口的本地服务同时运行。应作为替代运行，或映射不同宿主端口。详见[浏览器 Docker 说明](docs/manual/browser-docker.md)。
+它的默认 API 端口同样是 `12330`，不能与同主机同端口的本地服务同时运行。应作为替代运行，或映射不同宿主端口。详见[浏览器 Docker 说明](docs/manual/browser-docker.md)。
 
 ---
 
@@ -161,7 +161,7 @@ docker compose -f compose.browser.yaml up --build -d
 
 1. [下载最新 Android APK](https://github.com/yaotutu/pi-muse-mobile/releases/latest/download/app-release.apk)。源码与平台说明见[客户端仓库](https://github.com/yaotutu/pi-muse-mobile)，已发布版本信息见[版本说明](https://github.com/yaotutu/pi-muse-mobile/releases/latest)。
 2. 在 Android 手机或模拟器中安装并启动 App。
-3. 进入 **设置 -> 服务器连接**，填写可访问的服务端地址（如 `http://192.168.1.100:17890` 或 `http://your-server.example:17890`）以及配置中的 `server.accessKey`。
+3. 进入 **设置 -> 服务器连接**，填写可访问的服务端地址（如 `http://192.168.1.100:12330` 或 `http://your-server.example:12330`）以及配置中的 `server.accessKey`。
 4. 点击 **测试连接**，通过后再点击 **连接服务器** 保存已验证的连接；只测试成功不会自动保存。
 
 直接支持 HTTP，不要求域名、证书或 HTTPS 反向代理。地址填写服务端根地址，不要附加 `/api` 或 `/docs`。真机上的 `localhost` 和 `127.0.0.1` 指向手机本身，不是服务端。服务端需要持续运行且端口可达。模型凭据只在服务端配置，客户端填写的是服务端 AccessKey，不是模型 API key。网络设置详见[快速上手](docs/manual/getting-started.md#connect-mobile-client)。

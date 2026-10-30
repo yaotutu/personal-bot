@@ -59,7 +59,7 @@ test("config defaults allow an unconfigured LAN-accessible instance", async (t) 
       modelId: undefined,
       maxTokens: 4096,
       contextWindow: 32768,
-      port: 17890,
+      port: 12330,
       apiKey: undefined,
       dataDir: undefined,
       runTimeoutMs: 120000,
@@ -68,8 +68,8 @@ test("config defaults allow an unconfigured LAN-accessible instance", async (t) 
       allowedOrigins: [
         "http://localhost:15173",
         "http://127.0.0.1:15173",
-        "http://localhost:17890",
-        "http://127.0.0.1:17890",
+        "http://localhost:12330",
+        "http://127.0.0.1:12330",
       ],
       configured: false,
       web: {

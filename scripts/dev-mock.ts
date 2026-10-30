@@ -35,7 +35,7 @@ try {
     schemaVersion: 1,
     server: {
       host: "127.0.0.1",
-      // 避开 nanobot(7890) 与服务端 dev(17890) 默认端口；联调 Web 时用 API_TARGET=http://127.0.0.1:17891 pnpm --dir web dev
+      // 避开 nanobot(7890) 与服务端 dev(12330) 默认端口；联调 Web 时用 API_TARGET=http://127.0.0.1:17891 pnpm --dir web dev
       port: 17891,
     },
     model: {

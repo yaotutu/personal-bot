@@ -78,7 +78,7 @@
 :::
 ```
 
-`${ENV_NAME}`、`<threadId>`、`password`、`http://<server-host>:17890` 等表达式必须放在反引号或 fenced code block 中，避免被当成正文或 Vue 模板解析。不要使用真实值替换占位符。
+`${ENV_NAME}`、`<threadId>`、`password`、`http://<server-host>:12330` 等表达式必须放在反引号或 fenced code block 中，避免被当成正文或 Vue 模板解析。不要使用真实值替换占位符。
 
 ## 写作要求
 

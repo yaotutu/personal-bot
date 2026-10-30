@@ -101,7 +101,7 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
   // 分享链接可直接携带 accessKey/key，打开后自动登录，不需要手工再输入一次。
   assert.match(debugHtml, /new URLSearchParams\(location\.search\)\.get\("accessKey"\)/);
   assert.match(debugHtml, /\$\(.*login.*\)\.requestSubmit\(\)/);
-  assert.doesNotMatch(debugHtml, /127\.0\.0\.1:17890|localhost:17890/);
+  assert.doesNotMatch(debugHtml, /127\.0\.0\.1:12330|localhost:12330/);
   const arbitraryHostDebug = await fetch(base + "/browser", {
     headers: { host: "browser-anywhere.example.test" },
   });

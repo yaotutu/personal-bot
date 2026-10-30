@@ -35,7 +35,7 @@ docker compose -f compose.browser.yaml up --build -d
 The access address is not hard-coded in the service. Any address that can route to this machine works:
 
 ```text
-http://<any-host-or-domain>:17890/browser
+http://<any-host-or-domain>:12330/browser
 http://<any-host-or-domain>:6080/vnc.html?autoconnect=1&resize=scale
 ```
 
@@ -104,7 +104,7 @@ docker compose -f compose.browser.yaml --profile mobile up --build -d
 ## Verification {#verification}
 
 ```sh
-curl -fsS http://127.0.0.1:17890/api/health
+curl -fsS http://127.0.0.1:12330/api/health
 curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
 ```
 

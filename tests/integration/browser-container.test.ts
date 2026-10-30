@@ -16,6 +16,7 @@ test("browser container keeps Chrome headed and exposes its real GUI through noV
   const entrypoint = await read("scripts/container-browser-entrypoint.sh");
   const compose = await read("compose.browser.yaml");
   const dockerignore = await read(".dockerignore");
+  const viteConfig = await read("web/vite.config.ts");
 
   assert.match(dockerfile, /google-chrome-stable/);
   assert.match(dockerfile, /\bxvfb\b/);
@@ -47,8 +48,16 @@ test("browser container keeps Chrome headed and exposes its real GUI through noV
   assert.match(entrypoint, /install -o pimuse -g pimuse -m 0600/);
   assert.match(entrypoint, /setpriv/);
 
+  // 主 API 默认端口贯穿本地代理、镜像健康检查、入口脚本和端口映射，避免部署链路分叉。
+  assert.match(viteConfig, /defaultApiTarget = "http:\/\/127\.0\.0\.1:12330"/);
+  assert.match(viteConfig, /process\.env\.API_TARGET \?\? defaultApiTarget/);
+  assert.match(dockerfile, /EXPOSE 12330 6080/);
+  assert.match(dockerfile, /fetch\('http:\/\/127\.0\.0\.1:12330\/api\/health'\)/);
+  assert.match(entrypoint, /http:\/\/127\.0\.0\.1:12330\/api\/health/);
+  assert.match(entrypoint, /http:\/\/127\.0\.0\.1:12330\/api\/session/);
+
   // 外部地址由 Docker 端口映射或反向代理决定；镜像和页面都不内置主机名。
-  assert.match(compose, /\$\{PI_MUSE_BROWSER_PORT:-17890\}:17890/);
+  assert.match(compose, /\$\{PI_MUSE_BROWSER_PORT:-12330\}:12330/);
   assert.match(compose, /\$\{PI_MUSE_BROWSER_NOVNC_PORT:-6080\}:6080/);
   assert.match(compose, /^  pi-muse-browser:\n    platform: linux\/amd64$/m);
   assert.match(compose, /BROWSER_SCREEN_SIZE: \$\{BROWSER_SCREEN_SIZE:-1440x900x24\}/);
@@ -82,13 +91,13 @@ test("mobile browser profile packages a bridge to the same real desktop", async 
   assert.match(dockerfile, /RUN node scripts\/install-novnc-responsive-entry\.mjs/);
   assert.match(compose, /^  pi-muse-browser:\n    platform: linux\/amd64$/m);
   assert.match(compose, /BROWSER_SCREEN_SIZE: \$\{BROWSER_SCREEN_SIZE:-1440x900x24\}/);
-  assert.match(compose, /\$\{PI_MUSE_BROWSER_PORT:-17890\}:17890/);
+  assert.match(compose, /\$\{PI_MUSE_BROWSER_PORT:-12330\}:12330/);
   assert.match(compose, /\$\{PI_MUSE_BROWSER_NOVNC_PORT:-6080\}:6080/);
   assert.match(compose, /pi-muse-browser-data:\/app\/\.pi-muse/);
 
   assert.match(compose, /^  pi-muse-browser-mobile:\n    profiles:\n      - mobile$/m);
   assert.match(compose, /BROWSER_SCREEN_SIZE: \$\{PI_MUSE_BROWSER_MOBILE_SCREEN_SIZE:-720x1280x24\}/);
-  assert.match(compose, /\$\{PI_MUSE_BROWSER_MOBILE_PORT:-18891\}:17890/);
+  assert.match(compose, /\$\{PI_MUSE_BROWSER_MOBILE_PORT:-18891\}:12330/);
   assert.match(compose, /\$\{PI_MUSE_BROWSER_MOBILE_NOVNC_PORT:-16081\}:6080/);
   assert.match(compose, /pi-muse-browser-mobile-data:\/app\/\.pi-muse/);
   assert.doesNotMatch(compose, /localhost|\b127\.0\.0\.1\b/);

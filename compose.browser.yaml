@@ -10,7 +10,7 @@ services:
     environment:
       BROWSER_SCREEN_SIZE: ${BROWSER_SCREEN_SIZE:-1440x900x24}
     ports:
-      - "${PI_MUSE_BROWSER_PORT:-17890}:17890"
+      - "${PI_MUSE_BROWSER_PORT:-12330}:12330"
       - "${PI_MUSE_BROWSER_NOVNC_PORT:-6080}:6080"
     volumes:
       - pi-muse-browser-data:/app/.pi-muse
@@ -29,7 +29,7 @@ services:
     environment:
       BROWSER_SCREEN_SIZE: ${PI_MUSE_BROWSER_MOBILE_SCREEN_SIZE:-720x1280x24}
     ports:
-      - "${PI_MUSE_BROWSER_MOBILE_PORT:-18891}:17890"
+      - "${PI_MUSE_BROWSER_MOBILE_PORT:-18891}:12330"
       - "${PI_MUSE_BROWSER_MOBILE_NOVNC_PORT:-16081}:6080"
     volumes:
       - pi-muse-browser-mobile-data:/app/.pi-muse

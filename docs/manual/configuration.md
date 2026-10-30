@@ -23,7 +23,7 @@ chmod 600 .pi-muse/config.json
   "schemaVersion": 1,
   "server": {
     "host": "0.0.0.0",
-    "port": 17890,
+    "port": 12330,
     "accessKey": "",
     "allowedOrigins": [
       "http://localhost:15173",
@@ -78,9 +78,9 @@ chmod 600 .pi-muse/config.json
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
 | `server.host` | `0.0.0.0` | 默认监听全部网卡便于局域网访问；非回环 host 但 `server.accessKey` 为空时仅打印警告，由用户自行决定是否补上 |
-| `server.port` | `17890` | HTTP 监听端口；被占用时启动直接报错并指出占用 PID（用 `lsof` 查，跨平台不兼容时退化为通用提示）；只在确认属于本项目开发服务后协调重启，生产或归属不明的进程不擅自停止 |
+| `server.port` | `12330` | HTTP 监听端口；被占用时启动直接报错并指出占用 PID（用 `lsof` 查，跨平台不兼容时退化为通用提示）；只在确认属于本项目开发服务后协调重启，生产或归属不明的进程不擅自停止 |
 | `server.accessKey` | 空 | 服务访问密钥，不是模型 key；留空启动会打印非回环 host 的安全警告，但不会阻断启动 |
-| `server.allowedOrigins` | localhost / 127.0.0.1 的 15173、17890 共四个 origin | CORS origin 数组；显式配置会替换默认列表，用于自有 Web |
+| `server.allowedOrigins` | localhost / 127.0.0.1 的 15173、12330 共四个 origin | CORS origin 数组；显式配置会替换默认列表，用于自有 Web |
 | `model.baseUrl` | 空 | OpenAI-compatible API 根地址，例如 `/v1`；必须与 `model.id` 同时配置 |
 | `model.id` | 空 | 唯一业务模型 ID；图片附件要求该模型支持视觉输入，不自动切换或降级 |
 | `model.apiKey` | 空 | 模型 API key，直接写在配置文件中 |

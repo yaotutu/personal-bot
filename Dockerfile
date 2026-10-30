@@ -44,10 +44,10 @@ RUN groupadd --gid 10001 pimuse \
     && chown -R pimuse:pimuse /app/.pi-muse
 
 USER root
-EXPOSE 17890 6080
+EXPOSE 12330 6080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:17890/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+  CMD ["node", "-e", "fetch('http://127.0.0.1:12330/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 
 COPY scripts/container-browser-entrypoint.sh /usr/local/bin/container-browser-entrypoint
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/container-browser-entrypoint"]

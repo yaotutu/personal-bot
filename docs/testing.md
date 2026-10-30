@@ -83,7 +83,7 @@ pnpm check                     # typecheck + test + test:e2e + Web build + diff 
 
 - 必须同时给出 `--config` 与 `--allow-live`；允许参数开头一个 `--`，未知/重复参数、尾随多余参数和命令行密钥均拒绝，缺参数非零退出。
 - 仅读显式配置的 `.model`（baseUrl、id、可选 apiKey、contextWindow、maxTokens），不引用其 runtime.dataDir、不复制完整配置。真实 key 仅驻留 `tests/support/live-model.ts` 透明代理内存，业务实例只用代理占位 key。
-- DATA_DIR 使用临时空实例，服务仅监听 `127.0.0.1` 随机端口；正式 DATA_DIR、17890 服务、OpenMuse 和 watcher 都不是测试对象。关闭与异常均走 finally，回收 service / server / 慢 HTTP fixture / 代理 / 定时器 / 临时目录。
+- DATA_DIR 使用临时空实例，服务仅监听 `127.0.0.1` 随机端口；正式 DATA_DIR、12330 服务、OpenMuse 和 watcher 都不是测试对象。关闭与异常均走 finally，回收 service / server / 慢 HTTP fixture / 代理 / 定时器 / 临时目录。
 - 不由 `pnpm test`、`pnpm check`、CI 或远程定时隐式触发；主 Agent 按任务范围主动执行，使用用户已给出的长期费用授权，不重复请示。保留 `--config` 与 `--allow-live` 作为命令级防误触门禁；不做模型/工具自动 retry，不为验收修改 pi 底层。
 - 默认 finally 清理；`--keep-artifacts` 保留合成测试 data 与脱敏 summary.json/traces，包含逐项结果、调用轨迹及版本身份，不保存真实配置、供应商鉴权头或 key。trace 落盘前将 key 替换为 `[REDACTED]`，上游失败仅返回受控 502，不返回供应商错误正文，不承诺保留任意错误 stack。
 - 以透明代理记录的真实 tool call / result / 时序和 HTTP、文件系统、状态证据判断，不以自然语言自述通过。价格/速率限制不可控，任何 FAIL 单独记录，不凑 N/N。

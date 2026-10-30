@@ -6,7 +6,7 @@ This page starts from visible symptoms and low-risk checks. When the result of a
 
 1. Visit `/api/health` from the server machine. If it fails, check the process and port first.
 2. Verify that the phone's「服务器连接」address is the server base address, without `/api` or `/docs`.
-3. On a LAN, enter the computer's actual IP and allow inbound port `17890` through its firewall.
+3. On a LAN, enter the computer's actual IP and allow inbound port `12330` through its firewall.
 4. If the status is「暂时不可用」, tap「重试连接」in「服务器连接」.
 
 `localhost` on the phone refers to the phone itself and cannot reach a service on the computer.

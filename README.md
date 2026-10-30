@@ -143,7 +143,7 @@ Start the development server:
 pnpm dev
 ```
 
-The API listens on port `17890` by default. For a production build, use `pnpm build && pnpm start`.
+The API listens on port `12330` by default. For a production build, use `pnpm build && pnpm start`.
 
 #### Optional Browser Container
 
@@ -153,7 +153,7 @@ The browser container is an optional alternative deployment that also provides n
 docker compose -f compose.browser.yaml up --build -d
 ```
 
-Its default API port is also `17890`, so it cannot run at the same time as the local server on the same host port. Run it instead of the local service or map different host ports. See [Browser Docker](docs/manual/en/browser-docker.md).
+Its default API port is also `12330`, so it cannot run at the same time as the local server on the same host port. Run it instead of the local service or map different host ports. See [Browser Docker](docs/manual/en/browser-docker.md).
 
 ---
 
@@ -161,7 +161,7 @@ Its default API port is also `17890`, so it cannot run at the same time as the l
 
 1. [Download the latest Android APK](https://github.com/yaotutu/pi-muse-mobile/releases/latest/download/app-release.apk). See the [client repository](https://github.com/yaotutu/pi-muse-mobile) for source and platform details, or [release notes](https://github.com/yaotutu/pi-muse-mobile/releases/latest) for the published version.
 2. Install and open the app on an Android device or emulator.
-3. Go to **Settings -> Server Connection**, enter a reachable server address such as `http://192.168.1.100:17890` or `http://your-server.example:17890`, and enter the configured `server.accessKey`.
+3. Go to **Settings -> Server Connection**, enter a reachable server address such as `http://192.168.1.100:12330` or `http://your-server.example:12330`, and enter the configured `server.accessKey`.
 4. Tap **Test Connection**, then **Connect to Server** to save the verified connection. A successful test alone does not save it.
 
 HTTP is supported directly; a domain, certificate, and HTTPS reverse proxy are not required. Use the server's base address, without `/api` or `/docs`. On a physical phone, `localhost` and `127.0.0.1` refer to the phone, not your server. Keep the server running and its port reachable. Model credentials stay on the server: the app needs the server AccessKey, not the model API key. See [Getting Started](docs/manual/en/getting-started.md#connect-mobile-client) for network setup.

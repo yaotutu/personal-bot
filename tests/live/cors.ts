@@ -12,7 +12,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
     model?: { id?: string };
   };
 
-  const port = raw.server?.port ?? 17890;
+  const port = raw.server?.port ?? 12330;
   const baseUrl = `http://127.0.0.1:${port}`;
   const accessKey = raw.server?.accessKey ?? "";
   const modelId = raw.model?.id ?? "unknown";
@@ -26,7 +26,7 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
   let token = "";
 
   try {
-    // 1. 登录既有 17890 真实服务
+    // 1. 登录配置指向的既有真实服务；未显式配置端口时使用当前默认 12330。
     const loginRes = await fetch(`${baseUrl}/api/session`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

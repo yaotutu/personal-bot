@@ -35,7 +35,7 @@ docker compose -f compose.browser.yaml up --build -d
 访问地址没有写死在服务里，任何能路由到这台机器的地址都可以：
 
 ```text
-http://<任意主机或域名>:17890/browser
+http://<任意主机或域名>:12330/browser
 http://<任意主机或域名>:6080/vnc.html?autoconnect=1&resize=scale
 ```
 
@@ -104,7 +104,7 @@ docker compose -f compose.browser.yaml --profile mobile up --build -d
 ## 验证 {#verification}
 
 ```sh
-curl -fsS http://127.0.0.1:17890/api/health
+curl -fsS http://127.0.0.1:12330/api/health
 curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
 ```
 
