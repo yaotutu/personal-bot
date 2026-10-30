@@ -79,12 +79,11 @@ test("browser container keeps Chrome headed and exposes its real GUI through noV
 
   // 外部地址由 Docker 端口映射或反向代理决定；镜像和页面都不内置主机名。
   assert.match(compose, /\$\{PI_MUSE_BROWSER_PORT:-12330\}:12330/);
-  assert.match(compose, /\$\{PI_MUSE_BROWSER_NOVNC_PORT:-6080\}:6080/);
+  assert.match(compose, /\$\{PI_MUSE_BROWSER_NOVNC_HOST:-127\.0\.0\.1\}:\$\{PI_MUSE_BROWSER_NOVNC_PORT:-6080\}:6080/);
   assert.match(compose, /^  pi-muse-browser:\n    platform: linux\/amd64$/m);
   assert.match(compose, /BROWSER_SCREEN_SIZE: \$\{BROWSER_SCREEN_SIZE:-1440x900x24\}/);
   assert.match(compose, /pi-muse-browser-data:\/app\/\.pi-muse/);
   assert.match(compose, /config\.json:\/app\/browser-config\.json:ro/);
-  assert.doesNotMatch(compose, /localhost:\$\{|127\.0\.0\.1:\$\{/);
   assert.match(dockerignore, /^\.pi-muse$/m);
   assert.match(dockerignore, /^node_modules$/m);
 });
@@ -113,15 +112,15 @@ test("mobile browser profile packages a bridge to the same real desktop", async 
   assert.match(compose, /^  pi-muse-browser:\n    platform: linux\/amd64$/m);
   assert.match(compose, /BROWSER_SCREEN_SIZE: \$\{BROWSER_SCREEN_SIZE:-1440x900x24\}/);
   assert.match(compose, /\$\{PI_MUSE_BROWSER_PORT:-12330\}:12330/);
-  assert.match(compose, /\$\{PI_MUSE_BROWSER_NOVNC_PORT:-6080\}:6080/);
+  assert.match(compose, /\$\{PI_MUSE_BROWSER_NOVNC_HOST:-127\.0\.0\.1\}:\$\{PI_MUSE_BROWSER_NOVNC_PORT:-6080\}:6080/);
   assert.match(compose, /pi-muse-browser-data:\/app\/\.pi-muse/);
 
   assert.match(compose, /^  pi-muse-browser-mobile:\n    profiles:\n      - mobile$/m);
   assert.match(compose, /BROWSER_SCREEN_SIZE: \$\{PI_MUSE_BROWSER_MOBILE_SCREEN_SIZE:-720x1280x24\}/);
   assert.match(compose, /\$\{PI_MUSE_BROWSER_MOBILE_PORT:-18891\}:12330/);
-  assert.match(compose, /\$\{PI_MUSE_BROWSER_MOBILE_NOVNC_PORT:-16081\}:6080/);
+  assert.match(compose, /\$\{PI_MUSE_BROWSER_MOBILE_NOVNC_HOST:-127\.0\.0\.1\}:\$\{PI_MUSE_BROWSER_MOBILE_NOVNC_PORT:-16081\}:6080/);
   assert.match(compose, /pi-muse-browser-mobile-data:\/app\/\.pi-muse/);
-  assert.doesNotMatch(compose, /localhost|\b127\.0\.0\.1\b/);
+  assert.match(compose, /PI_MUSE_BROWSER_MOBILE_NOVNC_HOST:-127\.0\.0\.1/);
 
   // 移动页仍直连完整远端桌面，不生成第二套浏览器外壳或地址栏。
   assert.match(page, /import RFB from '\.\/core\/rfb\.js'/);

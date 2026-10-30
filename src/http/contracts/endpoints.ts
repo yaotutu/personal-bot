@@ -775,4 +775,74 @@ export const endpoints: EndpointSpec[] = [
     hint: "必须携带现有 Bearer token。返回的 ticket 60 秒过期且只能使用一次；WS 地址为 /ws/browser?ticket=...。完整二进制帧、ready/tabs/error、输入与 ack 协议见 OpenAPI 顶层 x-websocket-contracts.browser，OpenAPI 不把 WebSocket 伪装成普通 HTTP operation。",
     auth: true, response: browser.browserTicketResponse,
   },
+  {
+    operationId: "listBrowserFiles",
+    method: "get", path: "/api/browser/files", tag: "浏览器",
+    summary: "列出待上传 filechooser 与持久下载记录",
+    hint:
+      "必须携带现有 Bearer token。uploads 只来自真实页面的 filechooser 事件，每页最多一个当前 chooser；页面主导航、关闭或出现新 chooser 后旧项失效。" +
+      "downloads 来自 Playwright download 事件并持久化在 DATA_DIR/browser/downloads，普通模型文件工具无法读取。" +
+      "完成下载在容器重启后可读；中断下载标记 failed，不自动重新下载。读取损坏持久数据返回受控 500，不能当作空列表。" +
+      "该 GET 不会因为下载目录为空而启动 Chrome。",
+    auth: true, response: browser.browserFilesResponse,
+    errorResponses: {
+      500: { description: "下载持久数据损坏或浏览器文件存储不可用；错误已脱敏", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "uploadBrowserFiles",
+    method: "post", path: "/api/browser/uploads/:uploadId", tag: "浏览器",
+    summary: "把用户明确选择的本地文件写入当前页面 filechooser",
+    hint:
+      "只接受 GET /api/browser/files 返回的当前 uploadId。客户端必须在 Files 面板让用户选择本地文件并点击 Upload 后才能调用；服务端只使用请求中的内存 Base64 字节调用 Playwright fileChooser.setFiles，不读取服务端路径或 workspace。" +
+      "单选 chooser 必须恰好 1 个文件；多选允许 1 到 4 个；原始字节合计最多 8MiB。contentBase64 必须是严格 Base64 且无 data: 前缀；name 只允许 ASCII 字母、数字、点、下划线和连字符，不能以点开头或包含路径；空 mimeType 使用 application/octet-stream。" +
+      "该精确 POST 路径的 JSON 请求体上限为 12MiB；请求体或原始总字节超限返回 413。缺失、已过期、页面关闭或主导航后的 chooser 返回 404；文件数量等非法输入返回 400。成功会消费该一次性 chooser，不新增聊天工具或文件审批旁路。",
+    auth: true, request: browser.browserUploadRequest, response: browser.browserOkResponse,
+    errorResponses: {
+      400: { description: "文件名、Base64、MIME 或文件数量非法", schema: resp.errorResponse },
+      404: { description: "chooser 不存在、已过期、页面已关闭或已主导航", schema: resp.errorResponse },
+      413: { description: "文件原始字节合计超过 8MiB，或 JSON 请求体超过 12MiB", schema: resp.errorResponse },
+      500: { description: "浏览器或文件存储操作失败；错误已脱敏", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "cancelBrowserUpload",
+    method: "delete", path: "/api/browser/uploads/:uploadId", tag: "浏览器",
+    summary: "取消待上传 filechooser",
+    hint:
+      "只删除当前 uploadId 的待处理记录，不使用 setFiles([]) 清空页面已有文件选择。" +
+      "缺失或已失效返回 404；不会关闭页面、导航或影响其他标签。",
+    auth: true, response: browser.browserOkResponse,
+    errorResponses: {
+      404: { description: "chooser 不存在或已失效", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "getBrowserDownloadContent",
+    method: "get", path: "/api/browser/downloads/:downloadId/content", tag: "浏览器",
+    summary: "读取已完成浏览器下载内容",
+    hint:
+      "返回持久化下载的 name、mimeType 与严格 Base64 contentBase64，不返回服务端路径。" +
+      "仅 completed 可读；downloading 或 failed 返回 409，缺失返回 404。损坏持久数据返回受控 500，不能假装空内容。",
+    auth: true, response: browser.browserDownloadContentResponse,
+    errorResponses: {
+      404: { description: "下载记录不存在", schema: resp.errorResponse },
+      409: { description: "下载尚未完成或已失败", schema: resp.errorResponse },
+      500: { description: "下载持久数据损坏或读取失败；错误已脱敏", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "deleteBrowserDownload",
+    method: "delete", path: "/api/browser/downloads/:downloadId", tag: "浏览器",
+    summary: "删除浏览器自有下载",
+    hint:
+      "只删除 DATA_DIR/browser/downloads 中该 UUID 目录。进行中的下载会先 cancel；异步完成不能复活已删除记录。" +
+      "缺失返回 404；删除后 content 与列表记录均不可再读取。",
+    auth: true, response: browser.browserOkResponse,
+    errorResponses: {
+      400: { description: "downloadId 不是合法 UUID", schema: resp.errorResponse },
+      404: { description: "下载记录不存在", schema: resp.errorResponse },
+      500: { description: "下载目录不是安全的浏览器自有存储；错误已脱敏", schema: resp.errorResponse },
+    },
+  },
 ];

@@ -35,6 +35,7 @@ import { createOpenMeteoTransport } from "../adapters/weather/open-meteo.js";
 import { createWeatherService } from "../features/weather/weather-service.js";
 import { createBrowserService } from "../features/browser/browser-service.js";
 import { createPlaywrightBrowserDriver } from "../adapters/browser/playwright-driver.js";
+import { createBrowserDownloadStore } from "../adapters/browser/download-store.js";
 import { createSessionHistory } from "../adapters/pi/session-history.js";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { openPi } from "../adapters/pi/session-factory.js";
@@ -95,14 +96,17 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       })
     : undefined;
   // 浏览器懒启动：仅配置开启且第一次标签/帧流/Agent 工具需要时才拉起系统 Chrome。
-  const browser = config.browser.enabled
-    ? createBrowserService(createPlaywrightBrowserDriver({
+  let browser: ReturnType<typeof createBrowserService> | undefined;
+  if (config.browser.enabled) {
+    const browserDownloads = createBrowserDownloadStore(layout.browserDownloadsDir);
+    await browserDownloads.reconcileOnStart();
+    browser = createBrowserService(createPlaywrightBrowserDriver({
       profileDir: layout.browserProfileDir,
       executablePath: config.browser.executablePath,
       allowPrivateTargets: config.browser.allowPrivateTargets,
       timeoutMs: config.browser.timeoutMs,
-    }))
-    : undefined;
+    }), browserDownloads);
+  }
   const goals = createGoalService(createGoalRepository(layout.goalsFile));
   const actions = createActionService(createActionRepository(layout.actionsFile), { onChange: (action) => workspaceEvents.approvalChanged(action) });
   const monitors = createMonitorService(createMonitorRepository(layout.monitorsFile));

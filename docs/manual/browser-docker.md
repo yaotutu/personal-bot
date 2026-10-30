@@ -34,11 +34,17 @@ chmod 600 .pi-muse/config.json
 docker compose -f compose.browser.yaml up --build -d
 ```
 
-访问地址没有写死在服务里，任何能路由到这台机器的地址都可以：
+API 访问地址没有写死在服务里，任何能路由到这台机器的地址都可以。Compose 默认只把 noVNC 绑定到宿主机回环地址，避免无密码桌面直接暴露到网络：
 
 ```text
 http://<任意主机或域名>:12330/browser
-http://<任意主机或域名>:6080/vnc.html?autoconnect=1&resize=scale
+http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale
+```
+
+如果 Docker 运行在远程主机，先建立 SSH 隧道，再从本机访问 noVNC：
+
+```sh
+ssh -L 6080:127.0.0.1:6080 <user>@<server-host>
 ```
 
 `/browser` 页面需手动输入 AccessKey 登录；登录成功后输入框会清空，当前标签会话只保存 Session Token。不要在链接中附加密钥：页面不使用 `accessKey` 或 `key` 查询参数登录，并会将其从地址栏移除。连接中断后，点击 **Reconnect** 重新同步标签与画面；不会自动重发导航、新建或关闭等操作。该调试页支持中文输入、文本粘贴和左、中、右鼠标按键，但不包含完整 Chrome 的原生菜单；完整窗口仍使用 noVNC。
@@ -46,18 +52,34 @@ http://<任意主机或域名>:6080/vnc.html?autoconnect=1&resize=scale
 桌面和手机共用 `vnc.html` 入口：默认 `layout=auto`，视口宽度不超过 700px 时自动切到移动页，恢复桌面宽度后自动回到官方 noVNC。显式 `layout=desktop` 或 `layout=mobile` 会固定当前页面，不因窗口尺寸导航。跳转会保留查询和 `#` 参数。移动页默认连接当前地址上的 `/websockify`，也支持通过查询参数覆盖 `path`、`host` 或 `port`。如果以后给 x11vnc 配置密码，可在查询或 `#` 片段中附带 `password`：
 
 ```text
-http://<任意主机或域名>:6080/pimuse-mobile.html
-http://<任意主机或域名>:6080/pimuse-mobile.html?password=<VNC密码>
-http://<任意主机或域名>:6080/pimuse-mobile.html#password=<VNC密码>
+http://127.0.0.1:6080/pimuse-mobile.html
+http://127.0.0.1:6080/pimuse-mobile.html?password=<VNC密码>
+http://127.0.0.1:6080/pimuse-mobile.html#password=<VNC密码>
 ```
 
 当前 Compose 入口仍以 `-nopw` 启动，默认没有 VNC 密码。
 
 ::: danger 远程桌面访问边界
-noVNC 端口不受 Pi Muse API 的 AccessKey 保护。默认无 VNC 密码，能访问该端口的人可以查看并操作整个远端桌面，包括已登录的网站。不要把默认端口直接暴露到不可信网络；用防火墙限制来源，或通过安全虚拟组网、带鉴权的代理访问。HTTPS 只加密传输，不能替代访问鉴权。
+noVNC 端口不受 Pi Muse API 的 AccessKey 保护。默认无 VNC 密码，能访问该端口的人可以查看并操作整个远端桌面，包括已登录的网站。Compose 默认只映射到 `127.0.0.1`，请通过 SSH 隧道或本机浏览器访问，不要直接把默认端口暴露到不可信网络。只有在你自行限制来源网络并配置鉴权代理时，才应显式设置 `PI_MUSE_BROWSER_NOVNC_HOST` 覆盖绑定地址；HTTPS 只加密传输，不能替代访问鉴权。
 :::
 
 真实浏览器由服务端配置；手机客户端不保存 noVNC 地址，也不提供打开入口。需要查看远端桌面时，在系统浏览器中访问部署的完整 noVNC 地址。
+
+## 文件上传与下载 {#files}
+
+`/browser` 连接成功后，工具栏的 **Files** 会打开文件面板。只有面板打开且连接仍在线时，面板才每 2 秒读取当前待上传 chooser 和下载记录；关闭面板或断线会停止轮询。单次读取失败会保留上一次列表并显示错误，随后继续轮询，不能把失败当成空列表。
+
+上传必须由远端真实页面的 filechooser 事件发起：
+
+1. 在远端页面点击网站的上传按钮，触发页面 filechooser；Playwright 会截获该 chooser，不需要等待远端原生文件选择器。
+2. 在 Files 面板看到对应的待上传项后，在该面板选择本机文件。
+3. 明确点击 **Upload**。服务端只把这次选择的内存字节交给页面；不会读取服务端路径、workspace 或模型文件工具。
+
+单选 chooser 只能提交 1 个文件，多选允许 1 到 4 个，原始字节合计最多 8MiB。文件名只允许 ASCII 字母、数字、点、下划线和连字符，且不能以点开头；空 MIME 类型按 `application/octet-stream` 处理。点击 **Cancel** 只删除该待上传项，不会用空选择清掉页面已有文件。页面主导航、标签关闭或新 chooser 出现后，旧项会失效；再次提交返回 404。
+
+下载来自远端页面的 Playwright download 事件。完成的下载可在 Files 面板点击 **Save** 保存到当前设备；删除前会要求确认。单个完成下载上限为 32MiB，超过上限或下载失败会标记为 failed，不保留为可读取的 completed 内容。进行中的下载没有可读取内容，读取会返回冲突而不是半截文件。
+
+下载记录保存在 Docker volume 的 `/app/.pi-muse/browser/downloads/<uuid>/`，包含 `content` 与 `meta.json`，权限分别受保护。容器重启后，completed 记录仍可读取；中断的 downloading 记录会标记为 failed，不会自动重新下载。该目录不属于 workspace，普通模型文件工具不能读取。
 
 ### 外部工具条与内置栏 {#external-toolbar-and-built-in-bar}
 
@@ -65,13 +87,15 @@ noVNC 端口不受 Pi Muse API 的 AccessKey 保护。默认无 VNC 密码，能
 
 访问同一 noVNC 地址下的 `/viewer-bridge-demo.html`，可用一套静态外部工具条操作 iframe 中的真实桌面：连接、按键、文字、剪贴板、缩放和内置栏显示。默认嵌入 `vnc.html?autoconnect=1&resize=scale&toolbar=hidden&layout=desktop`，固定桌面布局，避免容器尺寸变化时跳页。输入框只接受同源相对 viewer 路径，不填写 IP；跨源父页面若自行嵌入，需在 viewer URL 设置明确的 `parentOrigin`。全屏由演示页按钮直接进入 iframe 容器；跨窗口命令和手机软键盘不能保证保留用户手势。
 
-宿主机端口可改，不需要改代码。例如把 API 映射到 `18890`、GUI 映射到 `16080`：
+宿主机端口可改，不需要改代码。例如把 API 映射到 `18890`、noVNC 映射到 `16080`，并保持 noVNC 仅绑定回环地址：
 
 ```sh
 PI_MUSE_BROWSER_PORT=18890 \
 PI_MUSE_BROWSER_NOVNC_PORT=16080 \
 docker compose -f compose.browser.yaml up -d
 ```
+
+只有在你自行提供受限网络或带鉴权代理时，才应设置 `PI_MUSE_BROWSER_NOVNC_HOST`。API 密钥不会保护 noVNC。
 
 如使用反向代理，API 域名需要转发 `/api`、`/browser`、`/ws/browser`，其中 WebSocket Upgrade 头必须保留；noVNC 域名需要转发 HTTP 和 `/websockify` WebSocket。
 
@@ -87,8 +111,10 @@ docker compose -f compose.browser.yaml --profile mobile up -d pi-muse-browser-mo
 
 ```text
 http://<任意主机或域名>:18891/api/health
-http://<任意主机或域名>:16081/pimuse-mobile.html
+http://127.0.0.1:16081/pimuse-mobile.html
 ```
+
+移动 noVNC 默认同样只绑定 `127.0.0.1`，可用 `PI_MUSE_BROWSER_MOBILE_NOVNC_HOST` 覆盖；覆盖前需自行确认网络与鉴权边界。
 
 两个实例可以同时运行。需要同时重建时执行：
 
@@ -99,6 +125,7 @@ docker compose -f compose.browser.yaml --profile mobile up --build -d
 ## 数据与生命周期 {#data-and-lifecycle}
 
 - Chrome profile 持久化在 Docker volume `pi-muse-browser-data` 的 `/app/.pi-muse/browser/profile/`。
+- 浏览器下载持久化在 `/app/.pi-muse/browser/downloads/`，每个 UUID 目录只放 `content` 与 `meta.json`；目录和文件权限受保护，不进入 workspace。
 - `.pi-muse/config.json` 从宿主机只读挂载到 `/app/browser-config.json`，容器启动时复制到数据 volume 并保持 `0600`；镜像构建上下文明确排除 `.pi-muse`，不会把模型密钥打进镜像层。
 - 入口脚本先用 root 修正数据 volume 属主，随后降权到 `pimuse`；Node、Chrome、Xvfb、x11vnc、websockify 和 fluxbox 都不以 root 运行。
 - 容器启动完成会主动触发一次标签读取，让 Chrome 窗口立即可见；停止时入口脚本只先给独立 Node 进程发送 SIGTERM 并等待其完成，Node 优雅关闭 Chrome 后才回收 fluxbox、x11vnc、websockify 和 Xvfb，确保 X server 在 Chrome 退出及 profile 写入期间保持存活。入口脚本不另设等待超时；超过 Docker stop grace period 时由 Docker 最终硬终止。

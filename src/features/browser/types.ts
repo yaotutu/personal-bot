@@ -1,7 +1,14 @@
 /** 浏览器域的受控错误；HTTP 与 pi 工具层都只透出这里的稳定 code/message。 */
 export class BrowserError extends Error {
   constructor(
-    readonly code: "INVALID_INPUT" | "TAB_NOT_FOUND" | "BROWSER_FAILED",
+    readonly code:
+      | "INVALID_INPUT"
+      | "TAB_NOT_FOUND"
+      | "UPLOAD_NOT_FOUND"
+      | "DOWNLOAD_NOT_FOUND"
+      | "DOWNLOAD_NOT_READY"
+      | "PAYLOAD_TOO_LARGE"
+      | "BROWSER_FAILED",
     message: string,
   ) {
     super(message);
@@ -67,6 +74,62 @@ export type BrowserActInput = {
   deltaY?: number;
 };
 
+export type BrowserUpload = {
+  id: string;
+  tabId: string;
+  multiple: boolean;
+  accept: string;
+  createdAt: string;
+};
+
+export type BrowserUploadFile = {
+  name: string;
+  mimeType: string;
+  content: Uint8Array;
+};
+
+export type BrowserDownloadStatus = "downloading" | "completed" | "failed";
+
+export type BrowserDownload = {
+  id: string;
+  tabId: string;
+  name: string;
+  status: BrowserDownloadStatus;
+  bytes: number | null;
+  createdAt: string;
+  error: string | null;
+};
+
+export type BrowserDownloadContent = {
+  name: string;
+  mimeType: string;
+  contentBase64: string;
+};
+
+/**
+ * Playwright download 事件交给 feature/store 的最小句柄。
+ * 只暴露可读字节与取消/清理动作，不把本地路径或 Playwright 对象泄漏到 HTTP。
+ */
+export type BrowserDownloadEvent = {
+  id: string;
+  tabId: string;
+  name: string;
+  createdAt: string;
+  read: () => Promise<AsyncIterable<Uint8Array>>;
+  failure: () => Promise<string | null>;
+  cancel: () => Promise<void>;
+  discard: () => Promise<void>;
+};
+
+export type BrowserDownloadStore = {
+  reconcileOnStart: () => Promise<void>;
+  list: () => Promise<BrowserDownload[]>;
+  capture: (download: BrowserDownloadEvent) => Promise<void>;
+  content: (downloadId: string) => Promise<BrowserDownloadContent>;
+  remove: (downloadId: string) => Promise<void>;
+  close: () => Promise<void>;
+};
+
 /** 驱动层只描述能力，不感知 HTTP、WS、pi 或配置文件。 */
 export type BrowserDriver = {
   start: () => Promise<void>;
@@ -83,8 +146,12 @@ export type BrowserDriver = {
   snapshot: (tabId: string) => Promise<Omit<BrowserSnapshot, "untrusted">>;
   startScreencast: (tabId: string) => Promise<void>;
   stopScreencast: (tabId: string) => Promise<void>;
+  listUploads: () => Promise<BrowserUpload[]>;
+  setUploadFiles: (uploadId: string, files: BrowserUploadFile[]) => Promise<void>;
+  cancelUpload: (uploadId: string) => Promise<void>;
   onTabsChanged?: (listener: (tabs: BrowserTab[]) => void) => void;
   onFrame?: (listener: (frame: BrowserFrame) => void) => void;
+  onDownload?: (listener: (download: BrowserDownloadEvent) => void) => void;
 };
 
 /** WS 适配层只需提供最小发送/关闭能力；协议语义留在 BrowserService。 */

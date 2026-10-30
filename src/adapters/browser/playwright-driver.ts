@@ -1,16 +1,27 @@
 import { mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { chromium, type BrowserContext, type CDPSession, type Page } from "playwright-core";
+import {
+  chromium,
+  type BrowserContext,
+  type CDPSession,
+  type Download,
+  type ElementHandle,
+  type FileChooser,
+  type Page,
+} from "playwright-core";
 import { resolvePublicHost } from "../../shared/public-host.js";
 import {
   BrowserError,
   type BrowserActInput,
+  type BrowserDownloadEvent,
   type BrowserDriver,
   type BrowserFrame,
   type BrowserInputEvent,
   type BrowserSnapshot,
   type BrowserSnapshotElement,
   type BrowserTab,
+  type BrowserUpload,
+  type BrowserUploadFile,
 } from "../../features/browser/types.js";
 
 type DriverConfig = {
@@ -34,6 +45,16 @@ type SnapshotProjection = Omit<BrowserSnapshot, "untrusted" | "tab">;
 type CastSession = {
   cdp: CDPSession;
   listener: (event: ScreencastFrameEvent) => void;
+};
+
+type PendingUpload = {
+  id: string;
+  tabId: string;
+  chooser: FileChooser;
+  element: ElementHandle;
+  multiple: boolean;
+  accept: Promise<string>;
+  createdAt: string;
 };
 
 type ScreencastFrameEvent = {
@@ -145,6 +166,8 @@ export const createPlaywrightBrowserDriver = (
   const casts = new Map<string, CastSession>();
   const tabsListeners = new Set<(tabs: BrowserTab[]) => void>();
   const frameListeners = new Set<(frame: BrowserFrame) => void>();
+  const downloadListeners = new Set<(download: BrowserDownloadEvent) => void>();
+  const uploadsByTab = new Map<string, PendingUpload>();
   let castProbeTimer: ReturnType<typeof setInterval> | undefined;
   let castProbeRunning = false;
 
@@ -172,6 +195,60 @@ export const createPlaywrightBrowserDriver = (
     emitTabs();
   };
 
+  const clearUpload = (tabId: string) => {
+    uploadsByTab.delete(tabId);
+  };
+
+  const clearPendingUpload = (pending: PendingUpload) => {
+    if (uploadsByTab.get(pending.tabId) === pending) uploadsByTab.delete(pending.tabId);
+  };
+
+  const uploadProjection = async (pending: PendingUpload): Promise<BrowserUpload> => ({
+    id: pending.id,
+    tabId: pending.tabId,
+    multiple: pending.multiple,
+    accept: await pending.accept,
+    createdAt: pending.createdAt,
+  });
+
+  const pendingUpload = (uploadId: string) => {
+    for (const pending of uploadsByTab.values())
+      if (pending.id === uploadId) return pending;
+    throw new BrowserError("UPLOAD_NOT_FOUND", "Browser upload chooser not found");
+  };
+
+  const registerDownload = (download: Download) => {
+    let page: Page;
+    try {
+      page = download.page();
+    } catch {
+      void download.delete().catch(() => undefined);
+      return;
+    }
+    const record = recordsByPage.get(page);
+    if (!record) {
+      void download.delete().catch(() => undefined);
+      return;
+    }
+    const event: BrowserDownloadEvent = {
+      id: randomUUID(),
+      tabId: record.id,
+      name: download.suggestedFilename(),
+      createdAt: new Date().toISOString(),
+      read: () => download.createReadStream(),
+      failure: () => download.failure(),
+      cancel: () => download.cancel(),
+      discard: () => download.delete(),
+    };
+    for (const listener of downloadListeners) {
+      try {
+        listener(event);
+      } catch {
+        // download 事件不能因业务监听器异常破坏 Playwright 事件循环。
+      }
+    }
+  };
+
   const resetContext = (launched: BrowserContext) => {
     if (context !== launched) return;
     context = undefined;
@@ -181,6 +258,7 @@ export const createPlaywrightBrowserDriver = (
       cast.cdp.off("Page.screencastFrame", cast.listener);
     }
     casts.clear();
+    uploadsByTab.clear();
     tabs.clear();
     emitTabs();
   };
@@ -208,6 +286,7 @@ export const createPlaywrightBrowserDriver = (
     page.on("framenavigated", (frame) => {
       if (context !== owner) return;
       if (frame !== page.mainFrame()) return;
+      clearUpload(record.id);
       record.url = frame.url();
       record.loading = true;
       emitTabs();
@@ -224,6 +303,7 @@ export const createPlaywrightBrowserDriver = (
     });
     page.on("close", () => {
       if (context !== owner) return;
+      clearUpload(record.id);
       tabs.delete(record.id);
       void stopCast(record.id).catch(() => undefined);
       if (record.active && tabs.size) {
@@ -232,6 +312,23 @@ export const createPlaywrightBrowserDriver = (
         void next.page.bringToFront().catch(() => undefined);
       }
       emitTabs();
+    });
+    page.on("filechooser", (chooser) => {
+      if (context !== owner) return;
+      const element = chooser.element();
+      const pending: PendingUpload = {
+        id: randomUUID(),
+        tabId: record.id,
+        chooser,
+        element,
+        multiple: chooser.isMultiple(),
+        accept: element.getAttribute("accept")
+          .then((value) => value ?? "")
+          .catch(() => ""),
+        createdAt: new Date().toISOString(),
+      };
+      // 一页只保留当前 chooser；新 chooser 直接替换旧引用，不尝试清空旧 input。
+      uploadsByTab.set(record.id, pending);
     });
     void refreshRecord(record).finally(emitTabs);
     return record;
@@ -254,6 +351,7 @@ export const createPlaywrightBrowserDriver = (
         handleSIGINT: false,
         handleSIGTERM: false,
         handleSIGHUP: false,
+        acceptDownloads: true,
         viewport: windowSize ? null : DEFAULT_VIEWPORT,
         // Linux 容器默认禁止 Chrome 创建 namespace sandbox；这里保持真实 GUI，
         // 不引入 headless 或远程渲染替代。
@@ -297,6 +395,10 @@ export const createPlaywrightBrowserDriver = (
           if (context !== launched) return;
           const record = registerPage(page, launched);
           setActiveRecord(record);
+        });
+        launched.on("download", (download) => {
+          if (context !== launched) return;
+          registerDownload(download);
         });
       } catch (error) {
         if (context === launched) resetContext(launched);
@@ -684,8 +786,42 @@ export const createPlaywrightBrowserDriver = (
       }
     },
     stopScreencast: stopCast,
+    listUploads: async () => {
+      if (!context) return [];
+      return Promise.all([...uploadsByTab.values()].map(uploadProjection));
+    },
+    setUploadFiles: async (uploadId, files: BrowserUploadFile[]) => {
+      await ensureStarted();
+      const pending = pendingUpload(uploadId);
+      const isConnected = () =>
+        pending.element.evaluate((node) => (node as { isConnected?: boolean }).isConnected === true)
+          .catch(() => false);
+      if (!(await isConnected())) {
+        clearPendingUpload(pending);
+        throw new BrowserError("UPLOAD_NOT_FOUND", "Browser upload chooser not found");
+      }
+      try {
+        await pending.chooser.setFiles(files.map((file) => ({
+          name: file.name,
+          mimeType: file.mimeType,
+          buffer: Buffer.from(file.content),
+        })));
+      } catch {
+        if (!(await isConnected())) {
+          clearPendingUpload(pending);
+          throw new BrowserError("UPLOAD_NOT_FOUND", "Browser upload chooser not found");
+        }
+        throw new BrowserError("BROWSER_FAILED", "Browser upload failed");
+      }
+      clearPendingUpload(pending);
+    },
+    cancelUpload: async (uploadId) => {
+      const pending = pendingUpload(uploadId);
+      clearPendingUpload(pending);
+    },
     onTabsChanged: (listener) => tabsListeners.add(listener),
     onFrame: (listener) => frameListeners.add(listener),
+    onDownload: (listener) => downloadListeners.add(listener),
   };
   return driver;
 };

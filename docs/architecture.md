@@ -136,6 +136,8 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 
 - `BrowserService` 是全局唯一入口，HTTP REST、`/browser` 调试页、WS 输入与 Agent 工具共享同一个懒启动、始终带 GUI 的系统 Chrome 和持久 profile；不做多实例、控制权租约或崩溃恢复框架。当前原生标签由 Browser root CDP 的 `tabActive` 元数据判定，不依赖会被 focus emulation 影响的 DOM `visibilityState`；CDP 帧流转发该标签视口。Docker 场景另用 Xvfb/x11vnc/noVNC 暴露完整真实窗口，两者不替代彼此，也不用无头渲染替代 GUI。
 - 应用是浏览器进程信号的唯一所有者：Playwright launch 显式关闭 SIGINT/SIGTERM/SIGHUP 自动处理，避免应用 `service.close` 与 Playwright handler 并发关闭同一 Browser 时触发二次 `gracefullyClose` 强制 kill。
+- 文件上传只由真实页面 `filechooser` 事件建立待处理项，每页最多一个当前 chooser；新 chooser 替换旧项，主导航或页面关闭使其失效。用户明确提交后，Playwright 使用请求中的内存字节调用 `setFiles`，不读取服务端路径或 workspace，也不注册为模型工具；取消只删除待处理项，不替页面清空已有选择。
+- 下载只来自 Playwright `download` 事件，持久化在 `browser/downloads/<uuid>/content` 与 `meta.json`。目录和文件受保护，不进入 workspace；完成记录重启后可读，中断记录标 failed，超限或失败清理自身临时内容，不自动重下。HTTP 只投影安全元数据与内存 Base64，不暴露 Playwright 或文件系统原始错误。
 - 全局只维护一份标签列表；仅当前激活标签在有 WS 订阅者时启动 CDP screencast，切换标签先停止旧流再启动新流，无订阅者时停止推帧。有 screencast 时用单个不重叠的 1 秒周期探测同步 noVNC 中手工切换的原生标签；停止 screencast、关闭或 context 失效时清理探测。标签识别要求 Chrome 150+ 的原生 tab metadata，缺失时返回受控 `BrowserError`，不按 URL、标签顺序或旧版 DOM 行为猜测。慢客户端按未 ack 帧跳帧，缓冲超限时断开。
 - WS 先用现有 Bearer token 换取一次性短时 ticket，长期 token 不进入 URL；帧格式、输入消息与 ack 语义以 `src/http/contracts/browser.ts` 生成的 OpenAPI extension 为准。
 - snapshot 是服务端固定实现的可见结构投影，仅用于给模型提供标题、文本、元素角色与 ref；外部内容一律标记不可信，不提供任意 JavaScript evaluate。
@@ -170,6 +172,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 | `skills/<name>/SKILL.md` | 实例级技能资产 |
 | `config.json` / `auth.key` / `agent/` | 必需配置、token 签名密钥与 pi 运行资源 |
 | `browser/profile/` | 系统 Chrome 持久 profile；与配置同级按敏感登录态保护，不给普通文件工具访问 |
+| `browser/downloads/<uuid>/content`、`meta.json` | Playwright 下载内容与状态；独立于 workspace，目录 `0700`、文件 `0600`，普通文件工具不可访问 |
 
 - pi `continueRecent` 与执行使用同一会话私有 cwd；重启仅恢复相同 cwd 的权威历史，不回退旧路径。sessions 初始化只 mkdir，不探测、搬移或删除旧 workspace 根文件与旧历史；已有数据需停服后单独备份处理。
 - `memory.json` 为 `{ memories: [...], identity: {...} }`，已有文档必须包含完整 identity；jobs/goals/actions/monitors 为裸数组。持久业务文档目前不写 `schemaVersion`，拒绝带版本的对象，等待显式版本 reader；不要与启动配置的 schemaVersion 混淆。

@@ -176,6 +176,31 @@ test("docs: generated OpenAPI document is structurally complete", () => {
   }
 });
 
+test("docs: browser file endpoints document chooser, limits, persistence and error semantics", () => {
+  const doc = buildOpenApiDocument();
+  const paths = doc.paths as unknown as Record<string, Record<string, OpenApiOperation>>;
+  const list = paths["/api/browser/files"]?.get;
+  const upload = paths["/api/browser/uploads/{uploadId}"]?.post;
+  const cancelUpload = paths["/api/browser/uploads/{uploadId}"]?.delete;
+  const content = paths["/api/browser/downloads/{downloadId}/content"]?.get;
+  const remove = paths["/api/browser/downloads/{downloadId}"]?.delete;
+  for (const operation of [list, upload, cancelUpload, content, remove]) {
+    assert.ok(operation);
+    assert.deepEqual(operation.security, [{ bearerAuth: [] }]);
+  }
+  assert.match(list?.description ?? "", /filechooser/);
+  assert.match(list?.description ?? "", /损坏[\s\S]*不能当作空列表/);
+  assert.match(upload?.description ?? "", /内存 Base64/);
+  assert.match(upload?.description ?? "", /8MiB/);
+  assert.match(upload?.description ?? "", /12MiB/);
+  assert.match(upload?.description ?? "", /413/);
+  assert.match(upload?.description ?? "", /404/);
+  assert.match(upload?.description ?? "", /400/);
+  assert.match(cancelUpload?.description ?? "", /setFiles\(\[\]\)/);
+  assert.match(content?.description ?? "", /409/);
+  assert.match(remove?.description ?? "", /异步完成不能复活已删除记录/);
+});
+
 test("docs: activity GET endpoints are authenticated read-only JSON operations with no new SSE events", () => {
   const { paths, list, detail } = activityOperations();
 

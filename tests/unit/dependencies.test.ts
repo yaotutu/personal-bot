@@ -48,7 +48,7 @@ test("browser core and protocol adapters stay independently extractable", async 
   ];
   for (const file of browserCoreFiles) {
     for (const dependency of importsOf(file, await readFile(file, "utf-8"))) {
-      if (["node:crypto", "node:dns/promises", "node:fs/promises", "node:net", "playwright-core"].includes(dependency)) continue;
+      if (["node:crypto", "node:dns/promises", "node:fs/promises", "node:net", "node:path", "playwright-core"].includes(dependency)) continue;
       assert.ok(dependency.startsWith("."), `${relative(sourceRoot, file)} imports external ${dependency}`);
       const target = relative(sourceRoot, resolve(dirname(file), dependency));
       assert.ok(

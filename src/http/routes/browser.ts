@@ -3,6 +3,7 @@ import type { BrowserService } from "../../features/browser/browser-service.js";
 import { BrowserError } from "../../features/browser/types.js";
 import {
   browserNavigationSchema,
+  browserUploadRequest,
   createBrowserTabSchema,
 } from "../contracts/browser.js";
 import { browserDebugPage } from "../browser-debug-page.js";
@@ -15,13 +16,25 @@ export const createBrowserRoutes = (
 
   const error = (caught: unknown): {
     body: { error: string; code: string };
-    status: 400 | 404 | 500;
+    status: 400 | 404 | 409 | 413 | 500;
   } => {
     if (!(caught instanceof BrowserError))
       return { body: { error: "Browser operation failed", code: "BROWSER_FAILED" }, status: 500 };
+    const status =
+      caught.code === "TAB_NOT_FOUND" ||
+      caught.code === "UPLOAD_NOT_FOUND" ||
+      caught.code === "DOWNLOAD_NOT_FOUND"
+        ? 404
+        : caught.code === "DOWNLOAD_NOT_READY"
+          ? 409
+          : caught.code === "PAYLOAD_TOO_LARGE"
+            ? 413
+            : caught.code === "INVALID_INPUT"
+              ? 400
+              : 500;
     return {
       body: { error: caught.message, code: caught.code },
-      status: (caught.code === "TAB_NOT_FOUND" ? 404 : caught.code === "BROWSER_FAILED" ? 500 : 400) as 400 | 404 | 500,
+      status,
     };
   };
 
@@ -70,6 +83,38 @@ export const createBrowserRoutes = (
   });
 
   app.post("/api/browser/ws-ticket", (c) => c.json(browser.createTicket()));
+
+  app.get("/api/browser/files", async (c) => {
+    try { return c.json(await browser.listFiles()); }
+    catch (caught) { const value = error(caught); return c.json(value.body, value.status); }
+  });
+
+  app.post("/api/browser/uploads/:uploadId", async (c) => {
+    const parsed = browserUploadRequest.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success)
+      return c.json({ error: "Invalid browser upload request", code: "INVALID_REQUEST" }, 400);
+    try {
+      return c.json(await browser.uploadFiles(c.req.param("uploadId"), parsed.data.files));
+    } catch (caught) {
+      const value = error(caught);
+      return c.json(value.body, value.status);
+    }
+  });
+
+  app.delete("/api/browser/uploads/:uploadId", async (c) => {
+    try { return c.json(await browser.cancelUpload(c.req.param("uploadId"))); }
+    catch (caught) { const value = error(caught); return c.json(value.body, value.status); }
+  });
+
+  app.get("/api/browser/downloads/:downloadId/content", async (c) => {
+    try { return c.json(await browser.downloadContent(c.req.param("downloadId"))); }
+    catch (caught) { const value = error(caught); return c.json(value.body, value.status); }
+  });
+
+  app.delete("/api/browser/downloads/:downloadId", async (c) => {
+    try { return c.json(await browser.deleteDownload(c.req.param("downloadId"))); }
+    catch (caught) { const value = error(caught); return c.json(value.body, value.status); }
+  });
 
   return app;
 };

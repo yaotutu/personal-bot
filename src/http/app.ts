@@ -39,8 +39,18 @@ export async function createHttpApp(dependencies: HttpDependencies) {
   app.use(
     "*",
     async (c, next) => {
-      // 聊天附件路由有自己的 12MiB 上限；其余接口维持原有 1MiB 保护。
+      // 聊天附件路由有自己的 12MiB 上限；浏览器上传只对精确 POST 路径放宽，
+      // 且 schema 与 feature 仍会分别约束单文件、文件数和 8MiB 原始字节总量。
       if (c.req.method === "POST" && c.req.path === "/api/conversation/run") return next();
+      if (c.req.method === "POST" && /^\/api\/browser\/uploads\/[^/]+$/.test(c.req.path)) {
+        return bodyLimit({
+          maxSize: 12 * 1024 * 1024,
+          onError: (context) => context.json(
+            { error: "Browser upload request body exceeds 12 MiB", code: "REQUEST_TOO_LARGE" },
+            413,
+          ),
+        })(c, next);
+      }
       return bodyLimit({
         maxSize: 1_048_576,
         onError: (c) => c.json({ error: "Request body exceeds 1 MiB" }, 413),

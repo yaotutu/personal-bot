@@ -34,6 +34,77 @@ export const browserNavigationSchema = z.discriminatedUnion("action", [
 
 export const browserDebugResponse = z.string().describe("服务端自带的真实浏览器调试页 HTML");
 
+const browserFileName = z.string()
+  .min(1)
+  .max(255)
+  .regex(
+    /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/,
+    "file names may contain only ASCII letters, digits, dot, underscore and hyphen, and cannot start with a dot",
+  );
+const isStrictBase64 = (value: string) => {
+  if (value.length % 4 !== 0) return false;
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  for (let index = 0; index < value.length - padding; index++) {
+    const code = value.charCodeAt(index);
+    if (
+      !(
+        (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122) ||
+        (code >= 48 && code <= 57) ||
+        code === 43 ||
+        code === 47
+      )
+    ) return false;
+  }
+  return true;
+};
+const browserFileBase64 = z.string()
+  .refine(isStrictBase64, "strict base64 without data prefix");
+
+export const browserUploadSchema = z.strictObject({
+  id: z.string().describe("服务端为当前 filechooser 生成的一次性 ID"),
+  tabId: z.string().describe("触发 filechooser 的标签页 ID"),
+  multiple: z.boolean().describe("页面 input 是否允许选择多个文件"),
+  accept: z.string().describe("页面 input 的 accept 属性；空字符串表示未限制类型"),
+  createdAt: z.iso.datetime().describe("filechooser 事件发生时间（ISO 8601）"),
+});
+
+export const browserDownloadSchema = z.strictObject({
+  id: z.string().describe("服务端生成的下载 UUID"),
+  tabId: z.string().describe("触发下载的标签页 ID"),
+  name: z.string().describe("清理为单层 ASCII 文件名后的建议下载名"),
+  status: z.enum(["downloading", "completed", "failed"]).describe("下载状态"),
+  bytes: z.number().int().min(0).max(33_554_432).nullable()
+    .describe("完成后的字节数；下载中或失败时为 null"),
+  createdAt: z.iso.datetime().describe("Playwright download 事件发生时间（ISO 8601）"),
+  error: z.string().nullable().describe("失败时返回稳定错误文案；其他状态为 null"),
+});
+
+export const browserFilesResponse = z.strictObject({
+  uploads: z.array(browserUploadSchema)
+    .describe("当前页面 filechooser；每页最多一个，导航、关闭或新 chooser 会替换/移除"),
+  downloads: z.array(browserDownloadSchema)
+    .describe("持久下载记录；完成记录在容器重启后仍可读取，中断记录标记 failed"),
+});
+
+export const browserUploadRequest = z.strictObject({
+  files: z.array(z.strictObject({
+    name: browserFileName.describe("单层文件名；只允许 ASCII 字母、数字、点、下划线和连字符，且不能以点开头"),
+    mimeType: z.string().max(255).describe("MIME 类型；空字符串按 application/octet-stream 处理"),
+    contentBase64: browserFileBase64.describe("严格 Base64 内存内容；不得带 data: 前缀"),
+  })).min(1).max(4).describe("真实 chooser 对应的本地文件内容；单选必须 1 项，多选 1 到 4 项，原始字节合计不超过 8MiB"),
+});
+
+export const browserDownloadContentResponse = z.strictObject({
+  name: z.string().describe("持久化的安全单层文件名"),
+  mimeType: z.string().describe("下载内容 MIME 类型；当前为 application/octet-stream"),
+  contentBase64: z.string().describe("已完成下载的严格 Base64 内容，不含 data: 前缀"),
+});
+
+export const browserOkResponse = z.strictObject({
+  ok: z.literal(true),
+});
+
 const pointerButton = z.enum(["left", "middle", "right"]).optional();
 const coordinate = z.number().finite().min(0).max(20000);
 const scrollDelta = z.number().finite().min(-100000).max(100000);

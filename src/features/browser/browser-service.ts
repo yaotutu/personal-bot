@@ -2,13 +2,17 @@ import { randomUUID } from "node:crypto";
 import {
   BrowserError,
   type BrowserActInput,
+  type BrowserDownloadContent,
+  type BrowserDownloadStore,
   type BrowserDriver,
   type BrowserFrame,
   type BrowserInputEvent,
   type BrowserSnapshot,
   type BrowserStreamClient,
   type BrowserTab,
+  type BrowserUploadFile,
 } from "./types.js";
+import { decodeBrowserUploadFiles } from "./files.js";
 
 type Ticket = { value: string; expiresAt: number };
 type ClientState = {
@@ -88,7 +92,10 @@ const frameMessage = (frame: BrowserFrame) => {
  * 都操作同一个懒启动 Chrome 实例。这里只保留标签、订阅、一次性 ticket 和
  * 输入协议，不做恢复框架或多用户租约。
  */
-export const createBrowserService = (driver: BrowserDriver) => {
+export const createBrowserService = (
+  driver: BrowserDriver,
+  downloadStore: BrowserDownloadStore,
+) => {
   let closed = false;
   let closing: Promise<void> | undefined;
   const clients = new Map<BrowserStreamClient, ClientState>();
@@ -173,6 +180,15 @@ export const createBrowserService = (driver: BrowserDriver) => {
     for (const state of recipients) sendFrame(state, frame, message);
   });
 
+  driver.onDownload?.((download) => {
+    if (closed) {
+      void download.cancel().catch(() => undefined);
+      void download.discard().catch(() => undefined);
+      return;
+    }
+    void downloadStore.capture(download).catch(() => undefined);
+  });
+
   const run = async <T>(operation: () => Promise<T>): Promise<T> => {
     checkOpen();
     try {
@@ -180,6 +196,16 @@ export const createBrowserService = (driver: BrowserDriver) => {
     } catch (error) {
       if (error instanceof BrowserError) throw error;
       throw new BrowserError("BROWSER_FAILED", "Browser operation failed");
+    }
+  };
+
+  const runFiles = async <T>(operation: () => Promise<T>): Promise<T> => {
+    checkOpen();
+    try {
+      return await operation();
+    } catch (error) {
+      if (error instanceof BrowserError) throw error;
+      throw new BrowserError("BROWSER_FAILED", "Browser files operation failed");
     }
   };
 
@@ -328,6 +354,7 @@ export const createBrowserService = (driver: BrowserDriver) => {
     closing = (async () => {
       await screencastSync.catch(() => undefined);
       await inputTail.catch(() => undefined);
+      await downloadStore.close().catch(() => undefined);
       await driver.close().catch(() => undefined);
     })();
     return closing;
@@ -372,6 +399,33 @@ export const createBrowserService = (driver: BrowserDriver) => {
         const snapshot = await driver.snapshot(target);
         return { ...snapshot, untrusted: true } satisfies BrowserSnapshot;
       }),
+    listFiles: () => runFiles(async () => {
+      const [uploads, downloads] = await Promise.all([
+        driver.listUploads(),
+        downloadStore.list(),
+      ]);
+      return { uploads, downloads };
+    }),
+    uploadFiles: (
+      uploadId: string,
+      files: readonly { name: string; mimeType: string; contentBase64: string }[],
+    ) => runFiles(async () => {
+      const upload = (await driver.listUploads()).find((item) => item.id === uploadId);
+      if (!upload) throw new BrowserError("UPLOAD_NOT_FOUND", "Browser upload chooser not found");
+      const decoded: BrowserUploadFile[] = decodeBrowserUploadFiles(upload, files);
+      await driver.setUploadFiles(uploadId, decoded);
+      return { ok: true as const };
+    }),
+    cancelUpload: (uploadId: string) => runFiles(async () => {
+      await driver.cancelUpload(uploadId);
+      return { ok: true as const };
+    }),
+    downloadContent: (downloadId: string): Promise<BrowserDownloadContent> =>
+      runFiles(() => downloadStore.content(downloadId)),
+    deleteDownload: (downloadId: string) => runFiles(async () => {
+      await downloadStore.remove(downloadId);
+      return { ok: true as const };
+    }),
     createTicket,
     consumeTicket,
     attachClient,

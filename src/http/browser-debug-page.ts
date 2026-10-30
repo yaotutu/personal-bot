@@ -49,6 +49,16 @@ export const browserDebugPage = `<!doctype html>
     textarea { opacity: 0; resize: none; border: 0; background: transparent; color: transparent; caret-color: transparent; }
     .status { position: absolute; left: 10px; bottom: 10px; padding: 5px 8px; border-radius: 6px; background: rgba(16,19,20,.82); color: var(--muted); font-size: 12px; }
     .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; text-align: center; padding: 16px; }
+    .files-panel { border: 1px solid var(--line); border-top: 0; background: var(--panel); padding: 10px; max-height: 34vh; overflow-y: auto; }
+    .files-panel[hidden] { display: none; }
+    .files-head, .file-row, .file-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .files-head { justify-content: space-between; }
+    .files-head h2 { margin: 0; font-size: 15px; }
+    .file-row { padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+    .file-detail { flex: 1 1 220px; min-width: 0; color: var(--muted); font-size: 13px; }
+    .file-actions { flex: 1 1 260px; }
+    .file-actions input { width: min(100%, 260px); }
+    .files-status { min-height: 22px; color: var(--muted); font-size: 13px; }
     @media (max-width: 700px) { .toolbar { flex-wrap: wrap; } .toolbar input { flex-basis: 100%; order: 3; } .shell { min-width: 0; } }
   </style>
 </head>
@@ -66,8 +76,14 @@ export const browserDebugPage = `<!doctype html>
       <button id="go">Go</button>
       <button id="newTab">New tab</button>
       <button id="reconnect" type="button">Reconnect</button>
+      <button id="filesToggle" type="button">Files</button>
     </section>
     <nav id="tabs" class="tabs"></nav>
+    <section id="filesPanel" class="files-panel" hidden>
+      <div class="files-head"><h2>Browser files</h2><div><button id="filesRefresh" type="button">Refresh</button> <button id="filesClose" type="button">Close</button></div></div>
+      <div id="filesStatus" class="files-status" role="status"></div>
+      <div id="uploads"></div><div id="downloads"></div>
+    </section>
     <section class="stage">
       <canvas id="canvas" width="1280" height="800"></canvas>
       <textarea id="keyboard" spellcheck="false" autocomplete="off"></textarea>
@@ -84,12 +100,13 @@ export const browserDebugPage = `<!doctype html>
     url.searchParams.delete("accessKey"); url.searchParams.delete("key");
     history.replaceState(history.state, "", url.pathname + url.search + url.hash);
   }
-  const state = { token: sessionStorage.getItem("pi-muse-browser-token") || "", tabs: [], activeTabId: null, tabsVersion: 0, frame: null, socket: null, connected: false, connectionId: 0, composing: false, pressedPointer: null, heldKeys: new Set(), lastMove: 0, lastPointer: null, frameId: 0 };
+  const state = { token: sessionStorage.getItem("pi-muse-browser-token") || "", tabs: [], activeTabId: null, tabsVersion: 0, frame: null, socket: null, connected: false, connectionId: 0, composing: false, pressedPointer: null, heldKeys: new Set(), lastMove: 0, lastPointer: null, frameId: 0, filesOpen: false, files: null, fileTimer: null, filePanelId: 0, fileReadId: 0, fileLoading: false, selections: new Map(), fileWrites: new Set(), uploadRows: new Map(), uploadHeading: null, uploadEmpty: null };
   const setStatus = (value) => { $("status").textContent = value; };
   const updateControls = () => {
     const ready = state.connected && state.socket?.readyState === WebSocket.OPEN;
     for (const id of ["back", "forward", "reload", "go", "newTab", "address", "keyboard"]) $(id).disabled = !ready;
     $("reconnect").disabled = !state.token;
+    $("filesToggle").disabled = !ready;
     $("tabs").style.pointerEvents = ready ? "auto" : "none";
     $("tabs").style.opacity = ready ? "1" : ".5";
     $("empty").textContent = !state.token ? "Login to start Chrome" : ready ? "No browser tab" : "Disconnected — reconnect to control Chrome";
@@ -107,6 +124,7 @@ export const browserDebugPage = `<!doctype html>
     state.pressedPointer = null; state.heldKeys.clear(); state.lastPointer = null;
   };
   const disconnect = (message, releaseInput = false) => {
+    closeFiles();
     if (releaseInput) releaseHeldInput();
     state.connectionId++;
     const socket = state.socket; state.socket = null; state.connected = false;
@@ -121,6 +139,157 @@ export const browserDebugPage = `<!doctype html>
     if (!response.ok) throw new Error(body.error || ("HTTP " + response.status));
     return body;
   };
+  const fileStatus = (message) => { $("filesStatus").textContent = message; };
+  const safeName = (name) => name.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^\\.+/, "") || "upload.bin";
+  const fileLabel = (tabId) => {
+    const tab = state.tabs.find((item) => item.id === tabId);
+    return tab ? (tab.title || tab.url || tab.id) + " (" + tab.id + ")" : tabId;
+  };
+  const textNode = (tag, value, className) => {
+    const node = document.createElement(tag); node.textContent = value;
+    if (className) node.className = className;
+    return node;
+  };
+  const action = (label, handler, disabled = false) => {
+    const button = document.createElement("button"); button.type = "button";
+    button.textContent = label; button.disabled = disabled; button.onclick = handler;
+    return button;
+  };
+  const closeFiles = () => {
+    if (state.fileTimer !== null) clearInterval(state.fileTimer);
+    state.fileTimer = null; state.filesOpen = false; state.filePanelId++; state.fileReadId++; state.fileLoading = false;
+    state.files = null; state.selections.clear(); state.uploadRows.clear(); state.uploadHeading = null; state.uploadEmpty = null; $("filesPanel").hidden = true;
+    $("uploads").replaceChildren(); $("downloads").replaceChildren(); fileStatus("");
+  };
+  const readFileBase64 = async (file) => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let binary = "";
+    for (let index = 0; index < bytes.length; index += 32768)
+      binary += String.fromCharCode(...bytes.subarray(index, index + 32768));
+    return btoa(binary);
+  };
+  const afterFileWrite = async (error) => {
+    const refreshed = await refreshFiles(true);
+    if (error && state.filesOpen) fileStatus(error.message + (refreshed ? " — list checked" : "; " + $("filesStatus").textContent));
+  };
+  const uploadFiles = async (upload) => {
+    const files = state.selections.get(upload.id) || [];
+    if (!files.length) { fileStatus("Choose a local file first"); return; }
+    if (files.length > (upload.multiple ? 4 : 1) || files.reduce((sum, file) => sum + file.size, 0) > 8 * 1024 * 1024) {
+      fileStatus("Choose at most " + (upload.multiple ? "4" : "1") + " files, 8 MiB total"); return;
+    }
+    const writeId = "upload:" + upload.id; if (state.fileWrites.has(writeId)) return;
+    state.fileWrites.add(writeId); renderFiles();
+    const panelId = state.filePanelId;
+    let error = null;
+    try {
+      const payload = await Promise.all(files.map(async (file) => ({ name: safeName(file.name), mimeType: file.type || "application/octet-stream", contentBase64: await readFileBase64(file) })));
+      if (!state.filesOpen || !state.connected || panelId !== state.filePanelId) return;
+      await api("/api/browser/uploads/" + encodeURIComponent(upload.id), { method: "POST", body: JSON.stringify({ files: payload }) });
+      state.selections.delete(upload.id);
+    } catch (caught) { error = caught; }
+    finally { state.fileWrites.delete(writeId); await afterFileWrite(error); }
+  };
+  const cancelUpload = async (upload) => {
+    const writeId = "upload:" + upload.id; if (state.fileWrites.has(writeId)) return;
+    state.fileWrites.add(writeId); renderFiles();
+    let error = null;
+    try { await api("/api/browser/uploads/" + encodeURIComponent(upload.id), { method: "DELETE" }); state.selections.delete(upload.id); }
+    catch (caught) { error = caught; }
+    finally { state.fileWrites.delete(writeId); await afterFileWrite(error); }
+  };
+  const saveDownload = async (download) => {
+    if (download.status !== "completed" || !state.filesOpen) return;
+    const panelId = state.filePanelId;
+    try {
+      const content = await api("/api/browser/downloads/" + encodeURIComponent(download.id) + "/content");
+      if (!state.filesOpen || panelId !== state.filePanelId) return;
+      const binary = atob(content.contentBase64);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      const objectUrl = URL.createObjectURL(new Blob([bytes], { type: content.mimeType || "application/octet-stream" }));
+      try {
+        const anchor = document.createElement("a"); anchor.href = objectUrl; anchor.download = safeName(content.name);
+        document.body.appendChild(anchor); anchor.click(); anchor.remove();
+        fileStatus("Saved " + anchor.download);
+      } finally { URL.revokeObjectURL(objectUrl); }
+    } catch (error) { if (state.filesOpen && panelId === state.filePanelId) fileStatus(error.message || String(error)); }
+  };
+  const deleteDownload = async (download) => {
+    if (!window.confirm("Delete browser download " + download.name + "?")) return;
+    const writeId = "download:" + download.id; if (state.fileWrites.has(writeId)) return;
+    state.fileWrites.add(writeId); renderFiles();
+    let error = null;
+    try { await api("/api/browser/downloads/" + encodeURIComponent(download.id), { method: "DELETE" }); }
+    catch (caught) { error = caught; }
+    finally { state.fileWrites.delete(writeId); await afterFileWrite(error); }
+  };
+  const renderFiles = () => {
+    if (!state.filesOpen || !state.files) return;
+    const { uploads, downloads } = state.files;
+    for (const id of state.selections.keys()) if (!uploads.some((upload) => upload.id === id)) state.selections.delete(id);
+    const uploadHost = $("uploads");
+    if (!state.uploadHeading) { state.uploadHeading = textNode("h3", "Pending uploads"); uploadHost.appendChild(state.uploadHeading); }
+    // 轮询只更新已有上传行；重挂 input 会中断仍打开的原生文件选择器。
+    const presentIds = new Set(uploads.map((upload) => upload.id));
+    for (const [id, entry] of state.uploadRows) {
+      if (!presentIds.has(id)) { entry.row.remove(); state.uploadRows.delete(id); }
+    }
+    if (!uploads.length && !state.uploadEmpty) {
+      state.uploadEmpty = textNode("p", "No pending uploads. Choose a file on the remote page first.");
+      uploadHost.appendChild(state.uploadEmpty);
+    } else if (uploads.length && state.uploadEmpty) { state.uploadEmpty.remove(); state.uploadEmpty = null; }
+    for (const upload of uploads) {
+      let entry = state.uploadRows.get(upload.id);
+      if (!entry) {
+        const row = textNode("div", "", "file-row");
+        const detail = textNode("div", "", "file-detail");
+        const controls = textNode("div", "", "file-actions");
+        const picker = document.createElement("input"); picker.type = "file"; picker.multiple = upload.multiple; picker.accept = upload.accept;
+        const submit = action("Upload", () => uploadFiles(upload));
+        const cancel = action("Cancel", () => cancelUpload(upload));
+        picker.onchange = () => { state.selections.set(upload.id, Array.from(picker.files || [])); renderFiles(); };
+        controls.append(picker, submit, cancel); row.append(detail, controls); uploadHost.appendChild(row);
+        entry = { row, detail, picker, submit, cancel }; state.uploadRows.set(upload.id, entry);
+      }
+      const selected = state.selections.get(upload.id) || [];
+      entry.detail.textContent = fileLabel(upload.tabId) + " · " + (upload.multiple ? "Multiple files" : "One file") + (upload.accept ? " · " + upload.accept : "") + (selected.length ? " · " + selected.map((file) => file.name + " (" + file.size + " bytes)").join(", ") : "");
+      entry.picker.disabled = state.fileWrites.has("upload:" + upload.id);
+      entry.submit.disabled = !selected.length || entry.picker.disabled;
+      entry.cancel.disabled = entry.picker.disabled;
+    }
+    const downloadRows = [textNode("h3", "Downloads")];
+    if (!downloads.length) downloadRows.push(textNode("p", "No downloads"));
+    for (const download of downloads) {
+      const row = textNode("div", "", "file-row");
+      row.appendChild(textNode("div", download.name + " · " + download.status + " · " + (download.bytes === null ? "size unknown" : download.bytes + " bytes") + (download.error ? " · " + download.error : ""), "file-detail"));
+      const controls = textNode("div", "", "file-actions");
+      if (download.status === "completed") controls.appendChild(action("Save", () => saveDownload(download)));
+      controls.appendChild(action("Delete", () => deleteDownload(download), state.fileWrites.has("download:" + download.id)));
+      row.appendChild(controls); downloadRows.push(row);
+    }
+    $("downloads").replaceChildren(...downloadRows);
+  };
+  const refreshFiles = async (force = false) => {
+    if (!state.filesOpen || !state.connected || (state.fileLoading && !force)) return false;
+    const readId = ++state.fileReadId; state.fileLoading = true;
+    try {
+      const files = await api("/api/browser/files");
+      if (readId !== state.fileReadId || !state.filesOpen) return false;
+      state.files = files; renderFiles(); fileStatus("Files updated"); return true;
+    } catch (error) {
+      if (readId === state.fileReadId && state.filesOpen) fileStatus("Unable to read files: " + (error.message || String(error)));
+      return false;
+    } finally { if (readId === state.fileReadId) state.fileLoading = false; }
+  };
+  const openFiles = () => {
+    if (!state.connected || state.filesOpen) return;
+    state.filesOpen = true; state.filePanelId++; $("filesPanel").hidden = false; fileStatus("Loading files…");
+    state.fileTimer = setInterval(() => refreshFiles(), 2000);
+    return refreshFiles();
+  };
+  $("filesToggle").onclick = openFiles;
+  $("filesClose").onclick = closeFiles;
+  $("filesRefresh").onclick = () => refreshFiles(true);
   const activeTab = () => state.tabs.find((tab) => tab.id === state.activeTabId);
   const renderTabs = () => {
     $("tabs").replaceChildren(...state.tabs.map((tab) => {

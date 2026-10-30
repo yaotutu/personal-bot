@@ -8,12 +8,22 @@ import { createPlaywrightBrowserDriver } from "../../src/adapters/browser/playwr
 import { createBrowserService } from "../../src/features/browser/browser-service.js";
 import { BrowserError } from "../../src/features/browser/types.js";
 import type {
+  BrowserDownloadStore,
   BrowserDriver,
   BrowserFrame,
   BrowserSnapshot,
   BrowserStreamClient,
   BrowserTab,
 } from "../../src/features/browser/types.js";
+
+const downloadStore: BrowserDownloadStore = {
+  reconcileOnStart: async () => undefined,
+  list: async () => [],
+  capture: async () => undefined,
+  content: async () => { throw new BrowserError("DOWNLOAD_NOT_FOUND", "Browser download not found"); },
+  remove: async () => { throw new BrowserError("DOWNLOAD_NOT_FOUND", "Browser download not found"); },
+  close: async () => undefined,
+};
 
 const waitFor = async (condition: () => boolean, label: string) => {
   for (let index = 0; index < 100; index++) {
@@ -117,6 +127,9 @@ const createDriverHarness = (initialTabs: BrowserTab[] = [tab("one", true)]) => 
     },
     startScreencast: async (tabId) => { startCalls.push(tabId); },
     stopScreencast: async (tabId) => { stopCalls.push(tabId); },
+    listUploads: async () => [],
+    setUploadFiles: async () => undefined,
+    cancelUpload: async () => undefined,
     onTabsChanged: (listener) => { tabsListener = listener; },
     onFrame: (listener) => { frameListener = listener; },
   };
@@ -159,7 +172,7 @@ test("client stays gated until ready and then receives the cached first frame", 
       await listGate;
       return harness.driver.listTabs();
     },
-  });
+  }, downloadStore);
   t.after(() => service.close());
   const client = new TestClient();
   const attached = service.attachClient(client);
@@ -198,7 +211,7 @@ test("WS inputs serialize across viewers without blocking frame ack", async (t) 
         await firstGate.promise;
       }
     },
-  });
+  }, downloadStore);
   t.after(async () => {
     firstGate.resolve();
     await service.close();
@@ -255,7 +268,7 @@ test("failed accepted input does not block pointer_up after client detach", asyn
         throw new Error("input failed");
       }
     },
-  });
+  }, downloadStore);
   t.after(async () => {
     firstGate.resolve();
     await service.close();
@@ -297,7 +310,7 @@ test("service close waits for accepted inputs before closing the driver", async 
         await firstGate.promise;
       }
     },
-  });
+  }, downloadStore);
   t.after(async () => {
     firstGate.resolve();
     await service.close();
@@ -325,7 +338,7 @@ test("service close waits for accepted inputs before closing the driver", async 
 
 test("a new viewer immediately receives the latest static frame", async (t) => {
   const harness = createDriverHarness();
-  const service = createBrowserService(harness.driver);
+  const service = createBrowserService(harness.driver, downloadStore);
   t.after(() => service.close());
   const first = new TestClient();
   await attachReady(service, first);
@@ -347,7 +360,7 @@ test("a new viewer immediately receives the latest static frame", async (t) => {
 
 test("slow viewer backpressure does not block another viewer", async (t) => {
   const harness = createDriverHarness();
-  const service = createBrowserService(harness.driver);
+  const service = createBrowserService(harness.driver, downloadStore);
   t.after(() => service.close());
   const slow = new TestClient();
   const fast = new TestClient();
@@ -372,7 +385,7 @@ test("slow viewer backpressure does not block another viewer", async (t) => {
 
 test("tab switch discards old pending frame and reconnect restarts screencast", async (t) => {
   const harness = createDriverHarness();
-  const service = createBrowserService(harness.driver);
+  const service = createBrowserService(harness.driver, downloadStore);
   t.after(() => service.close());
   const first = new TestClient();
   const firstAttached = await attachReady(service, first);
@@ -408,7 +421,7 @@ test("tab switch discards old pending frame and reconnect restarts screencast", 
 
 test("service close does not resurrect clients or screencast", async (t) => {
   const harness = createDriverHarness();
-  const service = createBrowserService(harness.driver);
+  const service = createBrowserService(harness.driver, downloadStore);
   t.after(() => service.close());
   const client = new TestClient();
   await attachReady(service, client);
@@ -792,4 +805,66 @@ test("driver preserves input, viewport, ack and native cast probe lifecycle", as
   const probesAfterStop = fake.contexts[0]!.rootSessionCount;
   await sleep(1100);
   assert.equal(fake.contexts[0]!.rootSessionCount, probesAfterStop);
+});
+
+test("driver keeps a live failed upload retryable and clears detached choosers", async (t) => {
+  const fake = await createFakePlaywright();
+  t.after(async () => {
+    await fake.driver.close();
+    await fake.cleanup();
+  });
+  let connected = true;
+  let failSetFiles = true;
+  let setFiles = async () => {
+    if (failSetFiles) throw new Error("transient setFiles failure");
+  };
+  const element = {
+    evaluate: async () => connected,
+    getAttribute: async () => ".txt",
+  };
+  const chooser = {
+    element: () => element,
+    isMultiple: () => false,
+    setFiles: () => setFiles(),
+  };
+  const files = [{ name: "one.txt", mimeType: "text/plain", content: Uint8Array.from([1]) }];
+  await fake.driver.start();
+  const page = fake.contexts[0]!.pagesList[0]!;
+
+  page.emit("filechooser", chooser);
+  const first = (await fake.driver.listUploads())[0];
+  assert.ok(first);
+  await assert.rejects(
+    fake.driver.setUploadFiles(first.id, files),
+    (error: unknown) => error instanceof BrowserError && error.code === "BROWSER_FAILED",
+  );
+  assert.equal((await fake.driver.listUploads())[0]?.id, first.id);
+
+  failSetFiles = false;
+  await fake.driver.setUploadFiles(first.id, files);
+  assert.deepEqual(await fake.driver.listUploads(), []);
+
+  connected = false;
+  page.emit("filechooser", chooser);
+  const detached = (await fake.driver.listUploads())[0];
+  assert.ok(detached);
+  await assert.rejects(
+    fake.driver.setUploadFiles(detached.id, files),
+    (error: unknown) => error instanceof BrowserError && error.code === "UPLOAD_NOT_FOUND",
+  );
+  assert.deepEqual(await fake.driver.listUploads(), []);
+
+  connected = true;
+  page.emit("filechooser", chooser);
+  const replaced = (await fake.driver.listUploads())[0];
+  assert.ok(replaced);
+  setFiles = async () => {
+    connected = false;
+    throw new Error("detached during setFiles");
+  };
+  await assert.rejects(
+    fake.driver.setUploadFiles(replaced.id, files),
+    (error: unknown) => error instanceof BrowserError && error.code === "UPLOAD_NOT_FOUND",
+  );
+  assert.deepEqual(await fake.driver.listUploads(), []);
 });

@@ -18,8 +18,9 @@ const chromeExecutable = process.env.PI_MUSE_TEST_CHROME ??
 
 const pageHtml = `<!doctype html>
 <title>Browser fixture</title>
-<style>button{position:absolute;left:20px;top:20px;width:120px;height:40px}input{position:absolute;left:20px;top:80px;width:240px;height:32px}</style>
+<style>button{position:absolute;left:20px;top:20px;width:120px;height:40px}input{position:absolute;left:20px;top:80px;width:240px;height:32px}a{position:absolute;left:20px;top:130px}</style>
 <button id="click">Click</button><input id="text"><div id="count">Clicks:0</div><div id="tick">Tick:0</div>
+<a id="download" href="/download">Download report</a>
 <script>
 let clicks=0;
 document.getElementById('click').onclick=()=>{clicks++;document.getElementById('count').textContent='Clicks:'+clicks};
@@ -27,6 +28,20 @@ let ticks=0;setInterval(()=>{document.getElementById('tick').textContent='Tick:'
 </script>`;
 
 const secondHtml = `<!doctype html><title>Second fixture</title><main>second-page</main>`;
+
+const uploadHtml = `<!doctype html>
+<title>Upload fixture</title>
+<style>input{position:absolute;left:20px;top:20px;width:260px;height:32px}</style>
+<input id="file" type="file" accept=".txt,text/plain">
+<main id="result">UPLOAD:none</main>
+<script>
+document.getElementById('file').addEventListener('change', async (event) => {
+  const file = event.target.files[0];
+  document.getElementById('result').textContent = 'UPLOAD:' + (file ? await file.text() : 'none');
+});
+</script>`;
+
+const downloadBytes = Buffer.from("browser-download-bytes");
 
 const listen = async (handler: RequestListener) => {
   const server = createServer(handler);
@@ -42,6 +57,19 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
 }, async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "pi-muse-browser-real-"));
   const fixture = await listen((request, response) => {
+    if (request.url === "/download") {
+      response.writeHead(200, {
+        "content-type": "application/octet-stream",
+        "content-disposition": 'attachment; filename="report.txt"',
+      });
+      response.end(downloadBytes);
+      return;
+    }
+    if (request.url === "/upload") {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(uploadHtml);
+      return;
+    }
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     response.end(request.url === "/second" ? secondHtml : pageHtml);
   });
@@ -169,6 +197,13 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
     }
     throw new Error(`Timed out waiting for ${label}`);
   };
+  const waitUntilAsync = async (predicate: () => Promise<boolean>, label: string) => {
+    for (let index = 0; index < 600; index++) {
+      if (await predicate()) return;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error(`Timed out waiting for ${label}`);
+  };
   await waitUntil(() => messages.some((message) => (message as { type?: string }).type === "ready"), "WS ready");
   await waitUntil(() => frames.length >= 2, "multiple JPEG frames");
   for (const frame of frames) {
@@ -191,6 +226,69 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
   assert.equal(snapshot.untrusted, true);
   assert.match(snapshot.text, /Clicks:1/);
   assert.ok(snapshot.elements.some((element) => element.name === "hello-browser"));
+
+  await request(`/api/browser/tabs/${tab.id}/navigation`, {
+    action: "navigate",
+    url: fixture.url + "/upload",
+  });
+  const uploadSnapshot = await browserService.snapshot(tab.id);
+  const fileInput = uploadSnapshot.elements.find((element) => element.tag === "input");
+  assert.ok(fileInput);
+  await browserService.act(tab.id, { action: "click", ref: fileInput.ref });
+  let pendingFiles = { uploads: [] as { id: string; multiple: boolean; accept: string }[], downloads: [] as unknown[] };
+  await waitUntilAsync(async () => {
+    pendingFiles = await request("/api/browser/files") as typeof pendingFiles;
+    return pendingFiles.uploads.length === 1;
+  }, "real filechooser");
+  assert.equal(pendingFiles.uploads[0]?.multiple, false);
+  assert.equal(pendingFiles.uploads[0]?.accept, ".txt,text/plain");
+  await request(`/api/browser/uploads/${pendingFiles.uploads[0]!.id}`, {
+    files: [{
+      name: "hello.txt",
+      mimeType: "text/plain",
+      contentBase64: Buffer.from("hello").toString("base64"),
+    }],
+  });
+  await waitUntilAsync(async () => {
+    const current = await browserService.snapshot(tab.id);
+    return current.text.includes("UPLOAD:hello");
+  }, "in-memory upload bytes in page");
+
+  await browserService.act(tab.id, { action: "click", ref: fileInput.ref });
+  await waitUntilAsync(async () => {
+    pendingFiles = await request("/api/browser/files") as typeof pendingFiles;
+    return pendingFiles.uploads.length === 1;
+  }, "second real filechooser");
+  await request(`/api/browser/uploads/${pendingFiles.uploads[0]!.id}`, undefined, "DELETE");
+  await waitUntilAsync(async () => {
+    pendingFiles = await request("/api/browser/files") as typeof pendingFiles;
+    return pendingFiles.uploads.length === 0;
+  }, "upload cancellation");
+
+  await request(`/api/browser/tabs/${tab.id}/navigation`, { action: "navigate", url: fixture.url });
+  const downloadSnapshot = await browserService.snapshot(tab.id);
+  const downloadLink = downloadSnapshot.elements.find((element) => element.name === "Download report");
+  assert.ok(downloadLink);
+  await browserService.act(tab.id, { action: "click", ref: downloadLink.ref });
+  let completedDownload: { id: string; status: string; bytes: number | null } | undefined;
+  await waitUntilAsync(async () => {
+    const files = await request("/api/browser/files") as {
+      uploads: unknown[];
+      downloads: { id: string; status: string; bytes: number | null }[];
+    };
+    completedDownload = files.downloads.find((item) => item.status === "completed");
+    return Boolean(completedDownload);
+  }, "completed Playwright download");
+  assert.equal(completedDownload?.bytes, downloadBytes.byteLength);
+  const downloaded = await request(`/api/browser/downloads/${completedDownload!.id}/content`) as {
+    name: string;
+    contentBase64: string;
+  };
+  assert.equal(downloaded.name, "report.txt");
+  assert.equal(Buffer.from(downloaded.contentBase64, "base64").toString(), downloadBytes.toString());
+  await request(`/api/browser/downloads/${completedDownload!.id}`, undefined, "DELETE");
+  const afterDelete = await request("/api/browser/files") as { downloads: { id: string }[] };
+  assert.equal(afterDelete.downloads.some((item) => item.id === completedDownload!.id), false);
 
   const second = browserTab.parse(await request("/api/browser/tabs", { url: fixture.url + "/second" }));
   const secondActivationMarker = frames.at(-1)?.metadata.frameId ?? 0;
