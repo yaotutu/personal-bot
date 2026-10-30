@@ -6,19 +6,19 @@ This page covers daily chat, switching spaces, message feedback, stopping runs, 
 
 - The server is connected as described in [Quick Start](getting-started.md#connect-mobile-client), and the connection status is 「已连接」.
 - An external model is configured. If the model is not configured, chat messages are rejected.
-- Distinguish the two panels: the menu at the upper left opens the space sidebar; the avatar, name, and status in the middle of the top bar open the current session panel.
+- Distinguish the two panels: the menu at the upper left opens the space sidebar; tap the avatar in the middle of the top bar to open the current session panel and view detailed status.
 
 ## Send and Stop Conversations {#send-and-stop-conversations}
 
 1. On the bottom 「聊天」 tab, confirm the current space. To change it, follow “Manage spaces” first.
 2. Enter text in the 「消息」 input field. To send an image or text file with this message, use the 「+」 button described in [the attachment guide](files-and-approvals.md#send-attachments).
-3. Tap the send arrow to the right of the input field. The visible success signal is your message entering the chat list and the header status changing to an executing state.
+3. Tap the send arrow to the right of the input field. The visible success signal is your message entering the chat list and the right-hand button becoming a stop square. Detailed execution status is available in the session panel.
 4. The reply streams into the page. When the model calls tools, progress appears in message tool cards or the session panel's 「动态」 view.
 5. To stop, tap the same right-side button. While a run is active it appears as a stop square; if run status is still synchronizing, the button is unavailable. Tap 「重新同步」 first.
 
 After a successful stop, the stream shows stopped or finished. Switching spaces or main pages within the same foreground connection does not actively stop generation in the original space; return to see its progress. This does not promise background execution. Explicit stopping, a disconnected chat stream, leaving the current connection, or restarting the server still cancels the associated run and invalidates pending file approvals. Tool operations that already completed are not rolled back.
 
-The avatar, space menu, and theme button float over chat content rather than occupying a separate fixed header. Sending a message returns the view to the latest message. Scrolling upward lets you read older content; tap「回到最新」to resume following.
+The avatar, space menu, and theme button float over chat content rather than occupying a separate fixed header. The main space has no visible space name; other spaces show their names only while the keyboard is closed. The floating chat header does not show routine status text such as ready or working, and opening the keyboard also hides the name. Detailed status remains in the session panel; error messages and the panel’s pending-approval entry remain available. Sending a message returns the view to the latest message. Scrolling upward lets you read older content; tap「回到最新」to resume following.
 
 After a message has definitely failed, tap「恢复到输入框」to recover it. If a new draft already exists, you may cancel, copy that draft somewhere safe and clear the input before recovering the old message, or tap「放弃未发送消息」and confirm. Discarding removes only that unsent message, preserves the current draft, and cannot be undone. Messages with an unconfirmed save result cannot be discarded or automatically resent.
 
@@ -41,7 +41,7 @@ If a feedback write times out, disconnects, or has an unknown result, the interf
 1. Tap the menu at the upper left of the chat page to open the space sidebar.
 2. Tap any space to switch. The selected space is marked, and the chat page switches to its history, drafts, and run state.
 3. Type a display name or space ID in the 「搜索空间」 field to filter the list.
-4. Tap the 「新建空间」 icon in the lower right. The client generates an independent space ID and switches to it immediately. The sidebar and chat show readable names such as「对话 1」, with update time and actual run state in the sidebar. Numbers are stable only within the current connection, not server titles or cross-device names.
+4. Tap the 「新建空间」 icon in the lower right. The client generates an independent space ID and switches to it immediately. The sidebar and chat with the keyboard closed show readable names such as「空间 1」, with update time and actual run state in the sidebar. The default space is still labeled「主空间」in the sidebar. Numbers are stable only within the current connection, not server titles or cross-device names.
 5. Send the first message in the new space, or open the session panel and save its rules or skills to establish it on the server. Tapping 「新建空间」 without a write only creates a local empty entry on the phone and it may later disappear from the server list.
 
 A space ID starts with a letter and contains only letters, numbers, `_`, and `-`, up to 64 characters. Current mobile source has no server-side space-renaming or automatic-summary entry. Display numbers do not change space IDs.

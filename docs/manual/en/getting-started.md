@@ -100,7 +100,7 @@ While a test is pending, tap「取消测试」or close the panel without saving 
 
 1. Return to the bottom「聊天」tab. A new installation shows「主空间」and「有什么想聊的？」.
 2. In the input field with the「消息」placeholder, enter a short, verifiable request, such as a question whose answer you already know.
-3. Tap the send arrow on the right of the input field. Your message bubble appears and the header status changes to an executing state.
+3. Tap the send arrow on the right of the input field. Your message bubble appears and the right-hand button becomes a stop square. Tap the avatar to view detailed execution status in the session panel.
 4. Wait for the assistant reply. A real reply streams into the chat page; if the model calls tools, their status appears in tool cards or the session panel's activity view.
 
 If the chat page reports that the model is not configured, the connection is offline, or reauthentication is required, diagnose it with the [FAQ](troubleshooting.md) instead of repeatedly resending the same message. For attachments, see [Attachments, files, and approvals](files-and-approvals.md#send-attachments). For stopping a run, resynchronizing, and unknown-result handling, see [Conversations and spaces](conversations-and-spaces.md#send-and-stop-conversations).

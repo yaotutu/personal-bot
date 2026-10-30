@@ -18,7 +18,7 @@ This page explains the mobile client's assistant and user profiles, common appea
 2. Choose one of the 「温暖」 (warm), 「简洁」 (concise), or 「周到」 (thoughtful) tones. If the server returns a legacy tone unknown to this client, the page shows that value and asks you to choose a supported one.
 3. Tap 「保存助手设置」. Success shows 「身份已保存」, and the change marker disappears.
 
-The name and tone are global and take effect from the next conversation turn; existing history is not rewritten. The main-space header shows the assistant name, while a non-main space shows a readable conversation number for the current connection.
+The name and tone are global and take effect from the next conversation turn; existing history is not rewritten. The assistant name is not used as the main-space title. The main-space header shows no name; other spaces show a readable number such as「空间 1」for the current connection only while the keyboard is closed.
 
 ### Save SOUL and USER {#save-soul-and-user}
 
