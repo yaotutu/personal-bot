@@ -45,15 +45,16 @@ Theme preference is stored separately from the server connection, AccessKey, Tok
 For the first address, access key, and connection steps, see [Quick Start](getting-started.md#connect-mobile-client). To maintain the connection later:
 
 1. Go to bottom 「设置」 → 「连接与设备」 → 「服务器连接」.
-2. Change 「服务器地址」 or 「访问密钥」, then tap 「测试连接」. A successful test only proves that the current draft is reachable; it is not saved yet.
-3. To reauthenticate to the same address, enter the new access key, test it, then tap 「重新认证」. Testing the same address with the key left blank reuses the current Token.
-4. When changing to a different server, read 「更换服务器前请确认」, tap 「继续保存」, then save the new address as prompted.
-5. While testing, tap「取消测试」or close the panel; late results do not save anything. Wait for saving or local cleanup to finish before closing.
-6. If the server is temporarily unavailable, open this panel and tap 「重试连接」. If local connection configuration cannot be read, tap 「重新加载」.
+2. Edit 「服务器地址」 or 「访问密钥」, then tap 「保存」(Save). The app verifies the current input before saving; a separate test is not required.
+3. Optionally tap 「测试连接」. Success shows 「连接正常」 and 「保存后生效」. Testing does not save configuration; editing either address or key immediately invalidates the test result.
+4. To reauthenticate at the same address, enter the new access key and save. The app verifies that new key instead of reusing the old login. Leaving the key blank verifies and reuses the current login.
+5. When changing servers, read the cleanup warning, tap 「确认清理」, then 「保存」. Failed verification does not clear old caches or overwrite the old connection.
+6. Close the panel to cancel a test or verification before saving; tests can also be canceled with 「取消测试」. Late results cannot save anything. Actual configuration writes or local cleanup must finish before closing.
+7. If the server is temporarily unavailable, tap 「重试连接」. If local configuration cannot be read, tap 「重新加载」.
 
-Changing servers requires confirmation and makes the client discard local business caches and old credentials for the old address. It does not delete data on any remote server. The local theme preference is retained. If you save only the address for later authentication, no Token is stored. After a successful test or connection, the app stores the server-issued long-term Token, not the plaintext AccessKey.
+Changing servers requires confirmation and discards local business caches and old credentials only after verification succeeds. It does not delete any remote server data, and the local theme preference is retained. Only a successful save writes the server address and server-issued long-term Token to the device, never the plaintext AccessKey.
 
-The current app has no logout or server-sign-out button. Closing the connection panel only clears the access key typed in that form. Moving the app to the background or exiting only pauses network requests; the device keeps the server address and Token for later use. The Token remains valid across server restarts. After the server changes or removes `server.accessKey`, it is rejected and the client asks you to reauthenticate.
+The current app has no logout or server-sign-out button. Closing the connection panel clears only the access key entered in that form. Backgrounding or exiting pauses network requests but keeps the server address and Token for later use. The Token survives server restarts. Changing or removing `server.accessKey` makes the server reject old Tokens and the client requests reauthentication.
 
 ## Real Browser {#real-browser}
 
@@ -75,5 +76,5 @@ The current update path supports only a standalone Android APK and is not Expo O
 | --- | --- |
 | Profile page shows the last loaded value or an unknown save result | Tap 「刷新」 to verify the server value. After checking, save explicitly again if needed; the client does not retry automatically. |
 | Theme changed but saving failed | Local storage failed temporarily. Choose a theme again to retry saving; the visible switch is unaffected. |
-| Connection status says reauthentication is required | Open 「服务器连接」, enter the current AccessKey, test it, then tap 「重新认证」. |
+| Connection status says reauthentication is required | Open 「服务器连接」, enter the current AccessKey, then tap 「保存」; it takes effect after verification succeeds. |
 | App update check fails | Retry later or manually download the APK from the official Releases page. Update checks do not depend on the Pi Muse business server. |

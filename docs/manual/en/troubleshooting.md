@@ -19,7 +19,7 @@ Never paste any key into public logs, screenshots, or issue reports.
 
 ## Test Passed but the Connection Was Not Saved {#test-passed-but-not-saved}
 
-「测试通过，尚未保存」means the address and key work, but the configuration has not been written to the phone. Continue with「连接服务器」or「保存新地址」. The confirmation shown before changing addresses clears local business cache and old credentials; it does not delete remote data.
+「连接正常」and「保存后生效」mean testing succeeded, but configuration has not been written to the phone. Tap「保存」to apply it. You may also save without testing first; the app verifies the current address and key before saving. Failed verification leaves the old configuration unchanged. Changing addresses requires confirmation of the cleanup impact. Local business cache and old credentials are cleared only after successful verification and save; remote data is not deleted.
 
 ## No Model Reply {#no-model-reply}
 

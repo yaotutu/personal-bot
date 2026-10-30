@@ -91,10 +91,10 @@ Restarting the service does not rerun expired one-off reminders, and failed jobs
 4. On the「服务器连接」page, enter:
    - 「服务器地址」: the server base address, without `/api`, `/docs`, or a trailing path slash.
    - 「访问密钥」: the `server.accessKey` from the configuration file, not `model.apiKey`.
-5. Tap「测试连接」. On success, the app shows「测试通过，尚未保存」.
-6. Tap「连接服务器」. On success, the panel closes and the connection status shows「已连接」.
+5. Tap「保存」(Save). The app verifies the current address and access key before saving; failure leaves the previous configuration unchanged. On success, the panel closes and the connection status shows「已连接」.
+6. Optionally tap「测试连接」first. A successful test shows「连接正常」and「保存后生效」; testing does not save the configuration.
 
-While a test is pending, tap「取消测试」or close the panel without saving the draft. Saving or clearing local cache must finish before closing. Tapping「测试连接」alone does not save the configuration. If you change to a different server address, the client first asks you to confirm clearing local business cache and old credentials; that action does not delete data on the remote server.
+While testing or verifying before a save, close the panel to cancel without saving the draft. A test can also be canceled with「取消测试」. Actual configuration writes or local cache cleanup must finish before closing. If you change to a different server address, the client first asks you to confirm clearing local business cache and old credentials; that action does not delete data on the remote server.
 
 ## Send a Message and Receive a Reply {#send-first-real-reply}
 
