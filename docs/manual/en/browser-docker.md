@@ -60,10 +60,16 @@ On `/browser`, enter the AccessKey manually. Successful login clears the input a
 Desktop and mobile share the `/browser/desktop/vnc.html` entry point. The default is `layout=auto`: when the viewport width is no wider than 700px, the page automatically switches to the mobile page, and it automatically returns to official noVNC once desktop width is restored. An explicit `layout=desktop` or `layout=mobile` pins the current page and prevents navigation based on window size. Redirects preserve query and `#` parameters. The mobile page connects to the same-origin `/browser/desktop/websockify` by default, and also supports overriding `path`, `host`, or `port` through query parameters.
 
 ::: danger Remote desktop access boundary
-The desktop session cookie grants full ability to view and operate the entire remote desktop, including signed-in websites. Tickets are one-time and expire in 60 seconds; the session cookie expires after 1 hour and is never renewed. Over plain HTTP the desktop traffic is unencrypted—use it only on trusted networks. HTTPS-terminating reverse proxies are currently unsupported (the cookie Secure flag and WS Origin checks follow the direct connection protocol). The mobile client has no desktop entry yet.
+The desktop session cookie grants full ability to view and operate the entire remote desktop, including signed-in websites. Tickets are one-time and expire in 60 seconds; the session cookie expires after 1 hour and is never renewed. Over plain HTTP the desktop traffic is unencrypted—use it only on trusted networks. HTTPS-terminating reverse proxies are currently unsupported (the cookie Secure flag and WS Origin checks follow the direct connection protocol).
 :::
 
-The real browser is configured on the server. The mobile client neither stores a desktop address nor provides an open-browser entry. To view the remote desktop, use the ticket flow above and open the same-origin launch URL in a system browser.
+### Open on mobile {#open-on-mobile}
+
+Configure the real browser only on the server. With a client version that includes the browser entry, connect to your server as usual, then open **设置 → 浏览器 (Settings → Browser)** to view the complete remote desktop inside the app. No separate browser address, port, or password is required: the client uses the current server connection to obtain a one-time desktop ticket automatically.
+
+The phone and Agent operate the same server-side Chrome, including its tabs and signed-in state. The desktop toolbar provides touch, zoom, and software-keyboard controls; the phone does not launch a separate local browser. Use the top-left back button or Android Back to close the viewer without stopping server-side Chrome. Reopening obtains a new ticket.
+
+If the server reports that the browser is disabled or the desktop is unavailable, check its configuration and the container startup steps on this page. For a failed connection or expired desktop session, tap **重试 (Retry)**. If the desktop itself reports a disconnection, you can also close and reopen the viewer. The client does not automatically repeat ticket requests. This entry requires the corresponding client version; adding it to source does not update older APKs. The native iOS flow has not been verified.
 
 ## File Upload and Download {#files}
 
