@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { endpoints } from "./contracts/endpoints.js";
-import { browserWebSocketContract } from "./contracts/browser.js";
+import { browserDesktopWebSocketContract, browserWebSocketContract } from "./contracts/browser.js";
 import { serviceVersion, type ServiceVersion } from "../bootstrap/service-version.js";
 
 const defaultVersion = await serviceVersion;
@@ -149,6 +149,7 @@ const websocketContracts = {
       ]),
     ),
   },
+  browserDesktop: browserDesktopWebSocketContract,
 };
 
 export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) => {
@@ -194,10 +195,19 @@ export const buildOpenApiDocument = (version: ServiceVersion = defaultVersion) =
     } else {
       const contentType = endpoint.responseContentType ?? "application/json";
       operation.responses = {
-        200: {
-          description: "成功",
-          content: { [contentType]: { schema: toSchema(endpoint.response, "output") } },
-        },
+        // 重定向无 body：只声明语义头，不写 content，与实际响应一致。
+        [endpoint.successStatus ?? 200]: endpoint.successStatus
+          ? {
+              description: "成功（重定向）",
+              headers: {
+                location: { description: "重定向目标", schema: { type: "string" } },
+                "set-cookie": { description: "会话 cookie（如有）", schema: { type: "string" } },
+              },
+            }
+          : {
+              description: "成功",
+              content: { [contentType]: { schema: toSchema(endpoint.response, "output") } },
+            },
         ...errorResponses(endpoint),
       };
     }

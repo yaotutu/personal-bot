@@ -40,6 +40,10 @@ test("browser container keeps Chrome headed and exposes its real GUI through noV
   assert.match(entrypoint, /-listen localhost/);
   assert.match(entrypoint, /websockify/);
   assert.match(entrypoint, /--web \/usr\/share\/novnc/);
+  // 桌面端口复用服务端配置加载的唯一默认值，不另抄一份默认 6080。
+  assert.match(entrypoint, /dist\/config\/load-config\.js/);
+  assert.match(entrypoint, /browser\.desktopPort/);
+  assert.doesNotMatch(entrypoint, /BROWSER_NOVNC_PORT/);
   assert.match(entrypoint, /export DISPLAY="\$display"/);
   assert.match(entrypoint, /node dist\/index\.js/);
   const driver = await read("src/adapters/browser/playwright-driver.ts");
@@ -72,14 +76,16 @@ test("browser container keeps Chrome headed and exposes its real GUI through noV
   // 主 API 默认端口贯穿本地代理、镜像健康检查、入口脚本和端口映射，避免部署链路分叉。
   assert.match(viteConfig, /defaultApiTarget = "http:\/\/127\.0\.0\.1:12330"/);
   assert.match(viteConfig, /process\.env\.API_TARGET \?\? defaultApiTarget/);
-  assert.match(dockerfile, /EXPOSE 12330 6080/);
+  assert.match(dockerfile, /EXPOSE 12330$/m);
+  assert.doesNotMatch(dockerfile, /6080/);
   assert.match(dockerfile, /fetch\('http:\/\/127\.0\.0\.1:12330\/api\/health'\)/);
   assert.match(entrypoint, /http:\/\/127\.0\.0\.1:12330\/api\/health/);
   assert.match(entrypoint, /http:\/\/127\.0\.0\.1:12330\/api\/session/);
 
   // 外部地址由 Docker 端口映射或反向代理决定；镜像和页面都不内置主机名。
   assert.match(compose, /\$\{PI_MUSE_BROWSER_PORT:-12330\}:12330/);
-  assert.match(compose, /\$\{PI_MUSE_BROWSER_NOVNC_HOST:-127\.0\.0\.1\}:\$\{PI_MUSE_BROWSER_NOVNC_PORT:-6080\}:6080/);
+  // noVNC 端口不再发布到宿主机：桌面流量经同源 /browser/desktop/ 网关。
+  assert.doesNotMatch(compose, /6080/);
   assert.match(compose, /^  pi-muse-browser:\n    platform: linux\/amd64$/m);
   assert.match(compose, /BROWSER_SCREEN_SIZE: \$\{BROWSER_SCREEN_SIZE:-1440x900x24\}/);
   assert.match(compose, /pi-muse-browser-data:\/app\/\.pi-muse/);
@@ -112,22 +118,21 @@ test("mobile browser profile packages a bridge to the same real desktop", async 
   assert.match(compose, /^  pi-muse-browser:\n    platform: linux\/amd64$/m);
   assert.match(compose, /BROWSER_SCREEN_SIZE: \$\{BROWSER_SCREEN_SIZE:-1440x900x24\}/);
   assert.match(compose, /\$\{PI_MUSE_BROWSER_PORT:-12330\}:12330/);
-  assert.match(compose, /\$\{PI_MUSE_BROWSER_NOVNC_HOST:-127\.0\.0\.1\}:\$\{PI_MUSE_BROWSER_NOVNC_PORT:-6080\}:6080/);
+  // noVNC 端口不再发布到宿主机：桌面流量经同源 /browser/desktop/ 网关。
+  assert.doesNotMatch(compose, /6080/);
   assert.match(compose, /pi-muse-browser-data:\/app\/\.pi-muse/);
 
   assert.match(compose, /^  pi-muse-browser-mobile:\n    profiles:\n      - mobile$/m);
   assert.match(compose, /BROWSER_SCREEN_SIZE: \$\{PI_MUSE_BROWSER_MOBILE_SCREEN_SIZE:-720x1280x24\}/);
   assert.match(compose, /\$\{PI_MUSE_BROWSER_MOBILE_PORT:-18891\}:12330/);
-  assert.match(compose, /\$\{PI_MUSE_BROWSER_MOBILE_NOVNC_HOST:-127\.0\.0\.1\}:\$\{PI_MUSE_BROWSER_MOBILE_NOVNC_PORT:-16081\}:6080/);
   assert.match(compose, /pi-muse-browser-mobile-data:\/app\/\.pi-muse/);
-  assert.match(compose, /PI_MUSE_BROWSER_MOBILE_NOVNC_HOST:-127\.0\.0\.1/);
 
   // 移动页仍直连完整远端桌面，不生成第二套浏览器外壳或地址栏。
   assert.match(page, /import RFB from '\.\/core\/rfb\.js'/);
   assert.match(page, /import KeyTable from '\.\/core\/input\/keysym\.js'/);
   assert.match(page, /import \{ createViewerBridge \} from '\.\/viewer-bridge\.js'/);
   assert.match(page, /import \{ createViewerControls \} from '\.\/viewer-controls\.js'/);
-  assert.match(page, /const path = \(values\.get\('path'\) \|\| 'websockify'\)/);
+  assert.match(page, /browser\/desktop\/websockify/);
   assert.match(page, /bridge\.dispatch\('connect'\)/);
   assert.match(page, /bridge\.dispatch\('key\.send'/);
   assert.match(page, /compositionend/);
@@ -187,4 +192,39 @@ test("responsive layout respects explicit choice and preserves parameters on aut
   assert.equal(fixed.locations.length, 0);
   const fixedMobile = evaluate("/pimuse-mobile.html", false, "&layout=mobile");
   assert.equal(fixedMobile.locations.length, 0);
+});
+
+test("responsive entry rewrites same-origin desktop path when unspecified", async () => {
+  const script = await read("assets/browser/novnc-responsive.js");
+  function runEntry(pathname: string, search: string, hash: string) {
+    let replaced: string | undefined;
+    const location = { pathname, search, hash, replace() {} };
+    const history = {
+      replaceState(_state: unknown, _title: string, url: string) {
+        replaced = url;
+      },
+    };
+    const viewport = { matches: false, addEventListener() {} };
+    runInNewContext(script, {
+      window: { matchMedia: () => viewport, location, history },
+      URLSearchParams,
+    });
+    return replaced;
+  }
+
+  // 1. /browser/desktop/ 前缀且 query/hash 均无 path 时：注入 path=browser/desktop/websockify
+  const injected = runEntry("/browser/desktop/vnc.html", "?autoconnect=1", "#layout=desktop");
+  assert.equal(injected, "/browser/desktop/vnc.html?autoconnect=1&path=browser%2Fdesktop%2Fwebsockify#layout=desktop");
+
+  // 2. 根目录或独立 noVNC 部署：不注入
+  const rootNovnc = runEntry("/vnc.html", "?autoconnect=1", "#layout=desktop");
+  assert.equal(rootNovnc, undefined);
+
+  // 3. query 已显式指定 path：保留显式 path，不改写
+  const queryExplicit = runEntry("/browser/desktop/vnc.html", "?path=custom%2Fws", "");
+  assert.equal(queryExplicit, undefined);
+
+  // 4. hash 已显式指定 path：保留显式 path，不改写
+  const hashExplicit = runEntry("/browser/desktop/vnc.html", "", "#path=custom%2Fws");
+  assert.equal(hashExplicit, undefined);
 });

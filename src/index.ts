@@ -5,7 +5,8 @@ import { serve, type ServerType } from "@hono/node-server";
 import { once } from "node:events";
 import { createService } from "./bootstrap/create-service.js";
 import { loadConfig } from "./config/load-config.js";
-import { attachBrowserWebSocket } from "./http/browser-websocket.js";
+import { createBrowserUpgradeHandler } from "./http/browser-websocket.js";
+import { attachUpgradeDispatcher } from "./http/browser-desktop.js";
 
 /**
  * 探测 (host, port) 是否可绑定。仅探测一次，被占用时直接抛错，错误信息包含占用的 PID（若可查出）。
@@ -76,7 +77,17 @@ try {
   // once 同时处理监听失败；端口被占用时也释放已经创建的调度器。
   if (!server.listening) await once(server, "listening");
   // @hono/node-server 的返回类型覆盖 HTTP/2；本项目默认实际创建 HTTP/1.1 server。
-  detachBrowserWebSocket = attachBrowserWebSocket(server as unknown as Server, service.browser);
+  // 统一 upgrade 分发：/ws/browser 与 /browser/desktop/websockify 共用一个 listener，
+  // 按路径精确分流，互不劫持也不会互相 401 销毁。
+  const browserWs = createBrowserUpgradeHandler(service.browser);
+  const detachDispatcher = attachUpgradeDispatcher(server as unknown as Server, [
+    browserWs.handle,
+    (request, socket, head) => service.browserDesktop.handleUpgrade(request, socket, head),
+  ]);
+  detachBrowserWebSocket = () => {
+    detachDispatcher();
+    browserWs.close();
+  };
 } catch (error) {
   await service.close();
   throw error;

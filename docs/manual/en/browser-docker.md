@@ -7,14 +7,15 @@ Browser tab detection requires Chrome 150 or later. After the `/browser` frame s
 ## Architecture {#architecture}
 
 ```text
-User browser
-  ├── /browser       -> Node API/CDP viewport frame stream and controlled input
-  ├── /vnc.html      -> websockify/noVNC -> x11vnc -> Xvfb -> Chrome window
-  ├── /pimuse-mobile.html -> phone-oriented noVNC page; still the same complete remote desktop
-  └── /viewer-bridge-demo.html -> static acceptance page for a same-origin iframe and external toolbar
+User browser (single server address only)
+  ├── /browser                  -> Node API/CDP viewport frame stream and controlled input
+  └── /browser/desktop/vnc.html -> same-origin desktop gateway (one-time ticket + HttpOnly cookie)
+                                     -> websockify/noVNC -> x11vnc -> Xvfb -> Chrome window
 Agent
   └── in-process BrowserService -> Playwright/CDP -> the same Chrome
 ```
+
+noVNC/websockify binds only to 127.0.0.1 inside the container (`tools.browser.desktopPort`, default 6080) and is no longer published to the host; all desktop traffic goes through the server's same-origin `/browser/desktop/` prefix, guarded by a one-time ticket exchanged via Bearer auth and a short-lived HttpOnly session cookie.
 
 `/browser` is suited to product-oriented tab and viewport operations; noVNC is suited to observing and taking over the complete Chrome window, including native browser UI such as the address bar, tab strip, context menu, and download bubble. Both operate the same Chrome instance and the same persistent profile. The mobile page only adapts touch, scaling, and the soft keyboard; it does not add a custom browser shell or address bar.
 
@@ -34,36 +35,35 @@ Edit `.pi-muse/config.json` as needed. For browser-only use, the model may remai
 docker compose -f compose.browser.yaml up --build -d
 ```
 
-The API address is not hard-coded in the service. Any address that can route to this machine works. Compose binds noVNC only to the host loopback address by default, so the passwordless desktop is not exposed directly to the network:
+Both the API and the desktop share the same server address—any address that can route to this machine works:
 
 ```text
 http://<any-host-or-domain>:12330/browser
-http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale
+http://<any-host-or-domain>:12330/api/browser/status
 ```
 
-If Docker runs on a remote host, create an SSH tunnel first, then open noVNC locally:
+Opening the full remote desktop takes two steps (no separate noVNC port or SSH tunnel needed):
 
 ```sh
-ssh -L 6080:127.0.0.1:6080 <user>@<server-host>
+# 1. Exchange a Bearer token for a one-time 60-second ticket
+curl -fsS -X POST http://<host>:12330/api/browser/desktop-ticket \
+  -H "Authorization: Bearer <session-token>"
+# => {"launchPath":"/browser/desktop/launch?ticket=...","expiresAt":"..."}
+
+# 2. Open the same-origin launch URL in a browser; the server issues an
+#    HttpOnly cookie and redirects into the desktop
+#    http://<host>:12330/browser/desktop/launch?ticket=...
 ```
 
-On `/browser`, enter the AccessKey manually. Successful login clears the input and keeps only the Session Token in the current tab's session storage. Do not put credentials in links: the page does not use `accessKey` or `key` query parameters to log in and removes them from the address bar. After a disconnection, click **Reconnect** to synchronize tabs and resume the stream; navigation, tab creation, and closing operations are not automatically replayed. This debug page supports Chinese input, text pasting, and left, middle, and right mouse buttons, but does not include Chrome's native menus. Use noVNC for the complete window.
+On `/browser`, enter the AccessKey manually. Successful login clears the input and keeps only the Session Token in the current tab's session storage. Do not put credentials in links: the page does not use `accessKey` or `key` query parameters to log in and removes them from the address bar. After a disconnection, click **Reconnect** to synchronize tabs and resume the stream; navigation, tab creation, and closing operations are not automatically replayed. This debug page supports Chinese input, text pasting, and left, middle, and right mouse buttons, but does not include Chrome's native menus. Use the `/browser/desktop/` desktop for the complete window.
 
-Desktop and mobile share the `vnc.html` entry point. The default is `layout=auto`: when the viewport width is no wider than 700px, the page automatically switches to the mobile page, and it automatically returns to official noVNC once desktop width is restored. An explicit `layout=desktop` or `layout=mobile` pins the current page and prevents navigation based on window size. Redirects preserve query and `#` parameters. The mobile page connects to `/websockify` on the current address by default, and also supports overriding `path`, `host`, or `port` through query parameters. If a custom x11vnc setup later requires credentials, `password` can be supplied in the query or `#` fragment:
-
-```text
-http://127.0.0.1:6080/pimuse-mobile.html
-http://127.0.0.1:6080/pimuse-mobile.html?password=<VNC-password>
-http://127.0.0.1:6080/pimuse-mobile.html#password=<VNC-password>
-```
-
-The current Compose entry still starts with `-nopw`, so VNC access does not require credentials by default.
+Desktop and mobile share the `/browser/desktop/vnc.html` entry point. The default is `layout=auto`: when the viewport width is no wider than 700px, the page automatically switches to the mobile page, and it automatically returns to official noVNC once desktop width is restored. An explicit `layout=desktop` or `layout=mobile` pins the current page and prevents navigation based on window size. Redirects preserve query and `#` parameters. The mobile page connects to the same-origin `/browser/desktop/websockify` by default, and also supports overriding `path`, `host`, or `port` through query parameters.
 
 ::: danger Remote desktop access boundary
-The noVNC port is not protected by the Pi Muse API AccessKey. With no VNC credentials required by default, anyone who can reach the port can view and operate the entire remote desktop, including signed-in websites. Compose maps it only to `127.0.0.1` by default; use an SSH tunnel or a local browser, and do not expose the default port directly to untrusted networks. Set `PI_MUSE_BROWSER_NOVNC_HOST` to override the bind address only when you have restricted the source network and added an authenticated proxy yourself. HTTPS encrypts transport but does not replace access authentication.
+The desktop session cookie grants full ability to view and operate the entire remote desktop, including signed-in websites. Tickets are one-time and expire in 60 seconds; the session cookie expires after 1 hour and is never renewed. Over plain HTTP the desktop traffic is unencrypted—use it only on trusted networks. HTTPS-terminating reverse proxies are currently unsupported (the cookie Secure flag and WS Origin checks follow the direct connection protocol). The mobile client has no desktop entry yet.
 :::
 
-The real browser is configured on the server. The mobile client neither stores a noVNC address nor provides an open-browser entry. To view the remote desktop, open the complete deployed noVNC URL in a system browser.
+The real browser is configured on the server. The mobile client neither stores a desktop address nor provides an open-browser entry. To view the remote desktop, use the ticket flow above and open the same-origin launch URL in a system browser.
 
 ## File Upload and Download {#files}
 
@@ -85,23 +85,19 @@ Download records are stored in the Docker volume at `/app/.pi-muse/browser/downl
 
 Both the official desktop page and the mobile page expose the `window.piMuseViewer` control bridge. Their respective toolbars remain by default. Adding `toolbar=hidden` to the URL query or fragment hides the page toolbar, status, and reconnect overlay, while the remote canvas remains operable. `toolbar.set` can show it again. For bridge commands and event fields, see [the viewer bridge guide](browser-viewer-bridge.md).
 
-Visit `/viewer-bridge-demo.html` under the same noVNC address to operate the real desktop in an iframe with a static external toolbar: connect, send keys, enter text, use the clipboard, scale, and toggle the built-in bar. It embeds `vnc.html?autoconnect=1&resize=scale&toolbar=hidden&layout=desktop` by default and pins the desktop layout to avoid page changes when the container size changes. The input field accepts only same-origin relative viewer paths, not IP addresses. If a cross-origin parent page embeds the viewer itself, it must set an explicit `parentOrigin` in the viewer URL. Fullscreen is entered directly from the demo page button into the iframe container; cross-window commands and the mobile soft keyboard cannot be guaranteed to preserve the user gesture.
+After acquiring the desktop session cookie, visit `/browser/desktop/viewer-bridge-demo.html` under the same server address to operate the real desktop in an iframe with a static external toolbar: connect, send keys, enter text, use the clipboard, scale, and toggle the built-in bar. It embeds `vnc.html?autoconnect=1&resize=scale&toolbar=hidden&layout=desktop` by default and pins the desktop layout to avoid page changes when the container size changes. The input field accepts only same-origin relative viewer paths, not IP addresses. The current gateway permits only same-origin iframes; the bridge protocol's `parentOrigin` parameter does not relax that restriction. Fullscreen is entered directly from the demo page button into the iframe container; cross-window commands and the mobile soft keyboard cannot be guaranteed to preserve the user gesture.
 
-Host ports can be changed without code changes. For example, map the API to `18890` and noVNC to `16080` while keeping noVNC bound to loopback:
+Host ports can be changed without code changes. For example, map the service to `18890`:
 
 ```sh
-PI_MUSE_BROWSER_PORT=18890 \
-PI_MUSE_BROWSER_NOVNC_PORT=16080 \
-docker compose -f compose.browser.yaml up -d
+PI_MUSE_BROWSER_PORT=18890 docker compose -f compose.browser.yaml up -d
 ```
 
-Set `PI_MUSE_BROWSER_NOVNC_HOST` only when you provide a restricted network or authenticated proxy yourself. The API key does not protect noVNC.
-
-With a reverse proxy, the API domain must forward `/api`, `/browser`, and `/ws/browser`, preserving WebSocket Upgrade headers. The noVNC domain must forward HTTP and the `/websockify` WebSocket.
+For an HTTP reverse proxy, forward `/api`, `/browser`, `/ws/browser`, and `/browser/desktop/`, preserving the original `Host`, `Origin`, and WebSocket Upgrade headers on both WebSocket paths. The desktop WebSocket requires `Origin` to match the actual server connection scheme and `Host`; HTTPS-terminating reverse proxies are currently unsupported.
 
 ### Mobile Portrait Instance {#mobile-portrait-instance}
 
-Compose provides a separate `mobile` profile. It uses a `720x1280x24` virtual screen and an independent Chrome profile volume without affecting the default desktop instance. Its default host ports are API `18891` and noVNC `16081`:
+Compose provides a separate `mobile` profile. It uses a `720x1280x24` virtual screen and an independent Chrome profile volume without affecting the default desktop instance. Its default host port is `18891`:
 
 ```sh
 docker compose -f compose.browser.yaml --profile mobile up -d pi-muse-browser-mobile
@@ -111,10 +107,10 @@ Visit:
 
 ```text
 http://<any-host-or-domain>:18891/api/health
-http://127.0.0.1:16081/pimuse-mobile.html
+http://<any-host-or-domain>:18891/browser/desktop/launch?ticket=...
 ```
 
-The mobile noVNC port also binds to `127.0.0.1` by default. `PI_MUSE_BROWSER_MOBILE_NOVNC_HOST` can override it; confirm the network and authentication boundary before doing so.
+The mobile instance likewise publishes no noVNC port; desktop access goes through each service address's same-origin `/browser/desktop/` gateway.
 
 Both instances can run at the same time. To rebuild both simultaneously, run:
 
@@ -136,9 +132,10 @@ docker compose -f compose.browser.yaml --profile mobile up --build -d
 
 ```sh
 curl -fsS http://127.0.0.1:12330/api/health
-curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
+curl -fsS -X POST http://127.0.0.1:12330/api/browser/desktop-ticket \
+  -H "Authorization: Bearer <session-token>"
 ```
 
-After opening noVNC, you should see the complete Chrome window. After opening `/browser` or letting the Agent call `tab` or `navigate`, noVNC shows the same window changing in real time.
+Open the returned `launchPath` to see the complete Chrome window. After opening `/browser` or letting the Agent call `tab` or `navigate`, the desktop shows the same window changing in real time.
 
 `viewer-bridge-demo.html` is a static acceptance tool, not the browser business client. Subsequent changes to the bridge, layout, or input logic require retesting iframe control, toolbar occlusion, connection recovery, and mobile input in a real browser.

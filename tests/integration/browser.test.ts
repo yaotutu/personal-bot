@@ -9,7 +9,8 @@ import { serve } from "@hono/node-server";
 import WebSocket from "ws";
 import { createService } from "../../src/bootstrap/create-service.js";
 import { createConfig } from "../../src/config/load-config.js";
-import { attachBrowserWebSocket } from "../../src/http/browser-websocket.js";
+import { createBrowserUpgradeHandler } from "../../src/http/browser-websocket.js";
+import { attachUpgradeDispatcher } from "../../src/http/browser-desktop.js";
 import { browserTab } from "../../src/http/contracts/browser.js";
 import { createTools, registeredToolNames, skillToToolsMap } from "../../src/adapters/pi/tools/index.js";
 
@@ -96,7 +97,15 @@ test("browser REST, WebSocket frames and inputs drive real system Chrome", {
   }));
   apiServer = serve({ fetch: service.app.fetch, hostname: "127.0.0.1", port: 0 });
   if (!apiServer.listening) await once(apiServer, "listening");
-  detachWebSocket = attachBrowserWebSocket(apiServer as unknown as Server, service.browser);
+  const browserWs = createBrowserUpgradeHandler(service.browser);
+  const detachDispatcher = attachUpgradeDispatcher(apiServer as unknown as Server, [
+    browserWs.handle,
+    (request, socket, head) => service.browserDesktop.handleUpgrade(request, socket, head),
+  ]);
+  detachWebSocket = () => {
+    detachDispatcher();
+    browserWs.close();
+  };
   const address = apiServer.address();
   assert.ok(address && typeof address !== "string");
   const base = `http://127.0.0.1:${address.port}`;

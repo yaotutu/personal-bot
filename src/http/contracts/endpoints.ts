@@ -45,6 +45,11 @@ export type EndpointSpec = {
   /** 非 JSON 响应（当前仅调试页 HTML）；默认 application/json */
   responseContentType?: "application/json" | "text/html";
   /**
+   * 成功响应为非 200 状态码（如 303 重定向）：生成器用该状态码替代默认 200，
+   * response schema 仍描述响应形态（重定向目标说明）。
+   */
+  successStatus?: number;
+  /**
    * 业务错误响应（如 409 冲突携带当前审批视图）。
    * 键为 HTTP 状态码；未登记的 4xx 仍由生成器补通用 {error} 形状。
    */
@@ -733,6 +738,52 @@ export const endpoints: EndpointSpec[] = [
     },
   },
   // ---- 真实浏览器 ----
+  {
+    operationId: "getBrowserStatus",
+    method: "get", path: "/api/browser/status", tag: "浏览器", summary: "查询浏览器与同源桌面入口状态",
+    hint:
+      "无论 tools.browser.enabled 是否开启都会注册；disabled 时 viewerPath/desktopPath 为 null 且不探测桌面。" +
+      "desktopAvailable 仅以容器内固定 127.0.0.1:desktopPort 的 vnc.html 2 秒探测判定，代表 noVNC 静态页可服务，不声称 Chrome 健康。",
+    auth: true, response: browser.browserStatusResponse,
+  },
+  {
+    operationId: "createBrowserDesktopTicket",
+    method: "post", path: "/api/browser/desktop-ticket", tag: "浏览器", summary: "换取一次性远程桌面启动 ticket",
+    hint:
+      "必须携带现有 Bearer token。返回的 launchPath 是同源一次性路径，60 秒有效；用当前服务地址直接 GET 打开，" +
+      "服务端签发 HttpOnly 会话 cookie 后 303 到 /browser/desktop/vnc.html。浏览器功能关闭返回 503 BROWSER_DISABLED；" +
+      "noVNC 不可达返回 503 DESKTOP_UNAVAILABLE，不签空票。不要把长期 token 放进 URL。",
+    auth: true, response: browser.browserDesktopTicketResponse,
+    errorResponses: {
+      503: { description: "浏览器关闭（BROWSER_DISABLED）或桌面不可达（DESKTOP_UNAVAILABLE）", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "launchBrowserDesktop",
+    method: "get", path: "/browser/desktop/launch", tag: "浏览器", summary: "消费一次性桌面 ticket 并进入远程桌面",
+    hint:
+      "URL query 携带 POST /api/browser/desktop-ticket 返回的 ticket；有效时签发 HttpOnly 会话 cookie" +
+      "（SameSite=Strict，Path=/browser/desktop/，Max-Age=3600，HTTPS 直连带 Secure）并 303 到 /browser/desktop/vnc.html。" +
+      "ticket 无效、过期或重放返回 401。该端点不用 Bearer 鉴权，凭 ticket 自身把关。",
+    auth: false, response: browser.browserDesktopLaunchResponse,
+    successStatus: 303,
+    query: z.object({ ticket: z.string().describe("一次性桌面 ticket") }),
+    errorResponses: {
+      401: { description: "ticket 无效、已过期或已被使用", schema: resp.errorResponse },
+    },
+  },
+  {
+    operationId: "getBrowserDesktopAsset",
+    method: "get", path: "/browser/desktop/vnc.html", tag: "浏览器", summary: "远程桌面 noVNC 页面与静态资源",
+    hint:
+      "同源桌面资源前缀 /browser/desktop/ 下所有 GET/HEAD 都需要有效桌面会话 cookie（由 launch 签发），" +
+      "无 cookie 返回 401，其他方法 405；路径穿越与编码逃逸返回 404。实际资源路径由 noVNC 页面内部引用，" +
+      "客户端不应直接拼接。",
+    auth: false, response: browser.browserDesktopAssetResponse, responseContentType: "text/html",
+    errorResponses: {
+      401: { description: "缺少或失效的桌面会话 cookie", schema: resp.errorResponse },
+    },
+  },
   {
     operationId: "getBrowserDebugPage",
     method: "get", path: "/browser", tag: "浏览器", summary: "打开服务端自带浏览器调试页",

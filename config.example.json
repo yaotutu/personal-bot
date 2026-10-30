@@ -30,7 +30,8 @@
     },
     "browser": {
       "enabled": true,
-      "allowPrivateTargets": false
+      "allowPrivateTargets": false,
+      "desktopPort": 6080
     },
     "presentation": {
       "default": "hidden",

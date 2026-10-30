@@ -9,7 +9,7 @@ The bridge controls only the current noVNC viewer page. It does not provide serv
 The viewer page imports it as an ES module:
 
 ```html
-<script type="module" src="/viewer-bridge.js"></script>
+<script type="module" src="./viewer-bridge.js"></script>
 ```
 
 The page code provides a minimal adapter:
@@ -183,16 +183,18 @@ When the viewer is embedded as an iframe, the bridge handles only browser `messa
 
 The parent origin is read from the `parentOrigin` query or hash parameter in the viewer URL. When omitted, the viewer page's own `location.origin` is used, so only same-origin parents are allowed. The value must be an exact `http://` or `https://` origin; `*`, `null`, non-HTTP(S), path-bearing, or non-standard forms are rejected. For output, the bridge also always calls `parent.postMessage(envelope, exactOrigin)` and never uses `*`.
 
-Example iframe URL:
+Under the same-origin gateway deployment, the viewer URL is `/browser/desktop/vnc.html` on the same server. You must first exchange a Bearer token via `POST /api/browser/desktop-ticket` and open `GET /browser/desktop/launch?ticket=...` to acquire the session cookie before the iframe can load desktop assets. Gateway responses use `X-Frame-Options: SAMEORIGIN` and the session cookie uses `SameSite=Strict`, so only same-origin iframes are supported; the protocol layer's `parentOrigin` capability does not relax the gateway restriction.
+
+Example same-origin iframe URL:
 
 ```text
-https://viewer.example.test/vnc.html?parentOrigin=https%3A%2F%2Fapp.example.test&toolbar=hidden&layout=mobile
+http://<server-host>:12330/browser/desktop/vnc.html?parentOrigin=http%3A%2F%2F<server-host>%3A12330&toolbar=hidden&layout=desktop
 ```
 
 Host-side example:
 
 ```js
-const viewerOrigin = new URL("https://viewer.example.test");
+const viewerOrigin = new URL("http://<server-host>:12330");
 const iframe = document.querySelector("iframe");
 
 function send(command) {

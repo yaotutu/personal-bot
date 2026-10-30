@@ -83,7 +83,7 @@ test("config defaults allow an unconfigured LAN-accessible instance", async (t) 
       },
       weather: { enabled: true, defaultCity: undefined },
       writable: { enabled: true, actionTimeoutMs: 300000 },
-      browser: { enabled: true, executablePath: undefined, allowPrivateTargets: false, timeoutMs: 30000 },
+      browser: { enabled: true, executablePath: undefined, allowPrivateTargets: false, timeoutMs: 30000, desktopPort: 6080 },
       presentation: { default: "hidden", overrides: {} },
     },
   );
@@ -167,6 +167,19 @@ test("browser config has no headless fallback because Chrome must stay headed", 
   assert.throws(
     () => createConfig({ tools: { browser: { headless: true } } }),
     /headless/,
+  );
+});
+
+test("browser desktopPort defaults to 6080 and rejects out-of-range values", () => {
+  assert.equal(createConfig({}).browser.desktopPort, 6080);
+  assert.equal(createConfig({ tools: { browser: { desktopPort: 16080 } } }).browser.desktopPort, 16080);
+  assert.throws(
+    () => createConfig({ tools: { browser: { desktopPort: 0 } } }),
+    /desktopPort/,
+  );
+  assert.throws(
+    () => createConfig({ tools: { browser: { desktopPort: 65536 } } }),
+    /desktopPort/,
   );
 });
 

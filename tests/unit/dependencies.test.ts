@@ -61,6 +61,7 @@ test("browser core and protocol adapters stay independently extractable", async 
   const protocolFiles = [
     join(sourceRoot, "http/routes/browser.ts"),
     join(sourceRoot, "http/browser-websocket.ts"),
+    join(sourceRoot, "http/browser-desktop.ts"),
   ];
   for (const file of protocolFiles) {
     for (const dependency of importsOf(file, await readFile(file, "utf-8"))) {
@@ -69,6 +70,8 @@ test("browser core and protocol adapters stay independently extractable", async 
       assert.ok(
         target.startsWith("features/browser/") ||
         target.startsWith("http/contracts/browser") ||
+        target === "http/browser-desktop.ts" ||
+        target === "http/browser-desktop.js" ||
         target.startsWith("http/browser-debug-page"),
         `${relative(sourceRoot, file)} couples browser transport to ${dependency}`,
       );

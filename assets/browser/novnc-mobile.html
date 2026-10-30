@@ -231,7 +231,11 @@
       const values = settings();
       const host = values.get('host') || window.location.hostname;
       const rawPort = values.get('port') ?? window.location.port;
-      const path = (values.get('path') || 'websockify').replace(/^\/+/, '');
+      // 同源 /browser/desktop/ 前缀下默认走服务端桌面网关；保留 path 覆盖便于独立 noVNC 部署。
+      const fallback = window.location.pathname.includes('/browser/desktop/')
+        ? 'browser/desktop/websockify'
+        : 'websockify';
+      const path = (values.get('path') || fallback).replace(/^\/+/, '');
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const port = rawPort ? `:${rawPort}` : '';
       return `${protocol}://${host}${port}/${path}`;

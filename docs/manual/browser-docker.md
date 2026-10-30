@@ -7,14 +7,15 @@
 ## 架构 {#architecture}
 
 ```text
-用户浏览器
-  ├── /browser       -> Node API/CDP 视口帧流与受控输入
-  ├── /vnc.html      -> websockify/noVNC -> x11vnc -> Xvfb -> Chrome 窗口
-  ├── /pimuse-mobile.html -> 针对手机的 noVNC 页面，仍是同一个完整远端桌面
-  └── /viewer-bridge-demo.html -> 同源 iframe 与外部工具条的静态验收页
+用户浏览器（只连服务端同地址）
+  ├── /browser                  -> Node API/CDP 视口帧流与受控输入
+  └── /browser/desktop/vnc.html -> 同源桌面网关（一次性 ticket + HttpOnly cookie）
+                                     -> websockify/noVNC -> x11vnc -> Xvfb -> Chrome 窗口
 Agent
   └── 进程内 BrowserService -> Playwright/CDP -> 同一个 Chrome
 ```
+
+noVNC/websockify 只在容器内绑定 127.0.0.1（`tools.browser.desktopPort`，默认 6080），不再发布到宿主机；所有桌面流量经服务端同源 `/browser/desktop/` 前缀代理，由 Bearer 换取的一次性 ticket 和短期 HttpOnly 会话 cookie 把关。
 
 `/browser` 适合产品化标签与视口操作；noVNC 适合观察和接管完整 Chrome 窗口，包括地址栏、标签条、右键菜单、下载气泡等原生浏览器 UI。两者操作的是同一个 Chrome 实例和同一份持久 profile。移动版页面只做触控、缩放和软键盘适配，不添加自定义浏览器外壳或地址栏。
 
@@ -34,36 +35,34 @@ chmod 600 .pi-muse/config.json
 docker compose -f compose.browser.yaml up --build -d
 ```
 
-API 访问地址没有写死在服务里，任何能路由到这台机器的地址都可以。Compose 默认只把 noVNC 绑定到宿主机回环地址，避免无密码桌面直接暴露到网络：
+API 与桌面都走同一个服务地址，任何能路由到这台机器的地址都可以：
 
 ```text
 http://<任意主机或域名>:12330/browser
-http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale
+http://<任意主机或域名>:12330/api/browser/status
 ```
 
-如果 Docker 运行在远程主机，先建立 SSH 隧道，再从本机访问 noVNC：
+打开完整远程桌面只需两步（不再需要单独的 noVNC 端口或 SSH 隧道）：
 
 ```sh
-ssh -L 6080:127.0.0.1:6080 <user>@<server-host>
+# 1. 用 Bearer token 换一次性 60 秒 ticket
+curl -fsS -X POST http://<主机>:12330/api/browser/desktop-ticket \
+  -H "Authorization: Bearer <session-token>"
+# => {"launchPath":"/browser/desktop/launch?ticket=...","expiresAt":"..."}
+
+# 2. 在浏览器打开同源 launch 地址，服务端签发 HttpOnly cookie 后自动进入桌面
+#    http://<主机>:12330/browser/desktop/launch?ticket=...
 ```
 
-`/browser` 页面需手动输入 AccessKey 登录；登录成功后输入框会清空，当前标签会话只保存 Session Token。不要在链接中附加密钥：页面不使用 `accessKey` 或 `key` 查询参数登录，并会将其从地址栏移除。连接中断后，点击 **Reconnect** 重新同步标签与画面；不会自动重发导航、新建或关闭等操作。该调试页支持中文输入、文本粘贴和左、中、右鼠标按键，但不包含完整 Chrome 的原生菜单；完整窗口仍使用 noVNC。
+`/browser` 页面需手动输入 AccessKey 登录；登录成功后输入框会清空，当前标签会话只保存 Session Token。不要在链接中附加密钥：页面不使用 `accessKey` 或 `key` 查询参数登录，并会将其从地址栏移除。连接中断后，点击 **Reconnect** 重新同步标签与画面；不会自动重发导航、新建或关闭等操作。该调试页支持中文输入、文本粘贴和左、中、右鼠标按键，但不包含完整 Chrome 的原生菜单；完整窗口使用 `/browser/desktop/` 桌面。
 
-桌面和手机共用 `vnc.html` 入口：默认 `layout=auto`，视口宽度不超过 700px 时自动切到移动页，恢复桌面宽度后自动回到官方 noVNC。显式 `layout=desktop` 或 `layout=mobile` 会固定当前页面，不因窗口尺寸导航。跳转会保留查询和 `#` 参数。移动页默认连接当前地址上的 `/websockify`，也支持通过查询参数覆盖 `path`、`host` 或 `port`。如果以后给 x11vnc 配置密码，可在查询或 `#` 片段中附带 `password`：
-
-```text
-http://127.0.0.1:6080/pimuse-mobile.html
-http://127.0.0.1:6080/pimuse-mobile.html?password=<VNC密码>
-http://127.0.0.1:6080/pimuse-mobile.html#password=<VNC密码>
-```
-
-当前 Compose 入口仍以 `-nopw` 启动，默认没有 VNC 密码。
+桌面和手机共用 `/browser/desktop/vnc.html` 入口：默认 `layout=auto`，视口宽度不超过 700px 时自动切到移动页，恢复桌面宽度后自动回到官方 noVNC。显式 `layout=desktop` 或 `layout=mobile` 会固定当前页面，不因窗口尺寸导航。跳转会保留查询和 `#` 参数。移动页默认连接同源 `/browser/desktop/websockify`，也支持通过查询参数覆盖 `path`、`host` 或 `port`。
 
 ::: danger 远程桌面访问边界
-noVNC 端口不受 Pi Muse API 的 AccessKey 保护。默认无 VNC 密码，能访问该端口的人可以查看并操作整个远端桌面，包括已登录的网站。Compose 默认只映射到 `127.0.0.1`，请通过 SSH 隧道或本机浏览器访问，不要直接把默认端口暴露到不可信网络。只有在你自行限制来源网络并配置鉴权代理时，才应显式设置 `PI_MUSE_BROWSER_NOVNC_HOST` 覆盖绑定地址；HTTPS 只加密传输，不能替代访问鉴权。
+桌面会话 cookie 只授予查看与操作整个远端桌面的完整能力，包括已登录的网站。ticket 一次性且 60 秒过期，会话 cookie 1 小时到期不续期。HTTP 明文部署下桌面流量不加密，仅在可信网络使用；HTTPS 终止反代当前不受支持（cookie 的 Secure 标记与 WS Origin 校验按直连协议判定）。手机客户端暂未接入桌面入口。
 :::
 
-真实浏览器由服务端配置；手机客户端不保存 noVNC 地址，也不提供打开入口。需要查看远端桌面时，在系统浏览器中访问部署的完整 noVNC 地址。
+真实浏览器由服务端配置；手机客户端不保存桌面地址，也不提供打开入口。需要查看远端桌面时，用上面的 ticket 流程在系统浏览器中打开同源 launch 地址。
 
 ## 文件上传与下载 {#files}
 
@@ -85,23 +84,19 @@ noVNC 端口不受 Pi Muse API 的 AccessKey 保护。默认无 VNC 密码，能
 
 官方桌面页和手机页都暴露 `window.piMuseViewer` 控制桥。默认保留各自工具条；在 URL 查询或片段中加 `toolbar=hidden` 会隐藏页面工具条、状态和重连覆盖，但远端画布仍可操作。`toolbar.set` 可再次显示它。桥接命令与事件字段见 [viewer bridge 说明](browser-viewer-bridge.md)。
 
-访问同一 noVNC 地址下的 `/viewer-bridge-demo.html`，可用一套静态外部工具条操作 iframe 中的真实桌面：连接、按键、文字、剪贴板、缩放和内置栏显示。默认嵌入 `vnc.html?autoconnect=1&resize=scale&toolbar=hidden&layout=desktop`，固定桌面布局，避免容器尺寸变化时跳页。输入框只接受同源相对 viewer 路径，不填写 IP；跨源父页面若自行嵌入，需在 viewer URL 设置明确的 `parentOrigin`。全屏由演示页按钮直接进入 iframe 容器；跨窗口命令和手机软键盘不能保证保留用户手势。
+取得桌面会话 cookie 后，访问同源桌面路径下的 `/browser/desktop/viewer-bridge-demo.html`，可用一套静态外部工具条操作 iframe 中的真实桌面：连接、按键、文字、剪贴板、缩放和内置栏显示。默认嵌入 `vnc.html?autoconnect=1&resize=scale&toolbar=hidden&layout=desktop`，固定桌面布局，避免容器尺寸变化时跳页。输入框只接受同源相对 viewer 路径，不填写 IP；当前网关只允许同源 iframe，桥协议的 `parentOrigin` 参数不会解除网关限制。全屏由演示页按钮直接进入 iframe 容器；跨窗口命令和手机软键盘不能保证保留用户手势。
 
-宿主机端口可改，不需要改代码。例如把 API 映射到 `18890`、noVNC 映射到 `16080`，并保持 noVNC 仅绑定回环地址：
+宿主机端口可改，不需要改代码。例如把服务映射到 `18890`：
 
 ```sh
-PI_MUSE_BROWSER_PORT=18890 \
-PI_MUSE_BROWSER_NOVNC_PORT=16080 \
-docker compose -f compose.browser.yaml up -d
+PI_MUSE_BROWSER_PORT=18890 docker compose -f compose.browser.yaml up -d
 ```
 
-只有在你自行提供受限网络或带鉴权代理时，才应设置 `PI_MUSE_BROWSER_NOVNC_HOST`。API 密钥不会保护 noVNC。
-
-如使用反向代理，API 域名需要转发 `/api`、`/browser`、`/ws/browser`，其中 WebSocket Upgrade 头必须保留；noVNC 域名需要转发 HTTP 和 `/websockify` WebSocket。
+如使用 HTTP 反向代理，域名需要转发 `/api`、`/browser`、`/ws/browser` 与 `/browser/desktop/`，保留原始 `Host`、`Origin` 和两处 WebSocket Upgrade 头。桌面 WebSocket 要求 `Origin` 与服务端实际连接协议和 `Host` 一致；当前不支持 HTTPS 终止反代。
 
 ### 手机竖屏实例 {#mobile-portrait-instance}
 
-Compose 里提供独立的 `mobile` profile。它使用 `720x1280x24` 虚拟屏幕和独立 Chrome profile volume，不影响默认桌面实例；默认宿主端口为 API `18891`、noVNC `16081`：
+Compose 里提供独立的 `mobile` profile。它使用 `720x1280x24` 虚拟屏幕和独立 Chrome profile volume，不影响默认桌面实例；默认宿主端口为 `18891`：
 
 ```sh
 docker compose -f compose.browser.yaml --profile mobile up -d pi-muse-browser-mobile
@@ -111,10 +106,10 @@ docker compose -f compose.browser.yaml --profile mobile up -d pi-muse-browser-mo
 
 ```text
 http://<任意主机或域名>:18891/api/health
-http://127.0.0.1:16081/pimuse-mobile.html
+http://<任意主机或域名>:18891/browser/desktop/launch?ticket=...
 ```
 
-移动 noVNC 默认同样只绑定 `127.0.0.1`，可用 `PI_MUSE_BROWSER_MOBILE_NOVNC_HOST` 覆盖；覆盖前需自行确认网络与鉴权边界。
+移动实例同样不发布 noVNC 端口；桌面访问走各自服务地址的同源 `/browser/desktop/` 网关。
 
 两个实例可以同时运行。需要同时重建时执行：
 
@@ -136,9 +131,10 @@ docker compose -f compose.browser.yaml --profile mobile up --build -d
 
 ```sh
 curl -fsS http://127.0.0.1:12330/api/health
-curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
+curl -fsS -X POST http://127.0.0.1:12330/api/browser/desktop-ticket \
+  -H "Authorization: Bearer <session-token>"
 ```
 
-打开 noVNC 后应能看到完整 Chrome 窗口。打开 `/browser` 或让 Agent 调用 `tab` / `navigate` 后，noVNC 中会看到同一个窗口的实时变化。
+用返回的 `launchPath` 打开桌面后应能看到完整 Chrome 窗口。打开 `/browser` 或让 Agent 调用 `tab` / `navigate` 后，桌面里会看到同一个窗口的实时变化。
 
 `viewer-bridge-demo.html` 是静态验收工具，不是浏览器业务客户端。后续改动桥、布局或输入逻辑时，需要复验真实浏览器里的 iframe 控制、工具条遮挡、连接恢复和手机输入。

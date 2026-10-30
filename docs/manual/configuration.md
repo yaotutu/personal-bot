@@ -55,7 +55,8 @@ chmod 600 .pi-muse/config.json
     },
     "browser": {
       "enabled": true,
-      "allowPrivateTargets": false
+      "allowPrivateTargets": false,
+      "desktopPort": 6080
     },
     "presentation": {
       "default": "hidden",
@@ -105,6 +106,7 @@ chmod 600 .pi-muse/config.json
 | `tools.browser.executablePath` | 空 | 系统 Chrome 可执行文件路径；省略时使用 Playwright 的 `chrome` channel |
 | `tools.browser.allowPrivateTargets` | `false` | 仅本机联调/测试时允许回环与私网页面；默认保持公网 HTTP(S) 边界 |
 | `tools.browser.timeoutMs` | `30000` | 标签导航和元素操作超时 |
+| `tools.browser.desktopPort` | `6080` | 容器内 websockify/noVNC 桌面端口（1–65535）；只绑定 127.0.0.1，对外桌面访问统一走同源 `/browser/desktop/` 网关 |
 | `tools.presentation.default` | `hidden` | 客户端实时流与历史投影的工具展示策略：`hidden` 隐藏工具调用，`summary` 只发送受控摘要 |
 | `tools.presentation.overrides` | `{}` | 按工具名覆盖默认策略；名称以 `src/adapters/pi/tools/index.ts` 的显式注册表为准，包括 `currentTime`、`instructions`、`memory`、`memory_search`、`schedule`、`subagent`、`goal`、`monitor`、`read`、`grep`、`find`、`ls`、`write`、`edit`、`skills`、`search_web`、`web_fetch`、`get_weather`、`navigate`、`snapshot`、`act`、`tab` |
 
@@ -196,7 +198,9 @@ chmod 600 .pi-muse/config.json
 
 浏览器域使用 `playwright-core` 驱动本机系统 Chrome，不下载浏览器，且固定以带 GUI 的真实窗口启动；不提供 headless 模式。Chrome 懒启动，profile 固定在 `DATA_DIR/browser/profile/`；服务端调试页 `/browser` 与 Agent 的 `navigate` / `snapshot` / `act` / `tab` 工具共享同一实例和持久登录态。服务关闭时会结束 WS 订阅并优雅关闭 Chrome。Docker 部署使用 Xvfb/X11、x11vnc、websockify 和 noVNC 提供完整真实窗口，而不是回退 headless；见 [浏览器 Docker 说明](browser-docker.md)。
 
-`/browser` 不内置服务地址，会按当前访问地址调用相对 REST API，并使用同源的 `ws://` 或 `wss://` 连接帧流。因此本机地址、局域网 IP、域名和反向代理地址都可以直接访问；URL 可用 `?accessKey=<workspace-access-key>` 或 `?key=<workspace-access-key>` 直接自动登录。HTTPS 反代需要同时转发 `/ws/browser` 并保留 Upgrade 头。
+`/browser` 不内置服务地址，会按当前访问地址调用相对 REST API，并使用同源的 `ws://` 或 `wss://` 连接帧流。因此本机地址、局域网 IP、域名和反向代理地址都可以直接访问；页面不通过 URL 参数自动登录，`accessKey`/`key` 查询参数会被直接移除，需手动输入 AccessKey。HTTPS 反代需要同时转发 `/ws/browser` 并保留 Upgrade 头。
+
+Docker 容器内的完整远程桌面（noVNC）不再单独发布端口，而是由服务端同源代理：`POST /api/browser/desktop-ticket`（Bearer 鉴权）换取一次性 60 秒 ticket，用返回的 `launchPath` 打开 `/browser/desktop/launch?ticket=...`，服务端签发 HttpOnly 会话 cookie（1 小时有效）后重定向到 `/browser/desktop/vnc.html`。`GET /api/browser/status` 可随时查询浏览器开关与桌面可达性。HTTP 明文部署下桌面流量不加密，仅在可信网络使用。
 
 默认只允许公网 HTTP(S)；需要访问本机测试页面时显式设置 `tools.browser.allowPrivateTargets: true`。该地址规则只是与 web 工具共享的基础实现，浏览器域不依赖 `web_fetch`。浏览器不向模型暴露任意 JavaScript evaluate，也不返回 cookie、localStorage 或密码值；外部页面标题、文本与元素名称都按不可信数据处理。
 

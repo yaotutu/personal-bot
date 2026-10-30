@@ -140,6 +140,7 @@ feature 只依赖业务类型与实际需要的最小 port；adapter 实现 port
 - 下载只来自 Playwright `download` 事件，持久化在 `browser/downloads/<uuid>/content` 与 `meta.json`。目录和文件受保护，不进入 workspace；完成记录重启后可读，中断记录标 failed，超限或失败清理自身临时内容，不自动重下。HTTP 只投影安全元数据与内存 Base64，不暴露 Playwright 或文件系统原始错误。
 - 全局只维护一份标签列表；仅当前激活标签在有 WS 订阅者时启动 CDP screencast，切换标签先停止旧流再启动新流，无订阅者时停止推帧。有 screencast 时用单个不重叠的 1 秒周期探测同步 noVNC 中手工切换的原生标签；停止 screencast、关闭或 context 失效时清理探测。标签识别要求 Chrome 150+ 的原生 tab metadata，缺失时返回受控 `BrowserError`，不按 URL、标签顺序或旧版 DOM 行为猜测。慢客户端按未 ack 帧跳帧，缓冲超限时断开。
 - WS 先用现有 Bearer token 换取一次性短时 ticket，长期 token 不进入 URL；帧格式、输入消息与 ack 语义以 `src/http/contracts/browser.ts` 生成的 OpenAPI extension 为准。
+- Docker 场景的 noVNC 桌面不单独发布端口：websockify 只绑定容器内 127.0.0.1（`tools.browser.desktopPort`），服务端以同源 `/browser/desktop/` 前缀代理。`POST /api/browser/desktop-ticket`（Bearer）换一次性 60 秒 ticket，`GET /browser/desktop/launch` 消费 ticket 签发 1 小时 HttpOnly 会话 cookie；静态资源与 `/browser/desktop/websockify` WS 都由该 cookie 把关，cookie 绝不授权 `/api`。网关由 bootstrap 装配单例并注入 routes 与 Node server upgrade；`/ws/browser` 与桌面 websockify 共用统一 upgrade 分发，互不劫持。HTTPS 终止反代不受支持（Secure 标记与 WS Origin 按直连协议判定）。
 - snapshot 是服务端固定实现的可见结构投影，仅用于给模型提供标题、文本、元素角色与 ref；外部内容一律标记不可信，不提供任意 JavaScript evaluate。
 - 浏览器核心只依赖 `features/browser`、`adapters/browser` 与基础 shared 工具；REST/WS 是薄协议适配，pi 工具是薄入口适配。禁止 browser 引用 `web_fetch`、conversation 或应用组装层，保证后续可以整体抽成独立浏览器服务。
 

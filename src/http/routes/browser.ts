@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { BrowserService } from "../../features/browser/browser-service.js";
 import { BrowserError } from "../../features/browser/types.js";
+import type { BrowserDesktop } from "../browser-desktop.js";
 import {
   browserNavigationSchema,
   browserUploadRequest,
@@ -11,6 +12,7 @@ import { browserDebugPage } from "../browser-debug-page.js";
 /** 浏览器 REST 只做契约校验与受控错误投影；WS 升级由 Node server 适配层处理。 */
 export const createBrowserRoutes = (
   browser: BrowserService | undefined,
+  desktop: BrowserDesktop,
 ) => {
   const app = new Hono();
 
@@ -41,6 +43,30 @@ export const createBrowserRoutes = (
   app.get("/browser", (c) =>
     c.html(browserDebugPage, 200, { "cache-control": "no-store" }),
   );
+
+  // 同源远程桌面网关：launch 消费一次性 ticket 签 cookie；静态资源需 cookie。
+  // 这两条路径不经过 /api/* 的 Bearer 中间件，自身用 ticket/cookie 把关。
+  app.get("/browser/desktop/launch", (c) => desktop.launch(new URL(c.req.url)));
+  app.get("/browser/desktop/vnc.html", (c) => desktop.proxy(c.req.raw));
+  app.all("/browser/desktop/*", (c) => desktop.proxy(c.req.raw));
+  app.get("/api/browser/status", async (c) =>
+    c.json(await desktop.status(), 200, {
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer",
+    }),
+  );
+  app.post("/api/browser/desktop-ticket", async (c) => {
+    const headers = { "cache-control": "no-store", "referrer-policy": "no-referrer" };
+    if (!desktop.enabled)
+      return c.json({ error: "Browser is disabled", code: "BROWSER_DISABLED" }, 503, headers);
+    const ticket = await desktop.createTicket();
+    if (!ticket)
+      return c.json({ error: "Remote desktop is unavailable", code: "DESKTOP_UNAVAILABLE" }, 503, headers);
+    return c.json({
+      launchPath: `/browser/desktop/launch?ticket=${ticket.value}`,
+      expiresAt: new Date(ticket.expiresAt).toISOString(),
+    }, 200, headers);
+  });
 
   if (!browser) return app;
 

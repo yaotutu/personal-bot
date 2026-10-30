@@ -164,14 +164,20 @@ test("docs: generated OpenAPI document is structurally complete", () => {
         );
       }
     }
-    const ok = operation.responses?.["200"];
-    assert.ok(ok, `${path} has no 200 response`);
-    if (!endpoint.sse) {
+    const expectedStatus = String(endpoint.successStatus ?? 200);
+    const successResp = operation.responses?.[expectedStatus];
+    assert.ok(successResp, `${path} has no ${expectedStatus} response`);
+    if (endpoint.successStatus === 303) {
+      const respObj = successResp as { content?: unknown; headers?: Record<string, unknown> };
+      assert.equal(respObj.content, undefined, `${path} 303 response must have no content body`);
+      assert.ok(respObj.headers?.location, `${path} 303 response must declare Location header`);
+      assert.ok(respObj.headers?.["set-cookie"], `${path} 303 response must declare set-cookie header`);
+    } else if (!endpoint.sse) {
       const contentType = endpoint.responseContentType ?? "application/json";
-      const schema = (ok as { content?: Record<string, { schema?: unknown }> }).content?.[contentType]?.schema;
-      assert.ok(schema, `${path} 200 response has no JSON schema`);
+      const schema = (successResp as { content?: Record<string, { schema?: unknown }> }).content?.[contentType]?.schema;
+      assert.ok(schema, `${path} ${expectedStatus} response has no JSON schema`);
     } else {
-      assert.ok((ok as Record<string, unknown>)["x-sse-events"], `${path} SSE response has no event contract`);
+      assert.ok((successResp as Record<string, unknown>)["x-sse-events"], `${path} SSE response has no event contract`);
     }
   }
 });
@@ -1084,7 +1090,8 @@ test("docs: live GET responses parse against registry schemas (no drift)", async
     .filter((e) => e.method === "get" && !e.path.includes(":") || e.path === "/api/health")
     .filter((e) => !e.sse) // SSE 端点响应是流，不是 JSON schema；safeParse 不适用
     .filter((e) => e.path !== "/api/agent/status")
-    .filter((e) => e.responseContentType !== "text/html") // 调试页是 HTML，不参与 JSON response safeParse。
+    .filter((e) => e.path !== "/browser/desktop/launch") // 需票据，下方单独验证 401 契约。
+    .filter((e) => e.responseContentType !== "text/html") // 调试页与桌面静态页是 HTML/二进制，不参与 JSON response safeParse。
     // 工作区文件 GET 需要显式 selector/path，且 content 需要先准备现存文件；下方单独覆盖。
     .filter((e) => !e.path.startsWith("/api/workspace/files"))
     .map((e) => ({ path: e.path }));
@@ -1096,6 +1103,12 @@ test("docs: live GET responses parse against registry schemas (no drift)", async
     const parsed = endpoint.response.safeParse(await response.json());
     assert.ok(parsed.success, `${path} response drifted from schema: ${parsed.success ? "" : JSON.stringify(parsed.error.issues).slice(0, 200)}`);
   }
+  // 桌面 launch：无有效 ticket 时返回 401 JSON { error }
+  const launchNoTicket = await service.app.request("/browser/desktop/launch");
+  assert.equal(launchNoTicket.status, 401);
+  const launchNoTicketBody = (await launchNoTicket.json()) as { error?: unknown };
+  assert.equal(typeof launchNoTicketBody.error, "string");
+
   // 运行状态查询：缺参 400、未声明参数 400、不存在的 run 404；均不得建立会话或目录。
   for (const query of ["", "?spaceId=local-main", "?runId=run-1", "?threadId=local-main&runId=run-1&extra=1"]) {
     const response = await service.app.request(`/api/agent/status${query}`, { headers });
@@ -1203,4 +1216,68 @@ test("docs: information endpoints expose a bounded authenticated space-scoped AP
   assert.match(paths["/api/spaces/{spaceId}/information/runs"]!.get!.description ?? "", /notificationId\/sessionId\/messageId/);
   assert.match(paths["/api/spaces/{spaceId}/information/preferences"]!.get!.description ?? "", /当前投影/);
   assert.match(paths["/api/spaces/{spaceId}/information/settings"]!.put!.description ?? "", /取消该空间在途信息轮/);
+});
+
+test("docs: browser desktop gateway endpoints document status, ticket and redirect contracts", () => {
+  const doc = buildOpenApiDocument();
+  const paths = doc.paths as unknown as Record<string, Record<string, OpenApiOperation>>;
+
+  // 1. GET /api/browser/status: 鉴权接口、无论 enabled 均注册、返回完整状态
+  const statusOp = paths["/api/browser/status"]?.get;
+  assert.ok(statusOp, "generated OpenAPI must include GET /api/browser/status");
+  assert.deepEqual(statusOp.security, [{ bearerAuth: [] }]);
+  assert.equal(statusOp.tags?.[0], "浏览器");
+  assert.match(statusOp.description ?? "", /无论 tools.browser.enabled 是否开启都会注册/);
+  assert.match(statusOp.description ?? "", /desktopAvailable/);
+  const statusSchema = responseSchema(statusOp);
+  assert.deepEqual(Object.keys(statusSchema.properties ?? {}).sort(), [
+    "desktopAvailable",
+    "desktopPath",
+    "enabled",
+    "viewerPath",
+  ]);
+  assert.deepEqual(statusSchema.required?.sort(), [
+    "desktopAvailable",
+    "desktopPath",
+    "enabled",
+    "viewerPath",
+  ]);
+
+  // 2. POST /api/browser/desktop-ticket: 鉴权接口、503 错误定义、返回 launchPath/expiresAt
+  const ticketOp = paths["/api/browser/desktop-ticket"]?.post;
+  assert.ok(ticketOp, "generated OpenAPI must include POST /api/browser/desktop-ticket");
+  assert.deepEqual(ticketOp.security, [{ bearerAuth: [] }]);
+  assert.equal(ticketOp.tags?.[0], "浏览器");
+  assert.match(ticketOp.description ?? "", /同源一次性路径/);
+  const ticket200 = responseSchema(ticketOp);
+  assert.deepEqual(Object.keys(ticket200.properties ?? {}).sort(), ["expiresAt", "launchPath"]);
+  const ticket503 = ticketOp.responses["503"];
+  assert.ok(ticket503, "POST /api/browser/desktop-ticket must declare 503 response");
+  const ticket503Schema = ticket503.content?.["application/json"]?.schema;
+  assert.deepEqual(Object.keys(ticket503Schema?.properties ?? {}).sort(), ["code", "error"]);
+  assert.deepEqual(ticket503Schema?.required, ["error"]);
+
+  // 3. GET /browser/desktop/launch: 免鉴权、303 状态码无 content 响应体、Location/set-cookie 头、401 错误
+  const launchOp = paths["/browser/desktop/launch"]?.get;
+  assert.ok(launchOp, "generated OpenAPI must include GET /browser/desktop/launch");
+  assert.equal(launchOp.security, undefined);
+  assert.equal(launchOp.tags?.[0], "浏览器");
+  const launch303 = launchOp.responses["303"] as {
+    description?: string;
+    content?: unknown;
+    headers?: Record<string, { description?: string; schema?: { type: string } }>;
+  };
+  assert.ok(launch303, "GET /browser/desktop/launch must declare 303 success response");
+  assert.equal(launch303.content, undefined, "303 redirect response must have no content body");
+  assert.ok(launch303.headers?.location, "303 response must declare Location header");
+  assert.ok(launch303.headers?.["set-cookie"], "303 response must declare set-cookie header");
+  const launch401 = launchOp.responses["401"];
+  assert.ok(launch401, "GET /browser/desktop/launch must declare 401 error response");
+  const launch401Schema = launch401.content?.["application/json"]?.schema;
+  assert.deepEqual(Object.keys(launch401Schema?.properties ?? {}).sort(), ["code", "error"]);
+  assert.deepEqual(launch401Schema?.required, ["error"]);
+
+  // 4. WebSocket 契约登记
+  const wsContracts = (doc as unknown as { "x-websocket-contracts": Record<string, unknown> })["x-websocket-contracts"];
+  assert.ok(wsContracts?.browserDesktop, "OpenAPI must include browserDesktop WebSocket contract");
 });

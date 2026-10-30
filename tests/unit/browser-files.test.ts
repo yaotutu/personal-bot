@@ -32,6 +32,7 @@ import {
 } from "../../src/features/browser/types.js";
 import { browserUploadRequest } from "../../src/http/contracts/browser.js";
 import { createBrowserRoutes } from "../../src/http/routes/browser.js";
+import { createBrowserDesktop } from "../../src/http/browser-desktop.js";
 
 const tab = {
   id: "tab-one",
@@ -405,7 +406,9 @@ test("browser file endpoints are documented and only upload POST gets the 12 MiB
   assert.equal(((await rejected.json()) as { code?: string }).code, "REQUEST_TOO_LARGE");
 });
 
-test("browser upload contract and route error projection stay bounded", async () => {
+test("browser upload contract and route error projection stay bounded", async (t) => {
+  const desktop = createBrowserDesktop({ enabled: false, desktopPort: 9 });
+  t.after(() => desktop.close());
   assert.equal(browserUploadRequest.safeParse({
     files: [{ name: "empty.bin", mimeType: "", contentBase64: "" }],
   }).success, true);
@@ -426,7 +429,7 @@ test("browser upload contract and route error projection stay bounded", async ()
     downloadContent: async () => fail("DOWNLOAD_NOT_READY"),
     deleteDownload: async () => fail("INVALID_INPUT"),
   } as unknown as BrowserService;
-  const app = createBrowserRoutes(browser);
+  const app = createBrowserRoutes(browser, desktop);
 
   assert.equal((await app.request("/api/browser/files")).status, 500);
   assert.equal((await app.request("/api/browser/uploads/id", {
@@ -465,7 +468,9 @@ test("browser upload returns 413 when decoded bytes exceed 8 MiB without a schem
   assert.ok(body.length > 11_184_812);
   assert.ok(Buffer.byteLength(body) < 12 * 1024 * 1024);
 
-  const response = await createBrowserRoutes(service).request(`/api/browser/uploads/${pending.id}`, {
+  const desktop = createBrowserDesktop({ enabled: false, desktopPort: 9 });
+  t.after(() => desktop.close());
+  const response = await createBrowserRoutes(service, desktop).request(`/api/browser/uploads/${pending.id}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body,

@@ -55,7 +55,8 @@ Then edit it:
     },
     "browser": {
       "enabled": true,
-      "allowPrivateTargets": false
+      "allowPrivateTargets": false,
+      "desktopPort": 6080
     },
     "presentation": {
       "default": "hidden",
@@ -105,6 +106,7 @@ Every section and field may be omitted as needed; omitted values use built-in de
 | `tools.browser.executablePath` | Empty | Path to the system Chrome executable. When omitted, Playwright's `chrome` channel is used. |
 | `tools.browser.allowPrivateTargets` | `false` | Allows loopback and private-network pages only for local integration/testing; the default keeps the public HTTP(S) boundary. |
 | `tools.browser.timeoutMs` | `30000` | Timeout for tab navigation and element operations. |
+| `tools.browser.desktopPort` | `6080` | In-container websockify/noVNC desktop port (1–65535); bound to 127.0.0.1 only. External desktop access goes through the same-origin `/browser/desktop/` gateway. |
 | `tools.presentation.default` | `hidden` | Tool presentation policy for the client's live stream and history projection: `hidden` hides tool calls, while `summary` sends only a controlled summary. |
 | `tools.presentation.overrides` | `{}` | Overrides the default policy by tool name. Names follow the explicit registry in `src/adapters/pi/tools/index.ts`: `currentTime`, `instructions`, `memory`, `memory_search`, `schedule`, `subagent`, `goal`, `monitor`, `read`, `grep`, `find`, `ls`, `write`, `edit`, `skills`, `search_web`, `web_fetch`, `get_weather`, `navigate`, `snapshot`, `act`, and `tab`. |
 
@@ -198,7 +200,9 @@ If you want chat to display only assistant text, add this inside the existing `t
 
 The browser domain uses `playwright-core` to drive the local system Chrome. It does not download a browser and always starts a real GUI window; headless mode is not provided. Chrome starts lazily, and its profile is fixed at `DATA_DIR/browser/profile/`. The server debug page `/browser` and the Agent's `navigate` / `snapshot` / `act` / `tab` tools share the same instance and persistent login state. When the service closes, WS subscriptions end and Chrome shuts down gracefully. Docker deployment uses Xvfb/X11, x11vnc, websockify, and noVNC to provide a complete real window rather than falling back to headless; see [the browser Docker guide](browser-docker.md).
 
-`/browser` does not hard-code a service address. It calls REST APIs relative to the current access address and connects to the frame stream with a same-origin `ws://` or `wss://`. Therefore, local addresses, LAN IPs, domains, and reverse-proxy addresses all work directly. The URL can use `?accessKey=<workspace-access-key>` or `?key=<workspace-access-key>` for direct automatic login. An HTTPS reverse proxy must also forward `/ws/browser` and preserve Upgrade headers.
+`/browser` does not hard-code a service address. It calls REST APIs relative to the current access address and connects to the frame stream with a same-origin `ws://` or `wss://`. Therefore, local addresses, LAN IPs, domains, and reverse-proxy addresses all work directly. The page never logs in via URL parameters—`accessKey`/`key` query parameters are removed; enter the AccessKey manually. An HTTPS reverse proxy must also forward `/ws/browser` and preserve Upgrade headers.
+
+The full remote desktop (noVNC) inside Docker is no longer published as a separate port; it is proxied same-origin by the server: `POST /api/browser/desktop-ticket` (Bearer auth) returns a one-time 60-second ticket; open the returned `launchPath` (`/browser/desktop/launch?ticket=...`) and the server issues an HttpOnly session cookie (valid 1 hour) before redirecting to `/browser/desktop/vnc.html`. `GET /api/browser/status` reports browser enablement and desktop availability at any time. Over plain HTTP the desktop traffic is unencrypted—use it only on trusted networks.
 
 Only public HTTP(S) is allowed by default; explicitly set `tools.browser.allowPrivateTargets: true` when local test pages must be accessed. This address rule is only a base implementation shared with the web tools—the browser domain does not depend on `web_fetch`. The browser does not expose arbitrary JavaScript evaluation to the model and does not return cookies, localStorage, or password values. External page titles, text, and element names are treated as untrusted data.
 

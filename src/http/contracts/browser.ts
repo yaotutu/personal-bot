@@ -17,6 +17,43 @@ export const browserTicketResponse = z.strictObject({
   expiresAt: z.string().describe("ticket 过期时间（ISO 8601）"),
 });
 
+export const browserStatusResponse = z.strictObject({
+  enabled: z.boolean().describe("tools.browser.enabled；false 时 viewer/desktop 路径均为 null"),
+  viewerPath: z.string().nullable().describe("同源视口调试页路径；enabled 时固定 /browser"),
+  desktopPath: z.string().nullable().describe("同源 noVNC 桌面入口；enabled 时固定 /browser/desktop/vnc.html"),
+  desktopAvailable: z.boolean()
+    .describe("固定 127.0.0.1:desktopPort 的 vnc.html 2 秒探测结果；仅代表 noVNC 静态页可服务，不代表 Chrome 健康"),
+});
+
+export const browserDesktopTicketResponse = z.strictObject({
+  launchPath: z.string().describe("同源一次性桌面启动路径，60 秒有效；直接以同源地址 GET 打开"),
+  expiresAt: z.string().describe("ticket 过期时间（ISO 8601）"),
+});
+
+
+export const browserDesktopLaunchResponse = z.null()
+  .describe("无响应体：303 重定向到 /browser/desktop/vnc.html，同时签发 HttpOnly 桌面会话 cookie");
+
+export const browserDesktopAssetResponse = z.string()
+  .describe("代理容器内 noVNC 静态资源；需要有效桌面会话 cookie，仅支持 GET/HEAD");
+
+/**
+ * 桌面 websockify 代理 WS 契约：载荷是 noVNC/RFB 的不透明二进制流，
+ * 服务端不解析帧内容，只做 cookie + Origin 校验与固定回环 upstream 转发。
+ */
+export const browserDesktopWebSocketContract = {
+  path: "/browser/desktop/websockify",
+  summary: "远程桌面 VNC websockify 代理",
+  description:
+    "升级必须携带有效桌面会话 cookie（由 GET /browser/desktop/launch 签发）；" +
+    "Origin 头必须存在且严格等于本连接实际协议 + Host（不处理 X-Forwarded-*，" +
+    "TLS 终止反代不受支持）。升级后转发到固定 ws://127.0.0.1:<desktopPort>/websockify，" +
+    "不转发 Cookie/Authorization。载荷为 noVNC/RFB 不透明二进制，子协议 binary；" +
+    "任一端缓冲超过 2MiB、上游 10 秒握手超时或会话 1 小时到期都会断开。",
+  authentication: "HttpOnly 桌面会话 cookie（Path=/browser/desktop/，Max-Age=3600）",
+  frameFormat: "opaque RFB binary stream",
+} as const;
+
 export const createBrowserTabSchema = z.strictObject({
   url: z.url().max(2048).regex(/^https?:\/\//, "http(s) only").optional()
     .describe("可选初始地址；省略时打开 about:blank"),

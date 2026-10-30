@@ -8,7 +8,6 @@ display_number="${BROWSER_DISPLAY_NUMBER:-0}"
 screen_size="${BROWSER_SCREEN_SIZE:-1440x900x24}"
 window_size="${BROWSER_WINDOW_SIZE:-${screen_size%x*}}"
 vnc_port="${BROWSER_VNC_PORT:-5900}"
-novnc_port="${BROWSER_NOVNC_PORT:-6080}"
 children=""
 node_pid=""
 fluxbox_init=""
@@ -23,9 +22,6 @@ case "$display_number" in
 esac
 case "$vnc_port" in
   ''|*[!0-9]*) fail "BROWSER_VNC_PORT must be an integer" ;;
-esac
-case "$novnc_port" in
-  ''|*[!0-9]*) fail "BROWSER_NOVNC_PORT must be an integer" ;;
 esac
 echo "$screen_size" | grep -Eq '^[0-9]+x[0-9]+x[0-9]+$' \
   || fail "BROWSER_SCREEN_SIZE must look like 1440x900x24"
@@ -120,9 +116,17 @@ x11vnc \
   -forever -shared -noxdamage -nopw \
   >/tmp/x11vnc.log 2>&1 &
 children="$children $!"
+# noVNC/websockify 只绑定容器内回环地址，端口唯一来源是 tools.browser.desktopPort；
+# 对外桌面访问统一由 Node 服务以同源 /browser/desktop/ 网关代理，不再单独发布端口。
+# 复用服务端唯一的配置加载与默认值（省略 desktopPort 时与服务同为 6080）；
+# 只输出端口号，不打印配置原文或凭据。
+novnc_port="$(node --input-type=module -e '
+  const { loadConfig } = await import("/app/dist/config/load-config.js");
+  process.stdout.write(String(loadConfig("/app/.pi-muse/config.json").browser.desktopPort));
+')" || fail "Unable to read tools.browser.desktopPort from config"
 websockify \
   --web /usr/share/novnc \
-  "$novnc_port" \
+  "127.0.0.1:${novnc_port}" \
   "127.0.0.1:${vnc_port}" \
   >/tmp/websockify.log 2>&1 &
 children="$children $!"
@@ -145,7 +149,7 @@ export BROWSER_WINDOW_SIZE="$window_size"
 rm -f /app/.pi-muse/browser/profile/SingletonCookie \
   /app/.pi-muse/browser/profile/SingletonLock \
   /app/.pi-muse/browser/profile/SingletonSocket
-echo "pi-muse browser container ready: API port 12330, noVNC port ${novnc_port}, display ${display}"
+echo "pi-muse browser container ready: API port 12330, internal noVNC port ${novnc_port}, display ${display}"
 node dist/index.js &
 node_pid=$!
 api_ready=0

@@ -36,6 +36,7 @@ import { createWeatherService } from "../features/weather/weather-service.js";
 import { createBrowserService } from "../features/browser/browser-service.js";
 import { createPlaywrightBrowserDriver } from "../adapters/browser/playwright-driver.js";
 import { createBrowserDownloadStore } from "../adapters/browser/download-store.js";
+import { createBrowserDesktop } from "../http/browser-desktop.js";
 import { createSessionHistory } from "../adapters/pi/session-history.js";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { openPi } from "../adapters/pi/session-factory.js";
@@ -315,7 +316,13 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
   const workspaceFiles = createWorkspaceFileService(createWorkspaceFileStore(layout, workspaceCommits), {
     spaceExists: async (spaceId) => (await conversationHub.spaces()).some((space) => space.id === spaceId),
   });
-  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, browser, messageFeedbackRepository };
+  // 同源桌面网关单例：无论 browser.enabled 与否都创建，/api/browser/status 总是可答；
+  // 关闭时仅清内存 ticket/session 与 WS 代理，不参与 feature/pi 生命周期。
+  const browserDesktop = createBrowserDesktop({
+    enabled: config.browser.enabled,
+    desktopPort: config.browser.desktopPort,
+  });
+  const dependencies = { config, layout, auth, memory, identity, jobs, goals, actions, monitors, monitorScheduler, conversationHub, scheduler, presentation, lifecycle, skills, workspaceEvents, workspaceFiles, workspaceCommits, activities, dream, dreamScheduler, information, informationScheduler, browser, browserDesktop, messageFeedbackRepository };
   const close = () => {
     if (closing) return closing;
     // 同步关门，所有执行源停止派发；并发取消会话，最后等待结果/HTTP 写入收尾。
@@ -328,7 +335,11 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
       const results = await Promise.allSettled(stopped);
       await Promise.all([...requests]);
       await approvalExpiry;
-      await browser?.close();
+      try {
+        await browser?.close();
+      } finally {
+        browserDesktop.close();
+      }
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
     })();

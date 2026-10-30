@@ -44,7 +44,7 @@ RUN groupadd --gid 10001 pimuse \
     && chown -R pimuse:pimuse /app/.pi-muse
 
 USER root
-EXPOSE 12330 6080
+EXPOSE 12330
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:12330/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]

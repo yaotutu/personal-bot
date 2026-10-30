@@ -9,7 +9,7 @@
 viewer 页面以 ES module 引入：
 
 ```html
-<script type="module" src="/viewer-bridge.js"></script>
+<script type="module" src="./viewer-bridge.js"></script>
 ```
 
 页面代码提供一个最小 adapter：
@@ -183,16 +183,18 @@ viewer 作为 iframe 时，桥只处理满足以下条件的浏览器 `message`�
 
 parent origin 从 viewer URL 的 query 或 hash 参数 `parentOrigin` 读取；未提供时使用 viewer 页面自身的 `location.origin`，因此只允许同源父页面。值必须是精确 `http://` 或 `https://` origin；`*`、`null`、非 HTTP(S)、带路径或非标准写法都会拒绝。桥输出时也始终调用 `parent.postMessage(envelope, exactOrigin)`，不会使用 `*`。
 
-示例 iframe 地址：
+在同源网关部署下，viewer 地址为服务同源下的 `/browser/desktop/vnc.html`。必须先通过 `POST /api/browser/desktop-ticket` 换取 ticket 并通过 `GET /browser/desktop/launch?ticket=...` 获得会话 cookie，iframe 才能成功加载桌面资源。网关响应使用 `X-Frame-Options: SAMEORIGIN`，会话 cookie 使用 `SameSite=Strict`，当前只支持同源 iframe；协议层的 `parentOrigin` 校验能力不会解除网关限制。
+
+示例同源 iframe 地址：
 
 ```text
-https://viewer.example.test/vnc.html?parentOrigin=https%3A%2F%2Fapp.example.test&toolbar=hidden&layout=mobile
+http://<server-host>:12330/browser/desktop/vnc.html?parentOrigin=http%3A%2F%2F<server-host>%3A12330&toolbar=hidden&layout=desktop
 ```
 
 宿主侧示例：
 
 ```js
-const viewerOrigin = new URL("https://viewer.example.test");
+const viewerOrigin = new URL("http://<server-host>:12330");
 const iframe = document.querySelector("iframe");
 
 function send(command) {
