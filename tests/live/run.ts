@@ -88,7 +88,10 @@ const execute = async (options: { configPath: string; keepArtifacts: boolean }) 
       assert.equal(events.at(-1)?.type, type);
       return proxy!.traces.slice(running.baseline);
     };
-    const delegate = (params: object) => "这是隔离真实验收，请只调用一次subagent，严格使用参数：" + JSON.stringify(params) + "。不要自行执行子任务，不另起委派，不编造结果；等工具返回后简短总结。";
+    const delegate = (params: { mode: string; tasks: unknown[] }) =>
+      `这是隔离真实验收，请只调用一次subagent，注意mode必须为 "${params.mode}"，严格使用参数：` +
+      JSON.stringify(params) +
+      "。不要自行执行子任务，不另起委派，不编造结果；等工具返回后简短总结。";
     type Rows = Awaited<ReturnType<typeof finish>>;
     const toolResults = (rows: Rows) => rows.flatMap((row) => row.toolResults).join("\n");
     const dispatch = (rows: Rows) => {

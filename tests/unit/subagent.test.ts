@@ -76,7 +76,7 @@ test("subagent rejects single with multiple tasks and unknown roles before queui
   assert.equal(runs, 0);
   assert.equal(queuedCount, 0);
   const singleText = singleMulti.content[0].type === "text" ? singleMulti.content[0].text : "";
-  assert.equal(singleText, "Single mode requires exactly one task.");
+  assert.equal(singleText, "Single mode requires exactly one task. For multiple tasks, set mode to 'chain' (sequential) or 'parallel' (concurrent).");
   assert.ok(!singleText.includes("SECRET_TASK"));
 
   // 经由 projectExecutionEvent 处理时，受控拒绝文案被完整保留且不被通用错误覆盖
@@ -89,7 +89,7 @@ test("subagent rejects single with multiple tasks and unknown roles before queui
   });
   assert.equal(projectedSingle?.type, "tool_result");
   if (projectedSingle?.type === "tool_result") {
-    assert.equal(projectedSingle.content, "Single mode requires exactly one task.");
+    assert.equal(projectedSingle.content, "Single mode requires exactly one task. For multiple tasks, set mode to 'chain' (sequential) or 'parallel' (concurrent).");
   }
 
   // 未知角色：在排队与执行前受控拒绝，不泄露未知角色名与任务正文

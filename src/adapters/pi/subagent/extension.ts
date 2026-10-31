@@ -37,7 +37,7 @@ export const subagentParameters = Type.Object({
   tasks: Type.Array(taskItem, {
     minItems: 1,
     maxItems: MAX_PARALLEL_TASKS,
-    description: "Subagent tasks to execute (1-8 tasks). Single mode requires exactly 1 task.",
+    description: "Subagent tasks to execute (1-8 tasks). Single mode requires exactly 1 task. When multiple tasks are provided, mode must be 'parallel' or 'chain'.",
   }),
 }, { additionalProperties: false });
 
@@ -67,7 +67,7 @@ export const createSubagentTool = (roles: readonly SubagentRole[], run: Subagent
       isError: true,
     });
     if (mode === "single" && params.tasks.length !== 1) {
-      return reject("Single mode requires exactly one task.");
+      return reject("Single mode requires exactly one task. For multiple tasks, set mode to 'chain' (sequential) or 'parallel' (concurrent).");
     }
     const missing = params.tasks.find((request) => !roles.some((role) => role.name === request.agent));
     if (missing) {
