@@ -1,5 +1,5 @@
 import { defaultIdentity } from "../identity/types.js";
-import type { MemoryState } from "./types.js";
+import type { MemoryItem, MemoryState } from "./types.js";
 
 /**
  * 纯 prompt 渲染函数：不读文件、不改状态，只把已读取的业务数据格式化。
@@ -9,15 +9,23 @@ import type { MemoryState } from "./types.js";
 export type MemoryPromptOptions = {
   /** false 时仅渲染身份设置；关闭 memory 工具的轮次不能继续建议 memory_search。 */
   includeMemory?: boolean;
+  /** 自动根据当前输入召回的相关记忆线索，按需注入上下文。 */
+  recalledMemories?: readonly MemoryItem[];
 };
 
 export const renderMemoryPrompt = (
   { memories, identity }: MemoryState,
-  { includeMemory = true }: MemoryPromptOptions = {},
+  { includeMemory = true, recalledMemories }: MemoryPromptOptions = {},
 ): string => {
   let output = "";
   if (includeMemory && memories.length) {
     output += `\n\n## Long-term memory\n${memories.length} saved item(s) are stored but not loaded into this prompt. Use memory_search to look them up when they may matter.\n`;
+  }
+  if (recalledMemories && recalledMemories.length > 0) {
+    output += `\n## Relevant long-term memories (automatically recalled)\n`;
+    for (const item of recalledMemories) {
+      output += `- [${item.id}] ${item.text}\n`;
+    }
   }
   if (identity.name !== defaultIdentity.name || identity.tone !== defaultIdentity.tone) {
     output += `\n## Identity settings\n- Assistant name: ${identity.name}\n- Tone: ${identity.tone}\n`;

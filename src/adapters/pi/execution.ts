@@ -61,6 +61,19 @@ export const createPiExecution = (session: AgentSession, manager: SessionManager
   abort: () => session.abort(),
   dispose: () => session.dispose(),
   syncContext: () => { session.agent.state.messages = manager.buildSessionContext().messages; },
+  compactIfNeeded: async (customInstructions?: string) => {
+    try {
+      const usage = session.getContextUsage();
+      if (usage?.percent && usage.percent >= 80) {
+        await session.compact(customInstructions);
+        session.agent.state.messages = manager.buildSessionContext().messages;
+        return true;
+      }
+    } catch {
+      // 若无需压缩或无法压缩（会话太小），安全略过
+    }
+    return false;
+  },
   subscribe: (listener) => session.subscribe((event) => {
     const projected = projectExecutionEvent(event);
     if (projected) listener(projected);

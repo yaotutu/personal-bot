@@ -65,6 +65,8 @@ export type PiDeps = {
   child?: { role: SubagentRole; enabledSkills: readonly string[]; allowedTools: readonly string[]; ownerSpaceId: string; ownerRunId?: string };
   spaceId: string;
   runId?: string;
+  /** 当前轮次的用户输入文本，用于自动召回长会话记忆线索并注入提示词。 */
+  userText?: string;
   goals?: GoalService;
   actions?: ActionService;
   actionTimeoutMs?: number;
@@ -361,8 +363,9 @@ export async function openPi(deps: PiDeps) {
   // 4. 构建 System Prompt 并注入技能、专属会话指令与 Extension
   const instructionsFile = !child && deps.spaceId ? threadInstructionsFile(layout, deps.spaceId) : undefined;
   const threadInstructions = instructionsFile ? await readThreadInstructions(instructionsFile) : undefined;
+  const recalledMemories = (deps.userText && memory) ? await memory.recall(deps.userText) : [];
   const systemPrompt = await buildSystemPrompt(
-    { layout, memory, allowedToolNames, threadInstructions },
+    { layout, memory, allowedToolNames, threadInstructions, recalledMemories },
   ) +
     (informationEnabled ? INFORMATION_BACKGROUND_SYSTEM_PROMPT : "") +
     (allowedToolNames.includes(ACTIVITY_TOOL_NAME)

@@ -1132,11 +1132,16 @@ test("P3 memory: REST CRUD, chat tool write, prompt injection and identity setti
   memoriesRes = await h.request("/api/memories").then((x) => x.json());
   assert.equal(memoriesRes.memories.length, 1);
   assert.match(memoriesRes.memories[0].text, /每周三健身/);
-  // 记忆是沉淀库：system prompt 只提示保存条数与 memory_search，不把正文塞进每轮上下文。
+  // 记忆是沉淀库：无相关关键词时不把正文塞进上下文；有相关输入时自动召回线索。
+  await h.events(input([...(await h.getHistory()), user("今天天气如何")], "mem-unrelated"));
+  const unrelatedSystem = String(h.model.requests.at(-1)!.messages[0]?.content);
+  assert.match(unrelatedSystem, /1 saved item\(s\) are stored but not loaded into this prompt/);
+  assert.doesNotMatch(unrelatedSystem, /每周三健身/);
   await h.events(input([...(await h.getHistory()), user("检索记忆 健身")], "mem-inject"));
   const system = String(h.model.requests.at(-1)!.messages[0]?.content);
   assert.match(system, /1 saved item\(s\) are stored but not loaded into this prompt/);
-  assert.doesNotMatch(system, /每周三健身/);
+  assert.match(system, /Relevant long-term memories \(automatically recalled\)/);
+  assert.match(system, /每周三健身/);
   assert.ok(!JSON.stringify(await h.getHistory()).includes("Long-term memory"));
   // 按 id 精确忘掉后下一轮不再提示有记忆。
   await h.events(input([...(await h.getHistory()), user(`忘掉 ${memoriesRes.memories[0].id}`)], "mem-forget"));

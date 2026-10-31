@@ -180,11 +180,12 @@ export const createService = async (config: Config): Promise<ServiceContainer & 
             listener({ id: approval.id, pending: approval.status === "pending" });
           }
         }),
-        openSession: async ({ runId, activity, status }) => createPiExecution(
+        openSession: async ({ runId, activity, status, userText }) => createPiExecution(
           await openPi({
             config,
             spaceId,
             runId,
+            userText,
             activity,
             status,
             presentation,

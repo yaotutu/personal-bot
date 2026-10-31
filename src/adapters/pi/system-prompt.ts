@@ -1,6 +1,7 @@
 import type { DataLayout } from "../storage/data-layout.js";
 import { readProfileFile } from "../storage/profile-files.js";
 import type { MemoryService } from "../../features/memory/memory-service.js";
+import type { MemoryItem } from "../../features/memory/types.js";
 
 /** 共享身份/业务数据不等于共享文件权限；会话规则不能放宽工具路径边界或审批。 */
 // 名字与人设不在此钉死：默认自称 personal assistant；显式身份优先级为
@@ -101,6 +102,7 @@ export type SystemPromptOptions = {
   /** 最终模型工具名单：已经包含空间技能与 child 角色过滤。 */
   allowedToolNames: readonly string[];
   threadInstructions?: string;
+  recalledMemories?: readonly MemoryItem[];
 };
 
 /** 每轮重新读取 profile 与显式身份；业务说明只跟随本轮实际可用工具。 */
@@ -109,6 +111,7 @@ export const buildSystemPrompt = async ({
   memory,
   allowedToolNames,
   threadInstructions,
+  recalledMemories,
 }: SystemPromptOptions): Promise<string> => {
   const tools = new Set(allowedToolNames);
   // 组合能力必须整组存在才描述，避免 child 角色裁剪后出现不匹配说明。
@@ -133,5 +136,5 @@ export const buildSystemPrompt = async ({
     section("Your identity (SOUL)", await readProfileFile(layout.soulFile)) +
     section("The user (USER)", await readProfileFile(layout.userFile)) +
     section("Current conversation instructions", threadInstructions ?? "") +
-    (await memory.renderForPrompt({ includeMemory: has("memory_search") }));
+    (await memory.renderForPrompt({ includeMemory: has("memory_search"), recalledMemories }));
 };

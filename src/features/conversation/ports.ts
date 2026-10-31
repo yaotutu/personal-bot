@@ -43,6 +43,8 @@ export type ConversationExecution = {
   abort: () => Promise<void>;
   dispose: () => void;
   syncContext: () => void;
+  /** 在长会话或模型上下文接近上限时，于生成前执行上下文动态压缩。 */
+  compactIfNeeded?: (customInstructions?: string) => Promise<boolean>;
   subscribe: (listener: (event: ExecutionEvent) => void) => () => void;
 };
 export type ConversationDependencies = {
@@ -61,7 +63,7 @@ export type ConversationDependencies = {
     runId: string,
     listener: (change: { id: string; pending: boolean }) => void,
   ) => () => void;
-  openSession: (context: { runId: string; activity?: ActivityRun; status?: StatusRun }) => Promise<ConversationExecution>;
+  openSession: (context: { runId: string; activity?: ActivityRun; status?: StatusRun; userText?: string }) => Promise<ConversationExecution>;
   /** PI 无关的消息业务层；负责 metadata/feedback 投影与独立反馈存储。 */
   messages: MessageFeedbackSession;
 };

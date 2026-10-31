@@ -277,7 +277,7 @@ export function createConversation(
         // 再提交 context edit，并同步宿主内存中的模型上下文。
         running.status = beginStatus(currentSpaceId, running.runId, "chat");
         activity = statusActivity(dependencies.activities?.beginRun(running.runId), running.status);
-        running.session = await openSession({ runId: running.runId, activity, status: running.status });
+        running.session = await openSession({ runId: running.runId, activity, status: running.status, userText: turn.text });
         if (running.reason)
           throw new ConversationError(running.reason, "Response cancelled");
         // 只在宿主初始化成功且尚未取消时隐藏待重试轮，保持早停时旧历史可见。
@@ -285,6 +285,7 @@ export function createConversation(
         historyPort.appendTurn(turn);
         turnRecorded = true;
         running.session.syncContext();
+        await running.session.compactIfNeeded?.("Focus on retaining key user facts, ongoing tasks, and decisions.");
         unsubscribe = running.session.subscribe((event) => {
           if (event.type === "assistant_end") {
             finalReason = event.reason;
@@ -416,10 +417,11 @@ export function createConversation(
     try {
       running.status = beginStatus(sourceSpaceId, running.runId, "job", options.jobId);
       activity = statusActivity(dependencies.activities?.beginRun(running.runId), running.status);
-      running.session = await openSession({ runId: running.runId, activity, status: running.status });
+      running.session = await openSession({ runId: running.runId, activity, status: running.status, userText: text });
       if (running.reason) throw new ConversationError(running.reason, "Response cancelled");
       historyPort.appendTurn(turn);
       running.session.syncContext();
+      await running.session.compactIfNeeded?.("Focus on retaining key user facts, ongoing tasks, and decisions.");
       unsubscribe = running.session.subscribe((event) => {
         // 工具轮的终止消息可能没有文本，只在非空时覆盖最后一段回复。
         if (event.type === "assistant_end") {

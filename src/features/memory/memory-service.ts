@@ -35,6 +35,48 @@ export const createMemoryService = (repository: MemoryRepository) => {
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
         .slice(0, size);
     },
+    /**
+     * 自动召回：针对当前用户输入关键词提取并匹配相关记忆，最多返回 limit 条（默认 3 条），
+     * 用于对话开始前作为记忆线索注入提示词，避免必须等待模型主动调用 memory_search。
+     */
+    recall: async (query: string, limit = 3): Promise<MemoryItem[]> => {
+      const q = query.trim().toLowerCase();
+      if (!q) return [];
+      const { memories } = await repository.read();
+      if (memories.length === 0) return [];
+
+      const terms = new Set<string>();
+      const words = q.match(/[a-z0-9_]{2,}/gi) ?? [];
+      for (const w of words) terms.add(w.toLowerCase());
+      const cjkMatches = q.match(/[\u4e00-\u9fff\u3400-\u4dbf]{2,}/g) ?? [];
+      for (const cjk of cjkMatches) {
+        terms.add(cjk);
+        if (cjk.length > 2) {
+          for (let i = 0; i <= cjk.length - 2; i++) {
+            terms.add(cjk.slice(i, i + 2));
+          }
+        }
+      }
+
+      if (terms.size === 0) {
+        if (q.length >= 2) terms.add(q);
+        else return [];
+      }
+
+      const scored: Array<{ item: MemoryItem; score: number }> = [];
+      for (const item of memories) {
+        const text = item.text.toLowerCase();
+        let score = 0;
+        if (text.includes(q)) score += 10;
+        for (const term of terms) {
+          if (text.includes(term)) score += term.length >= 4 ? 4 : 2;
+        }
+        if (score > 0) scored.push({ item, score });
+      }
+      scored.sort((a, b) => b.score - a.score || b.item.updatedAt.localeCompare(a.item.updatedAt));
+      const size = Math.max(1, Math.min(5, Math.floor(limit)));
+      return scored.slice(0, size).map((s) => s.item);
+    },
     add: (text: string, source: string): Promise<MemoryItem> =>
       repository.update((state) => {
         if (state.memories.length >= MEMORY_LIMIT) throw new MemoryLimitError();

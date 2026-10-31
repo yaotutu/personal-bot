@@ -177,3 +177,44 @@ test("memory prompt only announces the count, never the memory text, and rereads
   assert.match(await memory.renderForPrompt({ includeMemory: true }), /memory_search/);
   assert.match(await memory.renderForPrompt(), /Assistant name: New name/);
 });
+
+test("memory recall automatically matches relevant memories by Chinese and English terms", async (t) => {
+  const { memory } = await setup(t);
+  await memory.add("用户喜欢在早晨喝无糖美式咖啡", "chat");
+  await memory.add("家里养了一只名叫皮皮的金毛猎犬", "chat");
+  await memory.add("日常开发首选语言是 TypeScript", "chat");
+
+  // 中文关键词命中
+  const coffeeHits = await memory.recall("请问我早上习惯喝什么咖啡？");
+  assert.equal(coffeeHits.length, 1);
+  assert.match(coffeeHits[0].text, /美式咖啡/);
+
+  // 中文宠物名称命中
+  const dogHits = await memory.recall("狗狗皮皮最近食欲很好");
+  assert.equal(dogHits.length, 1);
+  assert.match(dogHits[0].text, /皮皮/);
+
+  // 英文词汇与技术栈命中
+  const tsHits = await memory.recall("I want to build a new project with TypeScript");
+  assert.equal(tsHits.length, 1);
+  assert.match(tsHits[0].text, /TypeScript/);
+
+  // 无关问题不命中
+  const none = await memory.recall("今天外面天气怎么样？");
+  assert.equal(none.length, 0);
+
+  // 空查询返回空
+  assert.equal((await memory.recall("   ")).length, 0);
+});
+
+test("renderMemoryPrompt formats recalledMemories when provided", async () => {
+  const state: MemoryState = {
+    memories: [item("m1", "用户养了一只金毛犬叫皮皮")],
+    identity: defaultIdentity,
+  };
+  const rendered = renderMemoryPrompt(state, {
+    recalledMemories: [item("m1", "用户养了一只金毛犬叫皮皮")],
+  });
+  assert.match(rendered, /## Relevant long-term memories \(automatically recalled\)/);
+  assert.match(rendered, /- \[m1\] 用户养了一只金毛犬叫皮皮/);
+});
